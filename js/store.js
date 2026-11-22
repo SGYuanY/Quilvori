@@ -324,7 +324,7 @@
         ],
       }],
       themes: [
-        { id: 'theme_lacquer', name: '夜漆', vars: { bg: '#140e0a', lacquer: '#24180f', paper: '#f4e7d1', ink: '#1a120c', accent: '#c6a15a', fontScale: 1, radius: 18 } },
+        { id: 'theme_lacquer', name: '夜漆', vars: { bg: '#07090d', lacquer: '#0c1118', paper: '#101820', ink: '#e9fff8', accent: '#d6ff3f', fontScale: 1, radius: 18 } },
         { id: 'theme_paper', name: '暖纸', vars: { bg: '#3a2c22', lacquer: '#4a382c', paper: '#f7efe2', ink: '#24180f', accent: '#a96b3c', fontScale: 1.05, radius: 22 } },
         { id: 'theme_frost', name: '霜墨', vars: { bg: '#12161b', lacquer: '#1c232b', paper: '#e7e1d6', ink: '#16191d', accent: '#b7a06a', fontScale: 1, radius: 12 } },
       ],
@@ -348,6 +348,13 @@
     if (!Array.isArray(lib.timeline.beats)) lib.timeline.beats = [];
     if (!Array.isArray(lib.graph.nodes)) lib.graph.nodes = [];
     if (!Array.isArray(lib.graph.edges)) lib.graph.edges = [];
+    lib.themes.forEach((theme) => {
+      const vars = theme && theme.vars;
+      if (!vars || theme.name !== '夜漆') return;
+      if (vars.bg === '#140e0a' && vars.paper === '#f4e7d1' && vars.ink === '#1a120c' && vars.accent === '#c6a15a') {
+        theme.vars = Object.assign({}, vars, { bg: '#07090d', lacquer: '#0c1118', paper: '#101820', ink: '#e9fff8', accent: '#d6ff3f' });
+      }
+    });
     return lib;
   }
 

@@ -528,11 +528,11 @@
       `/* 酒馆工坊主题「${theme.name || '未命名'}」`,
       '   SillyTavern 的自定义 CSS 选择器不同，把变量抄进你的主题后再改选择器。 */',
       ':root {',
-      `  --bg: ${vars.bg || '#140e0a'};`,
-      `  --lacquer: ${vars.lacquer || '#24180f'};`,
-      `  --paper: ${vars.paper || '#f4e7d1'};`,
-      `  --ink: ${vars.ink || '#1a120c'};`,
-      `  --accent: ${vars.accent || '#c6a15a'};`,
+      `  --bg: ${vars.bg || '#07090d'};`,
+      `  --lacquer: ${vars.lacquer || '#0c1118'};`,
+      `  --paper: ${vars.paper || '#101820'};`,
+      `  --ink: ${vars.ink || '#e9fff8'};`,
+      `  --accent: ${vars.accent || '#d6ff3f'};`,
       `  --font-scale: ${vars.fontScale || 1};`,
       `  --bubble-radius: ${vars.radius || 18}px;`,
       '}',
@@ -701,6 +701,251 @@
     });
   }
 
+  const FLAG_TEXT = {
+    g: '全局',
+    i: '忽略大小写',
+    m: '按行匹配',
+    s: '点号含换行',
+    u: 'Unicode',
+    y: '从上次位置接着找',
+  };
+
+  function splitRegexInput(input) {
+    const trimmed = String(input || '').trim();
+    if (!trimmed) return { empty: true };
+    if (trimmed.startsWith('/')) {
+      let index = 1;
+      let escaped = false;
+      for (; index < trimmed.length; index += 1) {
+        const ch = trimmed[index];
+        if (escaped) { escaped = false; continue; }
+        if (ch === '\\') { escaped = true; continue; }
+        if (ch === '/') break;
+      }
+      if (index >= trimmed.length) return { error: '开头写了斜杠，却没有用来结束的斜杠。' };
+      const source = trimmed.slice(1, index);
+      const flags = trimmed.slice(index + 1);
+      if (!source) return { error: '两条斜杠中间是空的，没有要查找的内容。' };
+      if (!/^[gimsuy]*$/.test(flags)) return { error: '斜杠后面的标志只能是 g、i、m、s、u、y。' };
+      const seen = new Set();
+      for (const flag of flags) {
+        if (seen.has(flag)) return { error: `标志「${flag}」写了两次。` };
+        seen.add(flag);
+      }
+      return { source, flags, wrapped: true };
+    }
+    return { source: trimmed, flags: 'g', wrapped: false };
+  }
+
+  function explainRegExpError(message) {
+    const text = String(message || '');
+    if (/Nothing to repeat/i.test(text)) return '量词前面没有可重复的内容。';
+    if (/Unterminated group/i.test(text)) return '有分组没有用右括号关上。';
+    if (/Unmatched/i.test(text)) return '多了一个右括号。';
+    if (/Unterminated character class/i.test(text)) return '字符类没有用 ] 关上。';
+    if (/Range out of order/i.test(text)) return '字符类里的范围写反了，起点比终点大。';
+    if (/Invalid escape/i.test(text)) return '有一处转义写得不完整。';
+    if (/Invalid group/i.test(text)) return '分组的写法不认识。';
+    if (/Invalid regular expression flags/i.test(text)) return '标志不合法。';
+    if (/Incomplete quantifier/i.test(text)) return '花括号里的次数没有写完。';
+    return '这则表达式编译不过。检查括号、方括号和量词是否成对。';
+  }
+
+  function walkRegex(source) {
+    const groups = [];
+    let index = 0;
+    let capturing = 0;
+    const fail = (message) => ({ error: message, groups, reading: '' });
+    function readQuantifier() {
+      const ch = source[index];
+      if (ch !== '*' && ch !== '+' && ch !== '?' && ch !== '{') return { text: '' };
+      if (ch === '{') {
+        const matched = source.slice(index).match(/^\{(\d+)(,(\d+)?)?\}/);
+        if (!matched) return { text: '' };
+        index += matched[0].length;
+        let text = !matched[2] ? `，恰好 ${matched[1]} 次` : matched[3] === undefined ? `，至少 ${matched[1]} 次` : `，${matched[1]} 到 ${matched[3]} 次`;
+        if (source[index] === '?') { text += '，尽量少'; index += 1; }
+        return { text };
+      }
+      index += 1;
+      let text = ch === '*' ? '，零次或多次' : ch === '+' ? '，一次或多次' : '，可有可无';
+      if (source[index] === '?') { text += '，尽量少'; index += 1; }
+      return { text };
+    }
+    function readEscape() {
+      index += 1;
+      const name = source[index];
+      if (!name) return fail('末尾有一个单独的反斜杠。');
+      index += 1;
+      const named = { d: '一个数字', D: '一个非数字', w: '一个单词字符', W: '一个非单词字符', s: '一段空白', S: '一个非空白', n: '换行', t: '制表符', r: '回车', b: '单词边界', B: '非单词边界', f: '换页' };
+      if (named[name]) return { text: named[name] };
+      if (/[1-9]/.test(name)) return { text: `引用第 ${name} 组` };
+      if (name === 'k' && source[index] === '<') {
+        const start = index + 1;
+        const end = source.indexOf('>', start);
+        if (end < 0) return fail('命名引用没有写完。');
+        const groupName = source.slice(start, end);
+        index = end + 1;
+        return { text: `引用名为「${groupName}」的组` };
+      }
+      return { text: `字面「${name}」` };
+    }
+    function readClass() {
+      index += 1;
+      const negated = source[index] === '^';
+      if (negated) index += 1;
+      let body = '';
+      while (index < source.length && source[index] !== ']') {
+        if (source[index] === '\\') {
+          const name = source[index + 1] || '';
+          const named = { n: '换行', t: '制表符', r: '回车', d: '数字', D: '非数字', w: '单词', W: '非单词', s: '空白', S: '非空白' };
+          body += named[name] || name || '反斜杠';
+          index += name ? 2 : 1;
+          continue;
+        }
+        body += source[index];
+        index += 1;
+      }
+      if (source[index] !== ']') return fail('字符类没有用 ] 关上。');
+      index += 1;
+      return { text: negated ? `不在「${body || '空'}」里的一个字符` : `「${body || '空'}」里的一个字符` };
+    }
+    function readGroup() {
+      index += 1;
+      let kind = 'capture';
+      let name = '';
+      if (source[index] === '?') {
+        index += 1;
+        const mark = source[index];
+        if (mark === ':') { kind = 'noncap'; index += 1; }
+        else if (mark === '=') { kind = 'ahead'; index += 1; }
+        else if (mark === '!') { kind = 'negAhead'; index += 1; }
+        else if (mark === '<') {
+          index += 1;
+          if (source[index] === '=') { kind = 'behind'; index += 1; }
+          else if (source[index] === '!') { kind = 'negBehind'; index += 1; }
+          else {
+            const start = index;
+            while (index < source.length && source[index] !== '>') index += 1;
+            if (source[index] !== '>') return fail('命名分组没有写完名字。');
+            name = source.slice(start, index);
+            if (!name) return fail('命名分组的名字是空的。');
+            index += 1;
+            kind = 'named';
+          }
+        } else return fail('问号开头的分组写不认识。');
+      }
+      const inner = readSeq(')');
+      if (inner.error) return inner;
+      if (source[index] !== ')') return fail('有分组没有用右括号关上。');
+      index += 1;
+      let label;
+      if (kind === 'capture' || kind === 'named') {
+        capturing += 1;
+        groups.push({ index: capturing, name });
+        label = name ? `第 ${capturing} 组「${name}」` : `第 ${capturing} 组`;
+      } else if (kind === 'noncap') label = '不捕获的一组';
+      else if (kind === 'ahead') label = '后面要接着';
+      else if (kind === 'negAhead') label = '后面不能接着';
+      else if (kind === 'behind') label = '前面要是';
+      else label = '前面不能是';
+      return { text: `${label}（${inner.text}）` };
+    }
+    function readAtom() {
+      const ch = source[index];
+      if (ch === '\\') return readEscape();
+      if (ch === '.') { index += 1; return { text: '任意一个字符' }; }
+      if (ch === '^') { index += 1; return { text: '从行首开始' }; }
+      if (ch === '$') { index += 1; return { text: '直到行尾' }; }
+      if (ch === '[') return readClass();
+      if (ch === '(') return readGroup();
+      if (ch === '{') { index += 1; return { text: '字面「{」' }; }
+      let literal = '';
+      while (index < source.length && !'\\.^$|[]()*+?{}'.includes(source[index])) {
+        literal += source[index];
+        index += 1;
+      }
+      if (!literal) return fail('这里有一个写不下去的符号。');
+      return { text: `字面「${literal}」` };
+    }
+    function readSeq(stop) {
+      const bits = [];
+      while (index < source.length && source[index] !== stop) {
+        if (source[index] === '|') {
+          if (!bits.length || bits[bits.length - 1] === '或者') return fail('竖线旁边少了要匹配的内容。');
+          index += 1;
+          bits.push('或者');
+          continue;
+        }
+        if ('*+?'.includes(source[index]) || (source[index] === '{' && /^\{\d/.test(source.slice(index)))) {
+          return fail('量词前面没有可重复的内容。');
+        }
+        const atom = readAtom();
+        if (atom.error) return atom;
+        const quantifier = readQuantifier();
+        if (quantifier.error) return quantifier;
+        bits.push(`${atom.text}${quantifier.text || ''}`);
+      }
+      if (bits.length && bits[bits.length - 1] === '或者') return fail('竖线右边没有内容。');
+      return { text: bits.join('，') || '空内容' };
+    }
+    const seq = readSeq('');
+    if (seq.error) return seq;
+    if (index < source.length) return fail(source[index] === ')' ? '多了一个右括号。' : '表达式没有读完。');
+    return { groups, reading: seq.text, error: '' };
+  }
+
+  function describeRegex(input) {
+    const split = splitRegexInput(input);
+    if (split.empty) return { ok: false, empty: true, error: '还没写查找表达式。', flags: '', flagText: '', groups: [], reading: '', pattern: null };
+    if (split.error) return { ok: false, empty: false, error: split.error, flags: '', flagText: '', groups: [], reading: '', pattern: null };
+    const walked = walkRegex(split.source);
+    let pattern = null;
+    let compileError = '';
+    try {
+      pattern = new RegExp(split.source, split.flags);
+    } catch (error) {
+      compileError = explainRegExpError(error.message);
+    }
+    const flagText = split.flags
+      ? [...split.flags].map((flag) => FLAG_TEXT[flag] || flag).join('、') + (split.wrapped ? '' : '（没写斜杠，默认全局）')
+      : '只找第一处';
+    if (walked.error || compileError) {
+      return { ok: false, empty: false, error: walked.error || compileError, flags: split.flags, flagText, groups: walked.groups || [], reading: walked.reading || '', pattern: null };
+    }
+    return { ok: true, empty: false, error: '', flags: split.flags, flagText, groups: walked.groups, reading: walked.reading, pattern };
+  }
+
+  function regexTrial(input, sample, replacement) {
+    const described = describeRegex(input);
+    const text = String(sample ?? '');
+    if (!described.ok) return Object.assign({ matches: [], replaced: '', miss: false }, described);
+    if (!text) return Object.assign({ matches: [], replaced: '', miss: false }, described);
+    const matches = [];
+    try {
+      const flags = described.pattern.flags.includes('g') ? described.pattern.flags : `${described.pattern.flags}g`;
+      const globalPattern = new RegExp(described.pattern.source, flags);
+      for (const match of text.matchAll(globalPattern)) {
+        matches.push({
+          text: match[0],
+          index: match.index,
+          groups: match.slice(1).map((item) => item === undefined ? '' : item),
+          named: match.groups || null,
+        });
+        if (matches.length >= 8) break;
+      }
+    } catch (error) {
+      return Object.assign({ matches: [], replaced: '', miss: false, error: explainRegExpError(error.message), ok: false }, described);
+    }
+    let replaced = '';
+    try {
+      replaced = text.replace(described.pattern, replacement || '');
+    } catch (error) {
+      return Object.assign({ matches, replaced: '', miss: false, error: '替换式写不通。$ 后面要接组号，例如 $1。', ok: false }, described);
+    }
+    return Object.assign({ matches, replaced, miss: matches.length === 0 }, described);
+  }
+
   root.TAFormats = {
     POSITIONS,
     PLACEMENTS,
@@ -715,6 +960,8 @@
     regexToExport,
     regexFromImport,
     regexFromString,
+    describeRegex,
+    regexTrial,
     qrToExport,
     qrFromImport,
     presetToExport,
