@@ -121,6 +121,20 @@
     });
   }
 
+  function fillLesson(node, steps) {
+    if (!node) return;
+    node.replaceChildren();
+    if (!steps || !steps.length) return;
+    const list = document.createElement('ol');
+    list.className = 'lesson';
+    steps.forEach((step) => {
+      const item = document.createElement('li');
+      item.textContent = String(step);
+      list.appendChild(item);
+    });
+    node.appendChild(list);
+  }
+
   function showExport(file, summary) {
     const host = document.getElementById('export-slip');
     if (!host) return;
@@ -430,6 +444,6 @@
     ROUTES, state, esc, toast, ask, downloadBlob, downloadText, downloadJson, pickFile, readText, readDataUrl, copyText,
     safeName, assetById, charById, selected, matchQuery, markDirty, flush, applyTheme, go, renderStage, show,
     field, area, text, bindFields, picker, bindPicker, empty, confirmLoadDemo, confirmClear, mount,
-    estimateLength, mountLengths, showExport,
+    estimateLength, mountLengths, showExport, fillLesson,
   };
 })(typeof globalThis !== 'undefined' ? globalThis : window);
