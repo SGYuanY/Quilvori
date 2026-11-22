@@ -828,7 +828,7 @@
     </div></div>`;
     const paper = body.querySelector('#chat-paper');
     const bg = UI.assetById(lib.settings.chatBackgroundAssetId);
-    if (bg) paper.style.backgroundImage = `linear-gradient(rgba(244,231,209,0.9), rgba(244,231,209,0.94)), url("${bg.dataUrl}")`;
+    if (bg) paper.style.backgroundImage = `linear-gradient(rgba(7,9,13,0.82), rgba(7,9,13,0.9)), url("${bg.dataUrl}")`;
     const log = body.querySelector('#chat-log');
     let marks = [];
     const renderLog = () => {
@@ -988,7 +988,7 @@
       <button type="button" class="btn" id="import-rx">导入 JSON</button>
       <button type="button" class="btn btn-primary" id="export-rx">导出全部</button>
       <button type="button" class="btn btn-danger" id="del-rx" ${script ? '' : 'disabled'}>删除</button>
-      ${hint('新建或导入酒馆的正则 JSON。导出的是全部脚本组成的数组。')}
+      ${hint('新建或导入酒馆的正则 JSON。导出的仍是原来的数组。右侧会读这则表达式，并可拿一句话看匹配和替换。')}
     </div>${UI.picker(list, script && script.id, (item) => (item.disabled ? '停用' : '启用'))}<div id="rx-body"></div>`;
     UI.bindPicker(stage, (id) => { UI.state.sel.regex = id; UI.renderStage(); });
     stage.querySelector('#new-rx').onclick = () => {
@@ -1025,10 +1025,59 @@
       <label class="check"><input data-field="markdownOnly" type="checkbox" ${script.markdownOnly ? 'checked' : ''}>仅 Markdown 显示</label>
       <label class="check"><input data-field="promptOnly" type="checkbox" ${script.promptOnly ? 'checked' : ''}>仅提示词</label>
       <div class="grid-2">${UI.field('最小深度', `<input data-field="minDepth" type="number" value="${script.minDepth ?? ''}">`)}${UI.field('最大深度', `<input data-field="maxDepth" type="number" value="${script.maxDepth ?? ''}">`)}</div>
-    </div><aside class="paper stack"><p class="eyebrow">试跑</p>${hint('用这段文字在本地试替换，不写入库。')}<textarea id="lab" rows="6" data-nolen>${UI.esc(UI.state.lab || '')}</textarea><button type="button" class="btn" id="run-rx">试跑</button><pre id="lab-out" class="snippet"></pre></aside></div>`;
+    </div><aside class="paper stack" id="rx-side"><p class="eyebrow">表达式</p><div id="rx-read"></div><p class="eyebrow">试一句</p>${hint('贴一行字。下面给出匹配、捕获组和替换结果，不写入库。')}<textarea id="lab" rows="6" data-nolen>${UI.esc(UI.state.lab || '')}</textarea><button type="button" class="btn" id="run-rx">试跑</button><pre id="lab-out" class="snippet"></pre></aside></div>`;
+    const paintRegex = () => {
+      const described = F.describeRegex(script.findRegex);
+      const read = body.querySelector('#rx-read');
+      const error = body.querySelector('#rx-error');
+      read.replaceChildren();
+      const addLine = (className, text) => {
+        const line = document.createElement('p');
+        if (className) line.className = className;
+        line.textContent = text;
+        read.appendChild(line);
+      };
+      if (!String(script.findRegex || '').trim()) {
+        error.textContent = '';
+        addLine('help', '写下查找式后，这里说明它能不能编译、标志、捕获组，以及它在匹配什么。');
+      } else if (!described.ok) {
+        error.textContent = described.error;
+        addLine('rx-bad', described.error);
+      } else {
+        error.textContent = '';
+        const groups = described.groups.length
+          ? described.groups.map((group) => group.name ? `第 ${group.index} 组「${group.name}」` : `第 ${group.index} 组`).join('、')
+          : '没有捕获组';
+        addLine('rx-ok', '能编译。');
+        addLine('', `标志：${described.flagText}。`);
+        addLine('', `捕获：${groups}。`);
+        addLine('', `匹配：${described.reading}。`);
+      }
+      const sample = body.querySelector('#lab').value;
+      const out = body.querySelector('#lab-out');
+      if (!sample) {
+        out.textContent = '贴一句，再看匹配、捕获组和替换结果。';
+        return;
+      }
+      const trial = F.regexTrial(script.findRegex, sample, script.replaceString);
+      if (!trial.ok) {
+        out.textContent = trial.error || described.error;
+        return;
+      }
+      if (!trial.matches.length) {
+        out.textContent = `没有匹配。\n替换结果：${trial.replaced}`;
+        return;
+      }
+      const lines = trial.matches.map((match, index) => {
+        const caps = match.groups.length ? match.groups.map((item, groupIndex) => `第 ${groupIndex + 1} 组「${item}」`).join('，') : '无捕获';
+        const named = match.named ? Object.entries(match.named).filter((entry) => entry[1] != null).map(([key, value]) => `${key}「${value}」`).join('，') : '';
+        return `第 ${index + 1} 处「${match.text}」 ${caps}${named ? `，${named}` : ''}`;
+      });
+      out.textContent = `${lines.join('\n')}\n替换结果：${trial.replaced}`;
+    };
     UI.bindFields(body, script, (key) => {
       if (key === 'minDepth' || key === 'maxDepth') script[key] = script[key] === '' ? null : Number(script[key]);
-      body.querySelector('#rx-error').textContent = script.findRegex && !F.regexFromString(script.findRegex) ? '这则正则编译不过' : '';
+      paintRegex();
     });
     body.querySelectorAll('#places input').forEach((box) => {
       box.onchange = () => {
@@ -1038,11 +1087,11 @@
     });
     const run = () => {
       UI.state.lab = body.querySelector('#lab').value;
-      const pattern = F.regexFromString(script.findRegex);
-      body.querySelector('#lab-out').textContent = pattern ? UI.state.lab.replace(pattern, script.replaceString || '') : '正则无效';
+      paintRegex();
     };
-    body.querySelector('#lab').addEventListener('input', (event) => { UI.state.lab = event.target.value; });
+    body.querySelector('#lab').addEventListener('input', (event) => { UI.state.lab = event.target.value; paintRegex(); });
     body.querySelector('#run-rx').onclick = run;
+    paintRegex();
   }
 
   function quick(stage) {
@@ -1197,9 +1246,9 @@
         const length = Math.hypot(dx, dy) || 1;
         const labelX = midX + (-dy / length) * 16;
         const labelY = midY + (dx / length) * 16;
-        return `<g data-edge="${UI.esc(edge.id)}"><line x1="${from.x}" y1="${from.y}" x2="${to.x}" y2="${to.y}" stroke="transparent" stroke-width="16"/><line x1="${from.x}" y1="${from.y}" x2="${to.x}" y2="${to.y}" stroke="#c6a15a" stroke-width="1.4"/><text x="${labelX}" y="${labelY}" fill="#e0c27a" font-size="13" text-anchor="middle">${UI.esc(edge.label || '')}</text></g>`;
+        return `<g data-edge="${UI.esc(edge.id)}"><line x1="${from.x}" y1="${from.y}" x2="${to.x}" y2="${to.y}" stroke="transparent" stroke-width="16"/><line x1="${from.x}" y1="${from.y}" x2="${to.x}" y2="${to.y}" stroke="#ff2bd6" stroke-width="1.6"/><text x="${labelX}" y="${labelY}" fill="#3dffe8" font-size="13" text-anchor="middle">${UI.esc(edge.label || '')}</text></g>`;
       }).join('');
-      const nodes = graphData.nodes.map((node) => `<g data-node="${UI.esc(node.id)}" transform="translate(${node.x} ${node.y})" style="cursor:grab"><circle r="36" fill="#f4e7d1" stroke="#c6a15a"/><text text-anchor="middle" y="5" font-size="14" fill="#1a120c">${UI.esc(nodeLabel(node).slice(0, 4))}</text></g>`).join('');
+      const nodes = graphData.nodes.map((node) => `<g data-node="${UI.esc(node.id)}" transform="translate(${node.x} ${node.y})" style="cursor:grab"><circle r="36" fill="#101820" stroke="#3dffe8"/><text text-anchor="middle" y="5" font-size="14" fill="#d6ff3f">${UI.esc(nodeLabel(node).slice(0, 4))}</text></g>`).join('');
       svg.innerHTML = edges + nodes;
       svg.querySelectorAll('[data-node]').forEach((nodeEl) => {
         nodeEl.onpointerdown = (event) => {
@@ -1428,7 +1477,7 @@
   function theme(stage) {
     const lib = UI.state.lib;
     if (!lib.themes.length) {
-      lib.themes.push({ id: Store.uid('theme'), name: '夜漆', vars: { bg: '#140e0a', lacquer: '#24180f', paper: '#f4e7d1', ink: '#1a120c', accent: '#c6a15a', fontScale: 1, radius: 18 } });
+      lib.themes.push({ id: Store.uid('theme'), name: '夜漆', vars: { bg: '#07090d', lacquer: '#0c1118', paper: '#101820', ink: '#e9fff8', accent: '#d6ff3f', fontScale: 1, radius: 18 } });
       lib.activeThemeId = lib.themes[0].id;
     }
     const current = UI.selected(lib.themes, UI.state.sel.theme || lib.activeThemeId);
