@@ -710,6 +710,15 @@
     y: '从上次位置接着找',
   };
 
+  const FLAG_DETAIL = {
+    g: '全局。试一句时每一处都找，替换也逐处换。没有它就只动第一处。',
+    i: '忽略大小写。大写和小写算同一个字。',
+    m: '多行。^ 和 $ 按每一行的头尾算，不只是整段文字的头尾。',
+    s: '点号含换行。没有它时，通配 . 碰不到换行。',
+    u: '按 Unicode 处理。生僻字也算一个字符。',
+    y: '粘连。从上次停下的位置接着找，中间不能跳过。',
+  };
+
   function splitRegexInput(input) {
     const trimmed = String(input || '').trim();
     if (!trimmed) return { empty: true };
@@ -753,9 +762,16 @@
 
   function walkRegex(source) {
     const groups = [];
+    const steps = [];
     let index = 0;
     let capturing = 0;
-    const fail = (message) => ({ error: message, groups, reading: '' });
+    const fail = (message) => {
+      const at = Math.min(index, source.length);
+      const ch = source[at] || '结尾';
+      const around = `${source.slice(Math.max(0, at - 8), at)}【${ch}】${source.slice(at + (source[at] ? 1 : 0), at + 9)}`;
+      return { error: `第 ${at + 1} 个字符「${ch}」这里断了：${message} 上下文 ${around}`, groups, steps, reading: '' };
+    };
+    function push(text) { if (text) steps.push(text); }
     function readQuantifier() {
       const ch = source[index];
       if (ch !== '*' && ch !== '+' && ch !== '?' && ch !== '{') return { text: '' };
@@ -763,32 +779,47 @@
         const matched = source.slice(index).match(/^\{(\d+)(,(\d+)?)?\}/);
         if (!matched) return { text: '' };
         index += matched[0].length;
-        let text = !matched[2] ? `，恰好 ${matched[1]} 次` : matched[3] === undefined ? `，至少 ${matched[1]} 次` : `，${matched[1]} 到 ${matched[3]} 次`;
-        if (source[index] === '?') { text += '，尽量少'; index += 1; }
+        let text = !matched[2] ? `量词 {${matched[1]}}：紧挨着的上一项恰好重复 ${matched[1]} 次。` : matched[3] === undefined ? `量词 {${matched[1]},}：上一项至少 ${matched[1]} 次，默认尽量多。` : `量词 {${matched[1]},${matched[3]}}：上一项重复 ${matched[1]} 到 ${matched[3]} 次。`;
+        if (source[index] === '?') { text += '后面的问号表示尽量少。'; index += 1; }
         return { text };
       }
       index += 1;
-      let text = ch === '*' ? '，零次或多次' : ch === '+' ? '，一次或多次' : '，可有可无';
-      if (source[index] === '?') { text += '，尽量少'; index += 1; }
+      const base = ch === '*' ? '量词 *：上一项可以零次或多次，默认尽量多。' : ch === '+' ? '量词 +：上一项至少一次，默认尽量多。' : '量词 ?：上一项可有可无，出现零次或一次。';
+      let text = base;
+      if (source[index] === '?') { text += '后面的问号表示尽量少，而不是尽量多。'; index += 1; }
       return { text };
     }
     function readEscape() {
+      const startAt = index;
       index += 1;
       const name = source[index];
-      if (!name) return fail('末尾有一个单独的反斜杠。');
+      if (!name) return fail('末尾有一个单独的反斜杠，它不知道要转义谁。');
       index += 1;
-      const named = { d: '一个数字', D: '一个非数字', w: '一个单词字符', W: '一个非单词字符', s: '一段空白', S: '一个非空白', n: '换行', t: '制表符', r: '回车', b: '单词边界', B: '非单词边界', f: '换页' };
+      const named = {
+        d: '转义 \\d：一个数字。反斜杠让 d 不再是字面字母。',
+        D: '转义 \\D：一个非数字。',
+        w: '转义 \\w：一个单词字符（字母、数字或下划线）。',
+        W: '转义 \\W：一个非单词字符。',
+        s: '转义 \\s：一段空白，空格、换行、制表符都算。',
+        S: '转义 \\S：一个非空白字符。',
+        n: '转义 \\n：一个换行，不是字母 n。',
+        t: '转义 \\t：一个制表符。',
+        r: '转义 \\r：一个回车。',
+        b: '转义 \\b：单词边界。它不吃字符，只卡在词和词的交界。',
+        B: '转义 \\B：非单词边界。',
+        f: '转义 \\f：换页符。',
+      };
       if (named[name]) return { text: named[name] };
-      if (/[1-9]/.test(name)) return { text: `引用第 ${name} 组` };
+      if (/[1-9]/.test(name)) return { text: `转义 \\${name}：引用前面第 ${name} 个捕获组已经抓住的文字。` };
       if (name === 'k' && source[index] === '<') {
-        const start = index + 1;
-        const end = source.indexOf('>', start);
-        if (end < 0) return fail('命名引用没有写完。');
-        const groupName = source.slice(start, end);
-        index = end + 1;
-        return { text: `引用名为「${groupName}」的组` };
+        const from = index + 1;
+        const close = source.indexOf('>', from);
+        if (close < 0) return fail('命名引用 \\k<名字> 没有写完。');
+        const groupName = source.slice(from, close);
+        index = close + 1;
+        return { text: `转义 \\k<${groupName}>：引用名字叫「${groupName}」的捕获组。` };
       }
-      return { text: `字面「${name}」` };
+      return { text: `转义 \\${name}：这里只按字面匹配「${name}」。反斜杠取消了它本来的特殊含义。` };
     }
     function readClass() {
       index += 1;
@@ -806,9 +837,12 @@
         body += source[index];
         index += 1;
       }
-      if (source[index] !== ']') return fail('字符类没有用 ] 关上。');
+      if (source[index] !== ']') return fail('字符类开了方括号，却没有用 ] 关上。');
       index += 1;
-      return { text: negated ? `不在「${body || '空'}」里的一个字符` : `「${body || '空'}」里的一个字符` };
+      const shown = body || '空';
+      return { text: negated
+        ? `反义字符类 [^${shown}]：匹配一个不在这些字里的字符。方括号开头的 ^ 只表示“除外”，不是行首。`
+        : `字符类 [${shown}]：匹配一个落在这些字里的字符。中间的连字符表示从起点到终点。` };
     }
     function readGroup() {
       index += 1;
@@ -825,56 +859,63 @@
           if (source[index] === '=') { kind = 'behind'; index += 1; }
           else if (source[index] === '!') { kind = 'negBehind'; index += 1; }
           else {
-            const start = index;
+            const from = index;
             while (index < source.length && source[index] !== '>') index += 1;
-            if (source[index] !== '>') return fail('命名分组没有写完名字。');
-            name = source.slice(start, index);
+            if (source[index] !== '>') return fail('命名分组 (?<名字> 没有写完名字。');
+            name = source.slice(from, index);
             if (!name) return fail('命名分组的名字是空的。');
             index += 1;
             kind = 'named';
           }
         } else return fail('问号开头的分组写不认识。');
       }
+      let header = '不捕获分组 (?: )：只把里面几项绑在一起，不单独记成一组。';
+      let groupNo = 0;
+      if (kind === 'capture' || kind === 'named') {
+        capturing += 1;
+        groupNo = capturing;
+        groups.push({ index: capturing, name });
+        header = name
+          ? `捕获组第 ${capturing} 组，名字「${name}」：括号里匹配到的文字会记下来。替换时可写 $${capturing}，也能用这个名字。`
+          : `捕获组第 ${capturing} 组：括号里匹配到的文字会记下来。替换时写成 $${capturing}。`;
+      } else if (kind === 'ahead') header = '正向先行 (?= )：要求后面接着括号里的内容，但这一段本身不占匹配结果。';
+      else if (kind === 'negAhead') header = '负向先行 (?! )：要求后面不能接着括号里的内容，它自己不吃字符。';
+      else if (kind === 'behind') header = '正向后行 (?<= )：要求前面已经是括号里的内容。';
+      else if (kind === 'negBehind') header = '负向后行 (?<! )：要求前面不能是括号里的内容。';
+      push(header);
       const inner = readSeq(')');
       if (inner.error) return inner;
       if (source[index] !== ')') return fail('有分组没有用右括号关上。');
       index += 1;
-      let label;
-      if (kind === 'capture' || kind === 'named') {
-        capturing += 1;
-        groups.push({ index: capturing, name });
-        label = name ? `第 ${capturing} 组「${name}」` : `第 ${capturing} 组`;
-      } else if (kind === 'noncap') label = '不捕获的一组';
-      else if (kind === 'ahead') label = '后面要接着';
-      else if (kind === 'negAhead') label = '后面不能接着';
-      else if (kind === 'behind') label = '前面要是';
-      else label = '前面不能是';
-      return { text: `${label}（${inner.text}）` };
+      push(groupNo ? `第 ${groupNo} 组到这里结束。` : '这个分组到这里结束。');
+      return { text: '组', silent: true };
     }
     function readAtom() {
       const ch = source[index];
       if (ch === '\\') return readEscape();
-      if (ch === '.') { index += 1; return { text: '任意一个字符' }; }
-      if (ch === '^') { index += 1; return { text: '从行首开始' }; }
-      if (ch === '$') { index += 1; return { text: '直到行尾' }; }
+      if (ch === '.') { index += 1; return { text: '通配 .：任意一个字符。没有 s 标志时，它碰不到换行。' }; }
+      if (ch === '^') { index += 1; return { text: '锚点 ^：必须从一行开头匹配。它不吃掉字符。' }; }
+      if (ch === '$') { index += 1; return { text: '锚点 $：必须碰到一行结尾。它不吃掉字符。' }; }
       if (ch === '[') return readClass();
       if (ch === '(') return readGroup();
-      if (ch === '{') { index += 1; return { text: '字面「{」' }; }
+      if (ch === '{') { index += 1; return { text: '字面「{」：这里的花括号不是次数，按左花括号原样匹配。' }; }
       let literal = '';
       while (index < source.length && !'\\.^$|[]()*+?{}'.includes(source[index])) {
         literal += source[index];
         index += 1;
       }
       if (!literal) return fail('这里有一个写不下去的符号。');
-      return { text: `字面「${literal}」` };
+      return { text: `字面「${literal}」：按这些字原样匹配。点号、星号这类符号如果没被转义，才有特殊含义；这里没有。` };
     }
     function readSeq(stop) {
-      const bits = [];
+      let pieces = 0;
+      let lastWasAlt = false;
       while (index < source.length && source[index] !== stop) {
         if (source[index] === '|') {
-          if (!bits.length || bits[bits.length - 1] === '或者') return fail('竖线旁边少了要匹配的内容。');
+          if (!pieces || lastWasAlt) return fail('竖线 | 旁边少了要匹配的内容。');
           index += 1;
-          bits.push('或者');
+          push('或者 |：左边和右边只要有一边对上就算匹配。竖线自己不吃字符。');
+          lastWasAlt = true;
           continue;
         }
         if ('*+?'.includes(source[index]) || (source[index] === '{' && /^\{\d/.test(source.slice(index)))) {
@@ -882,23 +923,25 @@
         }
         const atom = readAtom();
         if (atom.error) return atom;
+        if (!atom.silent) push(atom.text);
+        if (atom.text) { pieces += 1; lastWasAlt = false; }
         const quantifier = readQuantifier();
         if (quantifier.error) return quantifier;
-        bits.push(`${atom.text}${quantifier.text || ''}`);
+        if (quantifier.text) push(quantifier.text);
       }
-      if (bits.length && bits[bits.length - 1] === '或者') return fail('竖线右边没有内容。');
-      return { text: bits.join('，') || '空内容' };
+      if (lastWasAlt) return fail('竖线右边没有内容。');
+      return { ok: true };
     }
     const seq = readSeq('');
     if (seq.error) return seq;
-    if (index < source.length) return fail(source[index] === ')' ? '多了一个右括号。' : '表达式没有读完。');
-    return { groups, reading: seq.text, error: '' };
+    if (index < source.length) return fail(source[index] === ')' ? '多了一个右括号，找不到配对的左括号。' : '表达式没有读完。');
+    return { groups, steps, reading: steps.join(' '), error: '' };
   }
 
   function describeRegex(input) {
     const split = splitRegexInput(input);
-    if (split.empty) return { ok: false, empty: true, error: '还没写查找表达式。', flags: '', flagText: '', groups: [], reading: '', pattern: null };
-    if (split.error) return { ok: false, empty: false, error: split.error, flags: '', flagText: '', groups: [], reading: '', pattern: null };
+    if (split.empty) return { ok: false, empty: true, error: '还没写查找表达式。', flags: '', flagText: '', groups: [], steps: [], reading: '', pattern: null };
+    if (split.error) return { ok: false, empty: false, error: split.error, flags: '', flagText: '', groups: [], steps: [], reading: '', pattern: null };
     const walked = walkRegex(split.source);
     let pattern = null;
     let compileError = '';
@@ -907,20 +950,26 @@
     } catch (error) {
       compileError = explainRegExpError(error.message);
     }
+    const flagSteps = [];
+    if (split.wrapped) {
+      if (!split.flags) flagSteps.push('标志：结束斜杠后面是空的。只找第一处，并且区分大小写。');
+      else [...split.flags].forEach((flag) => flagSteps.push(`标志 ${flag}：${FLAG_DETAIL[flag] || flag}`));
+    } else flagSteps.push('写法：没有用斜杠包起来，所以按全局 g 查找，并且区分大小写。');
     const flagText = split.flags
       ? [...split.flags].map((flag) => FLAG_TEXT[flag] || flag).join('、') + (split.wrapped ? '' : '（没写斜杠，默认全局）')
       : '只找第一处';
+    const steps = [...(walked.steps || []), ...flagSteps];
     if (walked.error || compileError) {
-      return { ok: false, empty: false, error: walked.error || compileError, flags: split.flags, flagText, groups: walked.groups || [], reading: walked.reading || '', pattern: null };
+      return { ok: false, empty: false, error: walked.error || compileError, flags: split.flags, flagText, groups: walked.groups || [], steps, reading: steps.join(' '), pattern: null };
     }
-    return { ok: true, empty: false, error: '', flags: split.flags, flagText, groups: walked.groups, reading: walked.reading, pattern };
+    return { ok: true, empty: false, error: '', flags: split.flags, flagText, groups: walked.groups, reading: steps.join(' '), steps, pattern };
   }
 
   function regexTrial(input, sample, replacement) {
     const described = describeRegex(input);
     const text = String(sample ?? '');
-    if (!described.ok) return Object.assign({ matches: [], replaced: '', miss: false }, described);
-    if (!text) return Object.assign({ matches: [], replaced: '', miss: false }, described);
+    if (!described.ok) return Object.assign({ matches: [], replaced: '', unmatched: [], miss: false }, described);
+    if (!text) return Object.assign({ matches: [], replaced: '', unmatched: [], miss: false }, described);
     const matches = [];
     try {
       const flags = described.pattern.flags.includes('g') ? described.pattern.flags : `${described.pattern.flags}g`;
@@ -929,21 +978,34 @@
         matches.push({
           text: match[0],
           index: match.index,
-          groups: match.slice(1).map((item) => item === undefined ? '' : item),
-          named: match.groups || null,
+          groups: match.slice(1).map((item, groupIndex) => ({
+            index: groupIndex + 1,
+            name: described.groups[groupIndex]?.name || '',
+            value: item === undefined ? '' : item,
+          })),
         });
         if (matches.length >= 8) break;
       }
     } catch (error) {
-      return Object.assign({ matches: [], replaced: '', miss: false, error: explainRegExpError(error.message), ok: false }, described);
+      return Object.assign({ matches: [], replaced: '', unmatched: [], miss: false, error: explainRegExpError(error.message), ok: false }, described);
     }
     let replaced = '';
     try {
       replaced = text.replace(described.pattern, replacement || '');
     } catch (error) {
-      return Object.assign({ matches, replaced: '', miss: false, error: '替换式写不通。$ 后面要接组号，例如 $1。', ok: false }, described);
+      return Object.assign({ matches, replaced: '', unmatched: [], miss: false, error: '替换式写不通。$ 后面要接组号，例如 $1。', ok: false }, described);
     }
-    return Object.assign({ matches, replaced, miss: matches.length === 0 }, described);
+    const unmatched = [];
+    let cursor = 0;
+    matches.forEach((match) => {
+      const start = match.index;
+      const end = start + match.text.length;
+      if (start > cursor) unmatched.push(text.slice(cursor, start));
+      cursor = Math.max(cursor, end || start);
+      if (!match.text.length) cursor += 1;
+    });
+    if (cursor < text.length) unmatched.push(text.slice(cursor));
+    return Object.assign({ matches, replaced, unmatched: unmatched.filter((part) => part.length), miss: matches.length === 0 }, described);
   }
 
   root.TAFormats = {

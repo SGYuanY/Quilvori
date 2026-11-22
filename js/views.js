@@ -335,12 +335,34 @@
         <div class="tags" id="prev-tags"></div>
         <p class="clamp" id="prev-desc"></p>
         <div class="bubble" id="prev-mes"></div>
-        <p class="muted" id="prev-meta"></p>`;
+        <p class="muted" id="prev-meta"></p>
+        <div id="card-lesson"></div>`;
       preview.querySelector('#prev-name').textContent = character.name || '未命名';
       preview.querySelector('#prev-tags').innerHTML = (character.tags || []).map((tag) => `<span class="tag">${UI.esc(tag)}</span>`).join('');
       preview.querySelector('#prev-desc').textContent = character.description || '描述还空着。';
       preview.querySelector('#prev-mes').textContent = character.first_mes || '还没有开场白。';
       preview.querySelector('#prev-meta').textContent = `${character.creator || '未署名'} · ${character.character_version || '无版本'} · 话多 ${Number(character.talkativeness || 0).toFixed(2)}`;
+      stage.querySelector('#attach-book').onchange = paintPreview;
+      const card = F.characterToCard(character, bookOf());
+      const data = card.data;
+      const clip = (value) => {
+        const text = String(value || '').replace(/\s+/g, ' ').trim();
+        return text ? (text.length > 42 ? `${text.slice(0, 42)}…` : text) : '空';
+      };
+      UI.fillLesson(preview.querySelector('#card-lesson'), [
+        `名字现在是「${data.name || '空'}」。导出时顶层 name 和 data.name 都写这一份。`,
+        `性格现在是「${clip(data.personality)}」。它告诉模型这个人怎样说话、怎样做决定。`,
+        `情景现在是「${clip(data.scenario)}」。它是开场时已经发生的局面，不是人物小传。`,
+        `开场白现在是「${clip(data.first_mes)}」。酒馆新开聊天时先说出这一段。`,
+        `备用开场 ${data.alternate_greetings.length} 条${data.alternate_greetings.length ? `，第一条「${clip(data.alternate_greetings[0])}」` : ''}。它们是可以换上的另一句 first_mes。`,
+        `对话示例现在是「${clip(data.mes_example)}」。它示范口气，常用 {{char}} 和 {{user}}，不会被当成已经发生的聊天。`,
+        `系统提示现在是「${clip(data.system_prompt)}」。它写进角色卡的 system_prompt，盖在更一般的系统说明上。`,
+        `历史后指令现在是「${clip(data.post_history_instructions)}」。它放在对话历史之后，用来收束格式或禁忌。`,
+        `创作者备注「${clip(data.creator_notes)}」给看卡的人，也抄到顶层 creatorcomment。标签：${data.tags.length ? data.tags.join('、') : '没有'}。`,
+        `话多程度 ${data.extensions.talkativeness}。群聊导出时带上，写在 extensions.talkativeness。`,
+        data.character_book ? `附带世界书「${data.character_book.name || '未命名'}」，${data.character_book.entries.length} 条会放进 data.character_book。` : '现在不附带世界书，导出里没有 character_book。',
+        '规格固定是 chara_card_v2 / 2.0。PNG 把同一份 JSON 放进图片的 chara 文本块。',
+      ]);
     };
     paintPreview();
     UI.bindFields(body, character, (key) => {
@@ -406,6 +428,7 @@
       ${hint('看这句话会触发当前书里哪些启用条目。恒定条目总会算上；选择性条目通常还要命中一个次关键词。')}
       <button type="button" class="btn" id="lore-try">看会触发哪些</button>
       <div id="lore-hits"></div>
+      <div id="lore-lesson"></div>
     </div>
     <div class="board-layout">
       <div class="board">${F.POSITIONS.map((position) => `<section class="column"><h3>${position.label}</h3>${entries.filter((item) => item.position === position.id).map((item) => `<article class="entry${item.id === (entry && entry.id) ? ' on' : ''}${item.enabled ? '' : ' off'}" data-id="${UI.esc(item.id)}"><b>${UI.esc(item.comment || '未命名')}</b><p>${UI.esc((item.keys || []).join(' / ') || '无关键词')}</p><div class="row"><span class="muted">${item.constant ? '恒定' : '触发'}</span><button type="button" class="btn btn-small" data-toggle="${UI.esc(item.id)}">${item.enabled ? '启用' : '停用'}</button></div></article>`).join('') || '<p class="dark-muted">空</p>'}</section>`).join('')}</div>
@@ -531,6 +554,43 @@
       const ids = new Set(hits.map((hit) => hit.entry.id));
       stage.querySelectorAll('.entry').forEach((card) => card.classList.toggle('hit', ids.has(card.dataset.id)));
       const host = stage.querySelector('#lore-hits');
+      const lesson = [`比对不区分大小写，看关键词是不是出现在试句里。停用的条目直接跳过。`];
+      book.entries.forEach((entry) => {
+        const name = entry.comment || '未命名';
+        const place = (F.POSITIONS.find((item) => item.id === entry.position) || {}).label || entry.position;
+        if (entry.enabled === false) {
+          lesson.push(`「${name}」停用：不参加。导出时 disable 为真。位置仍记为${place}，顺序 ${entry.order}。`);
+          return;
+        }
+        if (entry.constant) {
+          lesson.push(`「${name}」恒定：不看试句，始终插到「${place}」，顺序 ${entry.order}。内容现在是「${String(entry.content || '空').replace(/\s+/g, ' ').slice(0, 36)}」。`);
+          return;
+        }
+        const keys = entry.keys || [];
+        const secondary = entry.secondaryKeys || [];
+        if (!String(sample || '').trim()) {
+          lesson.push(`「${name}」等一句试句。主关键词 ${keys.join('、') || '没写'}。${entry.selective ? `选择性开着，次关键词 ${secondary.join('、') || '也没写'}。` : '不是选择性，中一个主关键词就插入。'}位置「${place}」，顺序 ${entry.order}。`);
+          return;
+        }
+        const sensitive = entry.caseSensitive === true;
+        const hitKeys = keys.filter((key) => includesKey(sample, key, sensitive));
+        if (!hitKeys.length) {
+          lesson.push(`「${name}」这句没中：主关键词 ${keys.join('、') || '没写'} 都不在里面，所以不会插入。`);
+          return;
+        }
+        if (entry.selective && secondary.length) {
+          const secHits = secondary.filter((key) => includesKey(sample, key, sensitive));
+          const logic = Number(entry.selectiveLogic ?? 0);
+          const rule = ['还要再中至少一个次关键词', '次关键词要全部中', '一个次关键词都不能中', '不能所有次关键词都中'][logic] || '再看次关键词';
+          const ok = logic === 1 ? secHits.length === secondary.length : logic === 2 ? secHits.length === 0 : logic === 3 ? secHits.length !== secondary.length : secHits.length > 0;
+          lesson.push(ok
+            ? `「${name}」会插入到「${place}」（顺序 ${entry.order}）：主关键词中了 ${hitKeys.join('、')}，选择性${rule}，次关键词中了 ${secHits.join('、') || '没有'}。`
+            : `「${name}」主关键词中了 ${hitKeys.join('、')}，但选择性没过（${rule}）。次关键词是 ${secondary.join('、')}，这句里中了 ${secHits.join('、') || '没有'}。`);
+          return;
+        }
+        lesson.push(`「${name}」会插入到「${place}」（顺序 ${entry.order}）：主关键词中了 ${hitKeys.join('、')}。${entry.selective ? '选择性开着，但没有次关键词，所以只看主关键词。' : '不是选择性。'}`);
+      });
+      UI.fillLesson(stage.querySelector('#lore-lesson'), lesson);
       if (!hits.length) {
         host.innerHTML = `<p class="help">${sample.trim() ? '没有条目会被这句话触发。' : '先写一句，才会按关键词判断。恒定条目仍会列出。'}</p>`;
         return;
@@ -544,9 +604,9 @@
         };
       });
     };
-    stage.querySelector('#lore-sample').addEventListener('input', (event) => { UI.state.loreSample = event.target.value; });
+    stage.querySelector('#lore-sample').addEventListener('input', (event) => { UI.state.loreSample = event.target.value; paintHits(); });
     stage.querySelector('#lore-try').onclick = paintHits;
-    if (UI.state.loreSample) paintHits();
+    paintHits();
     paintEditor();
     function addBook() {
       const created = { id: Store.uid('book'), name: '新世界书', description: '', entries: [] };
@@ -639,10 +699,20 @@
           </div>
         </article>`).join('')}</div>
         <button type="button" class="btn" id="add-block">添加一块</button></div>
-        <aside class="paper"><p class="eyebrow">顺序</p><ol id="order-preview"></ol><p class="help">拖左侧的「序」重新排列。导出的 JSON 带 prompts 和 prompt_order，方便对照酒馆预设，它不是完整的模型参数包。</p></aside>`;
+        <aside class="paper"><p class="eyebrow">顺序</p><ol id="order-preview"></ol><p class="help">拖左侧的「序」重新排列。导出的 JSON 带 prompts 和 prompt_order，方便对照酒馆预设，它不是完整的模型参数包。</p><div id="prompt-lesson"></div></aside>`;
       UI.bindFields(host.querySelector('.paper'), current, () => paintOrder());
       const paintOrder = () => {
         host.querySelector('#order-preview').innerHTML = current.blocks.map((block) => `<li>${block.enabled ? '' : '（关）'}${UI.esc(block.name)} · ${UI.esc(block.kind)}</li>`).join('');
+        const exported = F.presetToExport(current);
+        const kindLabel = { system: '系统', author_note: '作者注', style: '文风', jailbreak: '文风锁', custom: '自定义' };
+        UI.fillLesson(host.querySelector('#prompt-lesson'), [
+          `预设「${exported.name}」会导出 ${exported.prompts.length} 块。prompts 保存正文，prompt_order 保存现在这个顺序。它不含模型和温度。`,
+          ...exported.prompts.map((prompt, index) => {
+            const where = prompt.injection_position === 1 ? '作者注位置，深度 4' : '普通插入位置';
+            const bodyText = String(prompt.content || '').replace(/\s+/g, ' ').trim();
+            return `第 ${index + 1} 块「${prompt.name}」角色 ${prompt.role}，种类 ${kindLabel[prompt.atelier_kind] || prompt.atelier_kind}，${where}。${prompt.enabled ? '启用，会计入 prompt_order。' : '关掉了：仍留在 prompts 里，prompt_order 里标成未启用。'}正文现在是「${bodyText ? bodyText.slice(0, 36) : '空'}」。`;
+          }),
+        ]);
       };
       paintOrder();
       host.querySelectorAll('[data-block]').forEach((node) => {
@@ -988,7 +1058,7 @@
       <button type="button" class="btn" id="import-rx">导入 JSON</button>
       <button type="button" class="btn btn-primary" id="export-rx">导出全部</button>
       <button type="button" class="btn btn-danger" id="del-rx" ${script ? '' : 'disabled'}>删除</button>
-      ${hint('新建或导入酒馆的正则 JSON。导出的仍是原来的数组。右侧会读这则表达式，并可拿一句话看匹配和替换。')}
+      ${hint('新建或导入酒馆的正则 JSON。导出的仍是原来的数组。右侧按顺序讲每一截；试一句会标出匹配、分组、替换和没吃到的字。')}
     </div>${UI.picker(list, script && script.id, (item) => (item.disabled ? '停用' : '启用'))}<div id="rx-body"></div>`;
     UI.bindPicker(stage, (id) => { UI.state.sel.regex = id; UI.renderStage(); });
     stage.querySelector('#new-rx').onclick = () => {
@@ -1030,33 +1100,21 @@
       const described = F.describeRegex(script.findRegex);
       const read = body.querySelector('#rx-read');
       const error = body.querySelector('#rx-error');
-      read.replaceChildren();
-      const addLine = (className, text) => {
-        const line = document.createElement('p');
-        if (className) line.className = className;
-        line.textContent = text;
-        read.appendChild(line);
-      };
       if (!String(script.findRegex || '').trim()) {
         error.textContent = '';
-        addLine('help', '写下查找式后，这里说明它能不能编译、标志、捕获组，以及它在匹配什么。');
-      } else if (!described.ok) {
-        error.textContent = described.error;
-        addLine('rx-bad', described.error);
+        UI.fillLesson(read, ['写下查找式后，这里按书写顺序讲每一截：字面、转义、字符类、锚点、量词、或者、分组和标志。']);
       } else {
-        error.textContent = '';
-        const groups = described.groups.length
-          ? described.groups.map((group) => group.name ? `第 ${group.index} 组「${group.name}」` : `第 ${group.index} 组`).join('、')
-          : '没有捕获组';
-        addLine('rx-ok', '能编译。');
-        addLine('', `标志：${described.flagText}。`);
-        addLine('', `捕获：${groups}。`);
-        addLine('', `匹配：${described.reading}。`);
+        error.textContent = described.ok ? '' : described.error;
+        const steps = [...(described.steps || [])];
+        if (!described.ok) steps.push(described.error);
+        else if (!described.groups.length) steps.push('这则表达式没有捕获组。括号如果写成 (?: )，只分组，不记成绩。');
+        else steps.push(`捕获组共 ${described.groups.length} 个：${described.groups.map((group) => group.name ? `第 ${group.index} 组「${group.name}」` : `第 ${group.index} 组`).join('、')}。贴一句之后，会写明每一组抓住了什么。`);
+        UI.fillLesson(read, steps);
       }
       const sample = body.querySelector('#lab').value;
       const out = body.querySelector('#lab-out');
       if (!sample) {
-        out.textContent = '贴一句，再看匹配、捕获组和替换结果。';
+        out.textContent = '贴一句，再看整段匹配、每一组抓住的字、替换结果，以及没被吃掉的部分。';
         return;
       }
       const trial = F.regexTrial(script.findRegex, sample, script.replaceString);
@@ -1065,15 +1123,22 @@
         return;
       }
       if (!trial.matches.length) {
-        out.textContent = `没有匹配。\n替换结果：${trial.replaced}`;
+        out.textContent = `没有一处整段匹配。\n整句都算没被匹配：「${sample}」\n替换后还是原句：${trial.replaced}`;
         return;
       }
-      const lines = trial.matches.map((match, index) => {
-        const caps = match.groups.length ? match.groups.map((item, groupIndex) => `第 ${groupIndex + 1} 组「${item}」`).join('，') : '无捕获';
-        const named = match.named ? Object.entries(match.named).filter((entry) => entry[1] != null).map(([key, value]) => `${key}「${value}」`).join('，') : '';
-        return `第 ${index + 1} 处「${match.text}」 ${caps}${named ? `，${named}` : ''}`;
+      const lines = [];
+      trial.matches.forEach((match, index) => {
+        lines.push(`第 ${index + 1} 处整段匹配，从第 ${match.index + 1} 个字起：「${match.text}」`);
+        if (!match.groups.length) lines.push('这一处没有捕获组。');
+        match.groups.forEach((group) => {
+          const who = group.name ? `第 ${group.index} 组「${group.name}」` : `第 ${group.index} 组`;
+          lines.push(`${who}抓住了「${group.value}」。`);
+        });
       });
-      out.textContent = `${lines.join('\n')}\n替换结果：${trial.replaced}`;
+      lines.push(trial.unmatched.length ? `没被匹配的部分：${trial.unmatched.map((part) => `「${part}」`).join('、')}。这些字留在原处。` : '没被匹配的部分：没有，整句都被吃进去了。');
+      lines.push(`替换后：${trial.replaced}`);
+      lines.push('被换掉的只是匹配到的段。');
+      out.textContent = lines.join('\n');
     };
     UI.bindFields(body, script, (key) => {
       if (key === 'minDepth' || key === 'maxDepth') script[key] = script[key] === '' ? null : Number(script[key]);
@@ -1141,13 +1206,24 @@
         <div class="row"><input data-k="label" value="${UI.esc(reply.label)}" placeholder="按钮文字"><input data-k="color" type="color" value="${UI.esc(reply.color || '#c6a15a')}"><button type="button" class="btn btn-small" data-copy>复制内容</button><button type="button" class="btn btn-small btn-danger" data-del>删除</button></div>
         <textarea data-k="message" rows="3">${UI.esc(reply.message)}</textarea>
       </div>`).join('')}</div>
-      <button type="button" class="btn" id="add-qr">添加一条</button></div>`;
+      <button type="button" class="btn" id="add-qr">添加一条</button><div id="qr-lesson"></div></div>`;
     UI.bindFields(body, set);
     UI.mountLengths(body);
+    const paintQrLesson = () => {
+      const exported = F.qrToExport(set);
+      const steps = [`套名「${exported.name}」。导出是 Quick Reply v2。集合色取第一条的颜色「${exported.color || '空'}」。每条自己的颜色写在 atelierColor，默认不会自动发出。`];
+      if (!exported.qrList.length) steps.push('这一套还没有句子。添加后，每一条变成 qrList 里的一项。');
+      exported.qrList.forEach((item, index) => {
+        const message = String(item.message || '').replace(/\s+/g, ' ').trim();
+        steps.push(`第 ${index + 1} 条按钮「${item.label || '空'}」：点下去复制的是「${message ? message.slice(0, 40) : '空'}」。atelierColor 是「${item.atelierColor || '空'}」。`);
+      });
+      UI.fillLesson(body.querySelector('#qr-lesson'), steps);
+    };
+    paintQrLesson();
     body.querySelectorAll('[data-id]').forEach((row) => {
       const reply = set.replies.find((item) => item.id === row.dataset.id);
       row.querySelectorAll('[data-k]').forEach((node) => {
-        node.addEventListener('input', () => { reply[node.dataset.k] = node.value; UI.markDirty(); });
+        node.addEventListener('input', () => { reply[node.dataset.k] = node.value; UI.markDirty(); paintQrLesson(); });
       });
       row.querySelector('[data-copy]').onclick = () => UI.copyText(reply.message || '');
       row.querySelector('[data-del]').onclick = () => { set.replies = set.replies.filter((item) => item.id !== reply.id); UI.markDirty(); UI.renderStage(); };
@@ -1172,7 +1248,23 @@
       <button type="button" class="btn" id="add-beat">添加情节</button>
       <button type="button" class="btn btn-primary" id="export-tl">导出 JSON</button>
       ${hint('注记钉在某一楼，情节是节拍。点一条再改标题和楼层。')}
-    </div><div class="work"><div class="timeline" id="tl"></div><div id="tl-editor"></div></div>`;
+    </div><div class="work"><div><div id="tl-lesson"></div><div class="timeline" id="tl"></div></div><div id="tl-editor"></div></div>`;
+    const paintTimelineLesson = () => {
+      const notes = lib.timeline.notes || [];
+      const beats = lib.timeline.beats || [];
+      const steps = [`导出分成 notes 和 beats。现在有注记 ${notes.length} 条、情节 ${beats.length} 条。轴上按楼层从小到大排，楼层从 0 数，对上聊天消息序号。`];
+      notes.forEach((note) => {
+        const bodyText = String(note.body || '').replace(/\s+/g, ' ').trim();
+        steps.push(`注记「${note.title || '未命名'}」钉在楼层 ${Number(note.floor) || 0}。正文现在是「${bodyText ? bodyText.slice(0, 36) : '空'}」。它不注入酒馆，只留在这份时间线里。`);
+      });
+      beats.forEach((beat) => {
+        const summary = String(beat.summary || '').replace(/\s+/g, ' ').trim();
+        steps.push(`情节「${beat.title || '未命名'}」顺序 ${Number(beat.order) || 0}，楼层 ${Number(beat.floor) || 0}。摘要现在是「${summary ? summary.slice(0, 36) : '空'}」。`);
+      });
+      if (!notes.length && !beats.length) steps.push('时间线还是空的。加注记或情节后，这里会逐条说明它们落在哪一楼。');
+      UI.fillLesson(stage.querySelector('#tl-lesson'), steps);
+    };
+    paintTimelineLesson();
     const tl = stage.querySelector('#tl');
     tl.innerHTML = items.map((item) => `<button type="button" class="paper tl-item" data-kind="${item.kind}" data-id="${UI.esc(item.data.id)}"><span class="eyebrow">${item.kind === 'beat' ? '情节' : '注记'} · 楼层 ${item.floor}</span><strong>${UI.esc(item.data.title || '未命名')}</strong><p class="muted">${UI.esc(item.kind === 'beat' ? item.data.summary : item.data.body)}</p></button>`).join('') || '<p class="dark-muted">时间线还是空的。</p>';
     stage.querySelector('#add-note').onclick = () => {
@@ -1208,7 +1300,7 @@
         ${kind === 'beat' ? UI.field('顺序', `<input data-field="order" type="number" value="${Number(data.order) || 1}">`) + UI.field('摘要', UI.area('summary', data.summary, 5)) : UI.field('正文', UI.area('body', data.body, 6))}
         <button type="button" class="btn btn-danger" id="del-tl">删除</button>
       </div>`;
-      UI.bindFields(editor, data);
+      UI.bindFields(editor, data, paintTimelineLesson);
       UI.mountLengths(editor);
       editor.querySelector('#del-tl').onclick = () => {
         if (kind === 'beat') lib.timeline.beats = lib.timeline.beats.filter((item) => item.id !== id);
@@ -1314,7 +1406,15 @@
         <label class="field"><span class="field-label">自定义人物</span><input id="node-label" type="text" placeholder="不在角色库里的名字"></label>
         <button type="button" class="btn" id="add-node">添加人物</button>
         ${edge ? `<hr><p>选中：${UI.esc(edge.label)}</p><button type="button" class="btn btn-danger" id="del-edge">删除这条线</button>` : ''}
-        <p class="help">拖动圆点。导出时每条线变成一条选择性世界书条目。</p>`;
+        <p class="help">拖动圆点。导出时每条线变成一条选择性世界书条目。</p>
+        <div id="graph-lesson"></div>`;
+      const built = F.graphToBook(graphData, lib);
+      const steps = ['导出不改圆点的位置。书名固定是「关系图」。每一条线变成一条不恒定、选择性的世界书条目：关键词是两个人的名字，次关键词是关系，插在角色之前。'];
+      if (!built.entries.length) steps.push('还没有线。写上关系之后，这里会逐条说它会变成怎样的条目。');
+      built.entries.forEach((entry, index) => {
+        steps.push(`第 ${index + 1} 条「${entry.comment}」。关键词 ${entry.keys.join('、') || '无'}，次关键词 ${entry.secondaryKeys.join('、') || '无'}，顺序 ${entry.order}。内容现在是「${entry.content}」。试句里同时碰到人和关系名时才会插入。`);
+      });
+      UI.fillLesson(side.querySelector('#graph-lesson'), steps);
       side.querySelector('#add-edge').onclick = () => {
         const from = side.querySelector('#edge-from').value;
         const to = side.querySelector('#edge-to').value;
@@ -1382,13 +1482,24 @@
       <button type="button" class="btn btn-primary" id="run-check">重新检查</button>
       <button type="button" class="btn" id="export-check">导出报告</button>
       ${hint('选定角色，可选一本世界书对照。重新检查会刷新结果，导出报告不改卡。')}
-    </div><div id="findings"></div>`;
+    </div><div id="check-lesson"></div><div id="findings"></div>`;
     const paint = () => {
       const current = UI.charById(stage.querySelector('#check-char').value);
       const bookId = stage.querySelector('#check-book').value;
       if (!current) { stage.querySelector('#findings').innerHTML = '<div class="paper empty"><h3>没有角色可查</h3></div>'; return; }
       const findings = F.checkConsistency(lib, current.id, bookId || null);
       UI.state.lastFindings = { character: current.name, findings };
+      const bookName = bookId ? (lib.worldBooks.find((item) => item.id === bookId)?.name || '选中的书') : '库里每一本';
+      UI.fillLesson(stage.querySelector('#check-lesson'), [
+        `正在查「${current.name}」，对照${bookName}里启用的恒定条目。这是本地字面比对，不是模型审查。`,
+        '名字、描述、性格、情景、开场白若是空的，记成冲突。',
+        '开场、情景和备用开场里，如果出现跟其他角色只差一个字的名字，记成存疑。',
+        '描述和性格里的发色、瞳色，若和开场或情景对不上，记成存疑。',
+        '恒定条目里写了楼没烧毁、不许饮酒，或「不许…」，正文却反着说，记成冲突。',
+        findings.length
+          ? `这次得到 ${findings.length} 条：${findings.map((item) => `${item.severity === 'error' ? '冲突' : item.severity === 'warn' ? '存疑' : '备注'}「${item.title}」`).join('；')}。`
+          : '这次没有查出硬冲突。',
+      ]);
       const host = stage.querySelector('#findings');
       if (!findings.length) { host.innerHTML = '<div class="paper empty"><h3>这张卡对得上</h3><p>名字、开场和恒定条目里没有查出硬冲突。</p></div>'; return; }
       host.innerHTML = findings.map((item) => `<article class="paper finding"><div class="sev ${item.severity}">${item.severity === 'error' ? '冲突' : item.severity === 'warn' ? '存疑' : '备注'}</div><h3>${UI.esc(item.title)}</h3><p>${UI.esc(item.detail)}</p>${item.snippet ? `<p class="snippet">${highlight(item.snippet, item.highlight)}</p>` : ''}</article>`).join('');
@@ -1450,10 +1561,15 @@
         <button type="button" class="btn" id="add-beat">加一拍</button></div>
         <aside class="paper script-page" id="script-preview"></aside></div>`;
       const preview = () => {
+        const exported = F.scriptToExport(current, lib);
         body.querySelector('#script-preview').innerHTML = `<p class="eyebrow">SCRIPT</p><h2>${UI.esc(current.name)}</h2>${current.beats.map((beat) => {
           const who = beat.speaker === 'narrator' ? '旁白' : (UI.charById(beat.speaker)?.name || '旁白');
           return `<div class="script-line"><div class="who">${UI.esc(who)}</div>${beat.trigger ? `<div class="trigger">触发：${UI.esc(beat.trigger)}</div>` : ''}<p>${UI.esc(beat.line || '……')}</p></div>`;
-        }).join('')}`;
+        }).join('')}<div id="script-lesson"></div>`;
+        UI.fillLesson(body.querySelector('#script-lesson'), [
+          `剧本「${exported.name}」导出 ${exported.beats.length} 拍。order 从 1 顺着排。说话人写成名字；选旁白就写成「旁白」。`,
+          ...exported.beats.map((beat) => `第 ${beat.order} 拍 ${beat.speaker}：句子现在是「${String(beat.line || '').replace(/\s+/g, ' ').trim().slice(0, 40) || '空'}」。${beat.trigger ? `触发词「${beat.trigger}」只是标记，不会自己执行。` : '没有触发词。'}`),
+        ]);
       };
       UI.bindFields(body, current, preview);
       preview();
@@ -1497,7 +1613,7 @@
       ${colorField('背景', 'bg')}${colorField('漆面', 'lacquer')}${colorField('纸色', 'paper')}${colorField('墨色', 'ink')}${colorField('铜饰', 'accent')}
       ${UI.field('字号', `<input id="font-scale" type="range" min="0.9" max="1.25" step="0.01" value="${Number(vars.fontScale) || 1}">`)}
       ${UI.field('圆角', `<input id="radius" type="range" min="0" max="28" step="1" value="${Number(vars.radius) || 18}">`)}
-    </div><aside class="paper"><p class="eyebrow">活的预览</p><h2>纸上的句子</h2><p>主题改的是工坊自己。酒馆里要另外贴 CSS，选择器不会自动对上。</p><div class="bubble">杯沿对着你。</div><div class="swatches">${['bg', 'lacquer', 'paper', 'ink', 'accent'].map((key) => `<span class="swatch" style="background:${UI.esc(vars[key])}"></span>`).join('')}</div></aside></div>`;
+    </div><aside class="paper"><p class="eyebrow">活的预览</p><h2>纸上的句子</h2><p>主题改的是工坊自己。酒馆里要另外贴 CSS，选择器不会自动对上。</p><div class="bubble">杯沿对着你。</div><div class="swatches">${['bg', 'lacquer', 'paper', 'ink', 'accent'].map((key) => `<span class="swatch" style="background:${UI.esc(vars[key])}"></span>`).join('')}</div><div id="theme-lesson"></div></aside></div>`;
     function colorField(label, key) {
       return UI.field(label, `<input type="color" data-color="${key}" value="${UI.esc(vars[key] || '#000000')}">`);
     }
@@ -1508,12 +1624,25 @@
       UI.markDirty();
       UI.renderStage();
     });
-    UI.bindFields(stage, current);
+    const paintThemeLesson = () => {
+      const live = current.vars;
+      UI.fillLesson(stage.querySelector('#theme-lesson'), [
+        `背景 --bg 现在是 ${live.bg}。它铺在工坊最底下。`,
+        `漆面 --lacquer 现在是 ${live.lacquer}。侧栏用这个颜色。`,
+        `纸色 --paper 现在是 ${live.paper}。卡片的底是它。`,
+        `墨色 --ink 现在是 ${live.ink}。卡片上的字用它。`,
+        `强调色 --accent 现在是 ${live.accent}。主按钮和强调跟着它。`,
+        `字号倍率现在是 ${live.fontScale}。圆角 ${live.radius}px，下载的 CSS 把它写成 --bubble-radius。`,
+        `主题名叫「${current.name || '未命名'}」。CSS 注释里会带上这个名字。酒馆的选择器对不上这些变量，贴进去只是起点。`,
+      ]);
+    };
+    UI.bindFields(stage, current, paintThemeLesson);
     stage.querySelectorAll('[data-color]').forEach((input) => {
-      input.addEventListener('input', () => { vars[input.dataset.color] = input.value; UI.applyTheme(); UI.markDirty(); });
+      input.addEventListener('input', () => { vars[input.dataset.color] = input.value; UI.applyTheme(); UI.markDirty(); paintThemeLesson(); });
     });
-    stage.querySelector('#font-scale').oninput = (event) => { vars.fontScale = Number(event.target.value); UI.applyTheme(); UI.markDirty(); };
-    stage.querySelector('#radius').oninput = (event) => { vars.radius = Number(event.target.value); UI.applyTheme(); UI.markDirty(); };
+    stage.querySelector('#font-scale').oninput = (event) => { vars.fontScale = Number(event.target.value); UI.applyTheme(); UI.markDirty(); paintThemeLesson(); };
+    stage.querySelector('#radius').oninput = (event) => { vars.radius = Number(event.target.value); UI.applyTheme(); UI.markDirty(); paintThemeLesson(); };
+    paintThemeLesson();
     stage.querySelector('#use-theme').onclick = () => { lib.activeThemeId = current.id; UI.applyTheme(); UI.markDirty(); UI.toast(`正在使用「${current.name}」`); UI.renderStage(); };
     stage.querySelector('#new-theme').onclick = () => {
       const copy = structuredClone(current);
