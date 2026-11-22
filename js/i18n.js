@@ -3,6 +3,7 @@
   const KEY = 'nijan-ui';
   const PHRASE = {
     '总览': { en: 'Overview', ja: '概要' },
+    '段落预设': { en: 'Section presets', ja: '段落プリセット' },
     '角色卡工坊': { en: 'Character cards', ja: 'キャラカード' },
     '世界书看板': { en: 'World book', ja: 'ワールドブック' },
     '提示词拼装': { en: 'Prompt blocks', ja: 'プロンプト' },
@@ -97,6 +98,11 @@
   };
 
   const TEMPLATES = {
+    'blurb.sections': {
+      zh: '打开一组，选一个预设。它会写成作者注；注明的组还会写成世界书、正则或快捷回复。自定义框有字时，以自定义为准。',
+      en: 'Turn a group on and pick a preset. It becomes an author note; some groups also write a world-book entry, a regex, or a quick reply. If the custom box has text, that text wins.',
+      ja: 'グループをオンにしてプリセットを選ぶと、作者注になります。指定のある組はワールドブック、正規表現、クイック返信も書きます。カスタム欄に文字があればそちらが優先です。',
+    },
     'blurb.home': {
       zh: '看这台浏览器里有多少稿。点数字或角色，进入对应模块。',
       en: 'See what is stored in this browser. Click a count or a character to open that module.',

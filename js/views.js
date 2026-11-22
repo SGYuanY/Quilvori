@@ -1798,7 +1798,230 @@
     };
   }
 
+  const SECTION_PRESET = 'preset_sections';
+  const SECTION_BOOK = 'book_sections';
+  const R18_TEXT = {
+    hint: '成人内容只可暗示。用停顿、光线、衣料和呼吸带过，不写具体性行为。双方都是成年人。谁迟疑，就停在暗示，并留出事后照料的位置。未成年、真实伤害、未经同意，这些硬界限不能越过。',
+    explicit: '这是成年人之间的场面，可以写明确的成人亲密。每一步都要有清楚、而且可以撤回的同意。激烈之后写事后照料。硬界限一出现就停止，不劝，也不绕过。',
+    consent: '同意比情节优先。拒绝、僵住，或说出停止，就立刻退出亲密场面。不用醉酒、胁迫或「停不下来」越过界限。结束后先照料，再决定要不要继续。硬界限始终有效。',
+  };
+  const NSFW_NOTE = {
+    tease: '把张力留在将碰未碰：距离、呼吸、称呼的停顿。不进入明确的性行为。',
+    explicit: '可以写明确的成人亲密，但同意必须清楚，而且随时能收回。不要把沉默当成答应。',
+    after: '亲密已经过去。写体温退下去、水、毯子和确认对方还好。不再加新的性行为。',
+  };
+  const NSFW_LORE = {
+    tease: { keys: ['靠近', '呼吸', '距离'], content: '两人之间是暧昧，还没有说破。可以写几乎碰到的手和变慢的呼吸。不要写明确的性行为。再往前就先停住。' },
+    explicit: { keys: ['亲吻', '衣料', '床'], content: '这是成年人的亲密。可以明确，但每一步都要听得见同意。任何迟疑都先停。硬界限不能写成可以商量。' },
+    after: { keys: ['事后', '毯子', '水'], content: '事情已经结束。这一段只写余韵和照料：水、毯子、安静，以及问对方还好不好。不要重新开始。' },
+  };
+  const STYLE_TEXT = {
+    short: '句子短。少形容词。一句只做一件事。',
+    long: '允许把环境、触觉和光线写长。句子可以慢慢收束。',
+    talk: '多用对白推进。叙述只补动作和停顿。',
+    spare: '不把情绪说满。留下没写完的半句，让空白自己工作。',
+  };
+  const BOND_TEXT = {
+    stranger: '两人是陌生人。称呼用「你」或身份，不用爱称。没有默许的触碰。不能越过的线是身体距离和打探私事。',
+    old: '两人是旧识。可以用名字和从前的称呼，默契可以有。新的越界仍要问。不能越过的线是把旧账当成现在的许可。',
+    lover: '两人是恋人。可以用约定过的称呼。亲密是互相的，不是义务。不能越过的线是一方不想继续时仍往前。',
+    foe: '两人敌对。称呼冷、短。敌意不是许可。不能越过的线是借冲突发生未经同意的亲密。',
+  };
+
+  function sectionText(group, fallback) {
+    if (String(group.custom || '').trim()) return String(group.custom).trim();
+    if (String(group.text || '').trim()) return String(group.text).trim();
+    return fallback || '';
+  }
+
+  function upsertById(list, item) {
+    const index = list.findIndex((entry) => entry.id === item.id);
+    if (index >= 0) list[index] = Object.assign(list[index], item);
+    else list.push(item);
+  }
+
+  function syncSections(lib) {
+    const sections = lib.sections;
+    const r18 = sectionText(sections.r18, R18_TEXT[sections.r18.preset] || R18_TEXT.hint);
+    const nsfw = sectionText(sections.nsfw, NSFW_NOTE[sections.nsfw.preset] || NSFW_NOTE.tease);
+    const style = sectionText(sections.style, STYLE_TEXT[sections.style.preset] || STYLE_TEXT.short);
+    const povBase = sections.pov.preset === 'first'
+      ? '用第一人称「我」来写。'
+      : '用第三人称，写角色名或「她/他」，不要滑进「我」。';
+    const povThought = sections.pov.thoughts ? '可以写很短的内心一念，不要长篇独白。' : '不写内心独白，只写看得到的动作和对白。';
+    const pov = sectionText(sections.pov, `${povBase}${povThought}`);
+    const bond = sectionText(sections.bond, BOND_TEXT[sections.bond.preset] || BOND_TEXT.stranger);
+    const word = String(sections.safe.word || '停').trim() || '停';
+    const safe = sectionText(sections.safe, `安全词是「${word}」。角色或用户一说出这个词，立刻停止当前亲密或冲突，回到普通对话，先确认对方还要不要继续。不要把这个词当成玩笑带过。`);
+    const formatReply = sectionText(sections.format, '动作用星号包起来，说出的话用引号。段末另起一行写状态：地点、时间、两人距离。');
+    const find = String(sections.format.find || '').trim() || '/（([^）\\n]+)）/g';
+    const replace = sections.format.replace != null && sections.format.replace !== '' ? sections.format.replace : '*$1*';
+
+    let preset = lib.promptPresets.find((item) => item.id === SECTION_PRESET);
+    if (!preset) {
+      preset = { id: SECTION_PRESET, name: '霓笺段落', blocks: [] };
+      lib.promptPresets.unshift(preset);
+    }
+    [
+      ['sec_r18', 'R18', r18, sections.r18.on],
+      ['sec_nsfw', 'NSFW', nsfw, sections.nsfw.on],
+      ['sec_style', '文风', style, sections.style.on],
+      ['sec_pov', '人称', pov, sections.pov.on],
+    ].forEach(([id, name, content, on]) => {
+      upsertById(preset.blocks, { id, name, kind: 'author_note', role: 'system', enabled: !!(on && content), content });
+    });
+
+    let book = lib.worldBooks.find((item) => item.id === SECTION_BOOK);
+    if (!book) {
+      book = { id: SECTION_BOOK, name: '霓笺段落', description: '段落预设写入的条目', entries: [] };
+      lib.worldBooks.push(book);
+    }
+    const nsfwLore = NSFW_LORE[sections.nsfw.preset] || NSFW_LORE.tease;
+    const nsfwBody = String(sections.nsfw.custom || '').trim() ? nsfw : nsfwLore.content;
+    upsertById(book.entries, Object.assign(blankEntry(), {
+      id: 'sec_nsfw_lore', comment: 'NSFW', content: sections.nsfw.on ? nsfwBody : (book.entries.find((item) => item.id === 'sec_nsfw_lore')?.content || nsfwBody),
+      keys: nsfwLore.keys, secondaryKeys: [], constant: false, selective: true, order: 30, position: 'after_char', enabled: !!sections.nsfw.on, depth: 4,
+    }));
+    upsertById(book.entries, Object.assign(blankEntry(), {
+      id: 'sec_bond', comment: '关系边界', content: bond, keys: ['称呼', '你'], secondaryKeys: [], constant: false, selective: true, order: 20, position: 'before_char', enabled: !!sections.bond.on, depth: 4,
+    }));
+    upsertById(book.entries, Object.assign(blankEntry(), {
+      id: 'sec_safe', comment: '安全词', content: safe, keys: [word], secondaryKeys: [], constant: true, selective: false, order: 1, position: 'before_char', enabled: !!sections.safe.on, depth: 4,
+    }));
+
+    let script = lib.regexScripts.find((item) => item.id === 'sec_format_rx');
+    if (!script) {
+      script = { id: 'sec_format_rx', scriptName: '输出格式', findRegex: find, replaceString: replace, trimStrings: [], placement: [2], disabled: !sections.format.on, markdownOnly: false, promptOnly: false, runOnEdit: false, substituteRegex: 0, minDepth: null, maxDepth: null };
+      lib.regexScripts.unshift(script);
+    } else {
+      script.findRegex = find;
+      script.replaceString = replace;
+      script.disabled = !sections.format.on;
+    }
+    let quick = lib.quickReplySets.find((item) => item.id === 'sec_format_qr');
+    if (!quick) {
+      quick = { id: 'sec_format_qr', name: '输出格式', replies: [] };
+      lib.quickReplySets.unshift(quick);
+    }
+    quick.replies = sections.format.on ? [{ id: 'sec_format_reply', label: '输出格式', message: formatReply, color: '#d6ff3f', title: '动作用星号，对白用引号' }] : [];
+  }
+
+  function sections(stage) {
+    const lib = UI.state.lib;
+    if (!lib.sections) lib.sections = Store.defaultSections ? Store.defaultSections() : lib.sections;
+    if (!lib.sections) {
+      lib.sections = { r18: { on: false, preset: 'hint', custom: '', text: '' }, nsfw: { on: false, preset: 'tease', custom: '', text: '' }, style: { on: false, preset: 'short', custom: '', text: '' }, pov: { on: false, preset: 'third', thoughts: false, custom: '', text: '' }, bond: { on: false, preset: 'stranger', custom: '', text: '' }, safe: { on: false, word: '停', custom: '', text: '' }, format: { on: false, custom: '', text: '' } };
+    }
+    const s = lib.sections;
+    const presetSaved = lib.promptPresets.find((item) => item.id === SECTION_PRESET);
+    const bookSaved = lib.worldBooks.find((item) => item.id === SECTION_BOOK);
+    const pull = (group, content) => { if (!String(group.text || '').trim() && !String(group.custom || '').trim() && content) group.text = content; };
+    if (presetSaved) {
+      pull(s.r18, presetSaved.blocks.find((block) => block.id === 'sec_r18')?.content);
+      pull(s.nsfw, presetSaved.blocks.find((block) => block.id === 'sec_nsfw')?.content);
+      pull(s.style, presetSaved.blocks.find((block) => block.id === 'sec_style')?.content);
+      pull(s.pov, presetSaved.blocks.find((block) => block.id === 'sec_pov')?.content);
+    }
+    if (bookSaved) {
+      pull(s.bond, bookSaved.entries.find((entry) => entry.id === 'sec_bond')?.content);
+      pull(s.safe, bookSaved.entries.find((entry) => entry.id === 'sec_safe')?.content);
+    }
+    const formatReply = lib.quickReplySets.find((item) => item.id === 'sec_format_qr')?.replies?.[0]?.message;
+    pull(s.format, formatReply);
+    const shown = (group, template) => (String(group.custom || '').trim() ? group.custom : (group.text || template));
+    const chips = (group, options, templateOf) => options.map(([id, label]) => `<button type="button" class="btn btn-small${group.preset === id ? ' btn-primary' : ''}" data-pick="${id}">${label}</button>`).join('') + (templateOf ? '' : '');
+    stage.innerHTML = `<div class="stack">
+      <section class="paper stack"><div class="row"><label class="check"><input type="checkbox" data-sec="r18" ${s.r18.on ? 'checked' : ''}>R18</label><span class="muted">默认关闭。只管尺度、同意、事后照料和硬界限。</span></div>
+        <div class="row">${chips(s.r18, [['hint', '只暗示'], ['explicit', '明确成人'], ['consent', '强制同意边界']])}</div>
+        ${UI.field('填入的作者注', `<textarea data-live="r18" rows="4">${UI.esc(shown(s.r18, R18_TEXT[s.r18.preset]))}</textarea>`)}
+        ${UI.field('自定义', `<textarea data-custom="r18" rows="3" placeholder="有字时盖过预设">${UI.esc(s.r18.custom || '')}</textarea>`)}
+      </section>
+      <section class="paper stack"><div class="row"><label class="check"><input type="checkbox" data-sec="nsfw" ${s.nsfw.on ? 'checked' : ''}>NSFW</label><span class="muted">和 R18 分开。关闭时不显示预设。</span></div>
+        ${s.nsfw.on ? `<div class="row">${chips(s.nsfw, [['tease', '暧昧拉扯'], ['explicit', '明确成人'], ['after', '事后余韵']])}</div>
+        ${UI.field('填入的作者注', `<textarea data-live="nsfw" rows="3">${UI.esc(shown(s.nsfw, NSFW_NOTE[s.nsfw.preset]))}</textarea>`)}
+        ${UI.field('自定义', `<textarea data-custom="nsfw" rows="2" placeholder="有字时盖过预设">${UI.esc(s.nsfw.custom || '')}</textarea>`)}
+        <p class="help">开启后还会写一条世界书：关键词随预设变化。</p>` : ''}
+      </section>
+      <section class="paper stack"><div class="row"><label class="check"><input type="checkbox" data-sec="style" ${s.style.on ? 'checked' : ''}>文风</label></div>
+        <div class="row">${chips(s.style, [['short', '短句干脆'], ['long', '长描写'], ['talk', '对话为主'], ['spare', '冷一点的留白']])}</div>
+        ${UI.field('填入的作者注', `<textarea data-live="style" rows="3">${UI.esc(shown(s.style, STYLE_TEXT[s.style.preset]))}</textarea>`)}
+        ${UI.field('自定义', `<textarea data-custom="style" rows="2" placeholder="有字时盖过预设">${UI.esc(s.style.custom || '')}</textarea>`)}
+      </section>
+      <section class="paper stack"><div class="row"><label class="check"><input type="checkbox" data-sec="pov" ${s.pov.on ? 'checked' : ''}>人称和视角</label>
+        <button type="button" class="btn btn-small${s.pov.preset === 'first' ? ' btn-primary' : ''}" data-pov="first">第一人称</button>
+        <button type="button" class="btn btn-small${s.pov.preset === 'third' ? ' btn-primary' : ''}" data-pov="third">第三人称</button>
+        <label class="check"><input type="checkbox" id="pov-thoughts" ${s.pov.thoughts ? 'checked' : ''}>写内心</label></div>
+        ${UI.field('填入的作者注', `<textarea data-live="pov" rows="3">${UI.esc(shown(s.pov, (s.pov.preset === 'first' ? '用第一人称「我」来写。' : '用第三人称，写角色名或「她/他」，不要滑进「我」。') + (s.pov.thoughts ? '可以写很短的内心一念，不要长篇独白。' : '不写内心独白，只写看得到的动作和对白。')))}</textarea>`)}
+        ${UI.field('自定义', `<textarea data-custom="pov" rows="2" placeholder="有字时盖过预设">${UI.esc(s.pov.custom || '')}</textarea>`)}
+      </section>
+      <section class="paper stack"><div class="row"><label class="check"><input type="checkbox" data-sec="bond" ${s.bond.on ? 'checked' : ''}>关系边界</label></div>
+        <div class="row">${chips(s.bond, [['stranger', '陌生人'], ['old', '旧识'], ['lover', '恋人'], ['foe', '敌对']])}</div>
+        ${UI.field('填入的世界书', `<textarea data-live="bond" rows="3">${UI.esc(shown(s.bond, BOND_TEXT[s.bond.preset]))}</textarea>`)}
+        ${UI.field('自定义', `<textarea data-custom="bond" rows="2" placeholder="有字时盖过预设">${UI.esc(s.bond.custom || '')}</textarea>`)}
+        <p class="help">写成一条世界书：称呼，以及不能越过的那条线。</p>
+      </section>
+      <section class="paper stack"><div class="row"><label class="check"><input type="checkbox" data-sec="safe" ${s.safe.on ? 'checked' : ''}>安全词和停止条件</label></div>
+        ${UI.field('安全词', `<input data-word type="text" value="${UI.esc(s.safe.word || '停')}">`)}
+        ${UI.field('填入的恒定世界书', `<textarea data-live="safe" rows="3">${UI.esc(shown(s.safe, `安全词是「${s.safe.word || '停'}」。角色或用户一说出这个词，立刻停止当前亲密或冲突，回到普通对话，先确认对方还要不要继续。不要把这个词当成玩笑带过。`))}</textarea>`)}
+        ${UI.field('自定义', `<textarea data-custom="safe" rows="2" placeholder="有字时盖过预设">${UI.esc(s.safe.custom || '')}</textarea>`)}
+        <p class="help">恒定条目。角色或用户说出这个词，就停止。</p>
+      </section>
+      <section class="paper stack"><div class="row"><label class="check"><input type="checkbox" data-sec="format" ${s.format.on ? 'checked' : ''}>输出格式</label></div>
+        ${UI.field('快捷回复', `<textarea data-live="format" rows="3">${UI.esc(shown(s.format, '动作用星号包起来，说出的话用引号。段末另起一行写状态：地点、时间、两人距离。'))}</textarea>`)}
+        ${UI.field('自定义', `<textarea data-custom="format" rows="2" placeholder="有字时盖过这条快捷回复">${UI.esc(s.format.custom || '')}</textarea>`)}
+        <p class="help">同时写入一条正则：把中文括号里的动作改成星号。可以在正则脚本里再改。</p>
+      </section>
+    </div>`;
+    const commit = (render) => { syncSections(lib); UI.markDirty(); if (render) UI.renderStage(); };
+    stage.querySelectorAll('[data-sec]').forEach((box) => {
+      box.onchange = () => {
+        const key = box.dataset.sec;
+        s[key].on = box.checked;
+        if (box.checked && !String(s[key].text || '').trim() && !String(s[key].custom || '').trim()) {
+          if (key === 'r18') s.r18.text = R18_TEXT[s.r18.preset];
+          if (key === 'nsfw') s.nsfw.text = NSFW_NOTE[s.nsfw.preset];
+          if (key === 'style') s.style.text = STYLE_TEXT[s.style.preset];
+          if (key === 'bond') s.bond.text = BOND_TEXT[s.bond.preset];
+        }
+        commit(true);
+      };
+    });
+    stage.querySelectorAll('[data-pick]').forEach((button) => {
+      button.onclick = () => {
+        const host = button.closest('section');
+        const key = host.querySelector('[data-sec]').dataset.sec;
+        s[key].preset = button.dataset.pick;
+        if (!String(s[key].custom || '').trim()) {
+          if (key === 'r18') s.r18.text = R18_TEXT[s.r18.preset];
+          if (key === 'nsfw') s.nsfw.text = NSFW_NOTE[s.nsfw.preset];
+          if (key === 'style') s.style.text = STYLE_TEXT[s.style.preset];
+          if (key === 'bond') s.bond.text = BOND_TEXT[s.bond.preset];
+        }
+        commit(true);
+      };
+    });
+    stage.querySelectorAll('[data-pov]').forEach((button) => {
+      button.onclick = () => { s.pov.preset = button.dataset.pov; if (!String(s.pov.custom || '').trim()) s.pov.text = ''; commit(true); };
+    });
+    const thoughts = stage.querySelector('#pov-thoughts');
+    if (thoughts) thoughts.onchange = () => { s.pov.thoughts = thoughts.checked; if (!String(s.pov.custom || '').trim()) s.pov.text = ''; commit(true); };
+    const word = stage.querySelector('[data-word]');
+    if (word) word.oninput = () => { s.safe.word = word.value; if (!String(s.safe.custom || '').trim()) s.safe.text = ''; commit(true); };
+    stage.querySelectorAll('[data-live]').forEach((area) => {
+      area.oninput = () => {
+        const key = area.dataset.live;
+        if (String(s[key].custom || '').trim()) s[key].custom = area.value;
+        else s[key].text = area.value;
+        commit(false);
+      };
+    });
+    stage.querySelectorAll('[data-custom]').forEach((area) => {
+      area.oninput = () => { s[area.dataset.custom].custom = area.value; commit(false); };
+    });
+    if (Object.values(s).some((group) => group.on)) syncSections(lib);
+  }
+
   UI.mount({
-    home, characters, lore, prompts, groups, chat, assets, regex, quick, timeline, graph, check, script, theme, backup,
+    home, characters, lore, prompts, groups, chat, assets, regex, quick, timeline, graph, check, script, theme, backup, sections,
   });
 })(typeof globalThis !== 'undefined' ? globalThis : window);
