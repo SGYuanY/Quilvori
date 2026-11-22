@@ -370,6 +370,85 @@ input[type="color"] { width: 46px; height: 32px; padding: 0; border: 0; backgrou
 .paper .btn-primary { color: #1a120c; }
 .toasts { position: fixed; right: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 60; }
 .toast { background: var(--paper); color: var(--ink); padding: 10px 14px; border-radius: 12px; box-shadow: var(--shadow); max-width: 320px; }
+.len {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+.len i {
+  display: block;
+  width: 72px;
+  flex: 0 0 72px;
+  height: 2px;
+  border-radius: 99px;
+  background: rgba(26, 18, 12, 0.15);
+  overflow: hidden;
+}
+.len i b { display: block; height: 100%; width: 0; background: var(--brass); }
+.export-slip {
+  margin: 0 28px 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
+  background: var(--paper);
+  color: var(--ink);
+  border-radius: 14px;
+  border-left: 3px solid var(--brass);
+  padding: 10px 14px;
+  box-shadow: var(--shadow);
+}
+.export-slip b { font-family: var(--serif); letter-spacing: 0.04em; overflow-wrap: anywhere; }
+.export-slip .btn { color: var(--ink); border-color: rgba(26, 18, 12, 0.2); }
+.export-slip span { flex: 1 1 220px; font-size: 13px; }
+.lore-try { margin-bottom: 14px; }
+.lore-try .hit-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.entry.hit { box-shadow: inset 0 0 0 1.5px var(--brass-2); }
+.gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 14px;
+}
+.gallery-card {
+  padding: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  transition: transform 160ms ease;
+}
+.gallery-card.on { box-shadow: inset 0 0 0 1.5px var(--brass), var(--shadow); }
+.gallery-card:hover { transform: translateY(-2px); }
+.gallery-open {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+.gallery-open img, .gallery-open .seal-fallback {
+  height: 210px;
+  width: 100%;
+  aspect-ratio: auto;
+  border-radius: 0;
+  box-shadow: inset 0 0 0 1px rgba(198, 161, 90, 0.45);
+}
+.gallery-meta { padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 6px; }
+.gallery-meta strong { font-family: var(--serif); letter-spacing: 0.08em; font-size: 20px; }
+.clamp-3 {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  white-space: pre-wrap;
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 13px;
+}
 
 .banner {
   margin: 0 28px;
@@ -399,6 +478,7 @@ input[type="color"] { width: 46px; height: 32px; padding: 0; border: 0; backgrou
   .search .note, .save-wrap .note { text-align: left; max-width: none; }
   .search input { width: 100%; }
   .stage { padding: 6px 14px 28px; }
+  .export-slip { margin: 0 14px 10px; }
   .hero h2 { font-size: 30px; }
   .grid-2 { grid-template-columns: 1fr; }
   .stats, .cast { grid-template-columns: 1fr 1fr; }

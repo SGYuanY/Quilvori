@@ -91,6 +91,43 @@
     downloadText(filename, JSON.stringify(data, null, 2));
   }
 
+  function estimateLength(text) {
+    const raw = String(text || '');
+    let tokens = 0;
+    for (const ch of raw) {
+      if (/\s/u.test(ch)) continue;
+      tokens += /[\u3400-\u9fff\uf900-\ufaff]/u.test(ch) ? 1 : 0.25;
+    }
+    return { chars: Array.from(raw).length, tokens: Math.ceil(tokens) };
+  }
+
+  function mountLengths(rootNode) {
+    if (!rootNode) return;
+    rootNode.querySelectorAll('textarea').forEach((node) => {
+      if (node.dataset.nolen != null) return;
+      const rows = Number(node.getAttribute('rows') || 0);
+      if (rows && rows < 3) return;
+      if (node.nextElementSibling && node.nextElementSibling.classList.contains('len')) return;
+      const meter = document.createElement('div');
+      meter.className = 'len';
+      node.insertAdjacentElement('afterend', meter);
+      const paint = () => {
+        const stat = estimateLength(node.value);
+        const pct = Math.min(100, Math.round((stat.chars / 800) * 100));
+        meter.innerHTML = `<i><b style="width:${pct}%"></b></i><span>${stat.chars} 字 · 约 ${stat.tokens} token</span>`;
+      };
+      paint();
+      node.addEventListener('input', paint);
+    });
+  }
+
+  function showExport(file, summary) {
+    const host = document.getElementById('export-slip');
+    if (!host) return;
+    host.innerHTML = `<div class="export-slip" role="status"><b>${esc(file)}</b><span>${esc(summary)}</span><button type="button" class="btn btn-small" data-close>知道了</button></div>`;
+    host.querySelector('[data-close]').onclick = () => { host.innerHTML = ''; };
+  }
+
   function pickFile(accept, multiple) {
     return new Promise((resolve) => {
       const input = document.createElement('input');
@@ -245,6 +282,8 @@
     state.query = '';
     const search = document.getElementById('search');
     if (search) search.value = '';
+    const slip = document.getElementById('export-slip');
+    if (slip) slip.innerHTML = '';
     renderStage();
   }
 
@@ -352,6 +391,7 @@
           </div>
         </header>
         <div id="storage-banner"></div>
+        <div id="export-slip"></div>
         <div class="stage" id="stage"></div>
       </div>
     </div>
@@ -390,5 +430,6 @@
     ROUTES, state, esc, toast, ask, downloadBlob, downloadText, downloadJson, pickFile, readText, readDataUrl, copyText,
     safeName, assetById, charById, selected, matchQuery, markDirty, flush, applyTheme, go, renderStage, show,
     field, area, text, bindFields, picker, bindPicker, empty, confirmLoadDemo, confirmClear, mount,
+    estimateLength, mountLengths, showExport,
   };
 })(typeof globalThis !== 'undefined' ? globalThis : window);
