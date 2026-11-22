@@ -525,7 +525,7 @@
   function themeToCss(theme) {
     const vars = theme.vars || {};
     return [
-      `/* 酒馆工坊主题「${theme.name || '未命名'}」`,
+      `/* 霓笺主题「${theme.name || '未命名'}」`,
       '   SillyTavern 的自定义 CSS 选择器不同，把变量抄进你的主题后再改选择器。 */',
       ':root {',
       `  --bg: ${vars.bg || '#07090d'};`,
@@ -550,7 +550,7 @@
 
   function backupLibrary(json) {
     if (!json || json.atelier !== 'tavern-atelier' || !json.library) {
-      throw new Error('这不是酒馆工坊的整库备份');
+      throw new Error('这不是霓笺的整库备份');
     }
     return json.library;
   }
@@ -1008,6 +1008,10 @@
     return Object.assign({ matches, replaced, unmatched: unmatched.filter((part) => part.length), miss: matches.length === 0 }, described);
   }
 
+  function t(key, vars) {
+    return root.TAI18n ? root.TAI18n.t(key, vars) : key;
+  }
+
   function clipWords(value, limit) {
     const clean = String(value || '').replace(/\s+/g, ' ').trim();
     if (!clean) return '';
@@ -1046,22 +1050,22 @@
     const example = String(character.mes_example || '').trim();
     const system = String(character.system_prompt || '').trim();
     const greetings = [...(character.alternate_greetings || [])].map((line) => String(line || '').trim()).filter(Boolean);
-    steps.push(name ? `名字是「${name}」。这是卡的标题，酒馆角色列表里显示这个名字。` : '名字是空的。酒馆里这张卡没有可显示的角色名。');
-    steps.push(personality ? `性格：「${clipWords(personality, 80)}」。它说明这个人稳定的脾气和说话方式，模型会把它当成不能随便改的人设。` : '性格是空的。卡没有写这个人稳定的脾气。');
-    steps.push(scenario ? `情景：「${clipWords(scenario, 80)}」。它是聊天开始时已经摆好的局面，不是人物小传。` : '情景是空的。开场时没有交代已经发生了什么。');
-    steps.push(first ? `开场白：「${clipWords(first, 80)}」。新开一场聊天时，角色先说出这一段。` : '开场白是空的。新聊天没有角色先说的第一句。');
-    steps.push(greetings.length ? `备用开场有 ${greetings.length} 条。它们是可以换上的另一句开场，第一条是「${clipWords(greetings[0], 60)}」。` : '没有备用开场。酒馆里只能用上面那一句开场白。');
-    steps.push(example ? `对话示例：「${clipWords(example, 80)}」。它示范口气，通常用 {{char}} 和 {{user}}，不会被当成已经发生过的聊天。` : '没有对话示例。模型看不到一段可以模仿的对白。');
-    steps.push(system ? `系统提示：「${clipWords(system, 80)}」。它写进角色卡的 system_prompt，用来压过更一般的系统说明。` : '系统提示是空的。不写的话，酒馆继续用自己的系统提示。');
+    steps.push(name ? t('card.name', { name }) : t('card.nameEmpty'));
+    steps.push(personality ? t('card.personality', { text: clipWords(personality, 80) }) : t('card.personalityEmpty'));
+    steps.push(scenario ? t('card.scenario', { text: clipWords(scenario, 80) }) : t('card.scenarioEmpty'));
+    steps.push(first ? t('card.first', { text: clipWords(first, 80) }) : t('card.firstEmpty'));
+    steps.push(greetings.length ? t('card.greetings', { count: greetings.length, text: clipWords(greetings[0], 60) }) : t('card.greetingsEmpty'));
+    steps.push(example ? t('card.example', { text: clipWords(example, 80) }) : t('card.exampleEmpty'));
+    steps.push(system ? t('card.system', { text: clipWords(system, 80) }) : t('card.systemEmpty'));
     const required = [['name', '名字', name], ['description', '描述', character.description], ['personality', '性格', personality], ['scenario', '情景', scenario], ['first_mes', '开场白', first]];
     required.forEach(([, label, value]) => {
-      if (!String(value || '').trim()) issues.push({ where: label, text: '这是角色卡的基本字段，现在是空的。' });
+      if (!String(value || '').trim()) issues.push({ where: label, text: t('card.issueEmpty', { where: label }).replace(`${label}：`, '') });
     });
     const seen = new Map();
     [[first, '开场白'], ...greetings.map((line, index) => [line, `备用开场第 ${index + 1} 条`])].forEach(([line, where]) => {
       const key = sameText(line);
       if (!key) return;
-      if (seen.has(key)) issues.push({ where, text: `和${seen.get(key)}是同一句，开场会重复。` });
+      if (seen.has(key)) issues.push({ where, text: t('card.issueRepeat', { where, other: seen.get(key) }).replace(`${where}：`, '') });
       else seen.set(key, where);
     });
     const canon = [personality, scenario].filter(Boolean).join('\n');
@@ -1073,14 +1077,14 @@
       const canonEyes = new Set(collectAttr(canon, eyes).map((item) => item.value));
       spokenParts.forEach(([line, where]) => {
         if (!line) return;
-        pairConflict(canon, line).forEach((note) => issues.push({ where, text: `和性格或情景对不上：${note}。` }));
+        pairConflict(canon, line).forEach((note) => issues.push({ where, text: t('card.issueConflict', { where, note }).replace(`${where}：`, '') }));
         const spokenHair = collectAttr(line, hair);
         if (canonHair.size && spokenHair.length && spokenHair.every((item) => !canonHair.has(item.value))) {
-          issues.push({ where, text: `性格或情景里是${[...canonHair].join('、')}发，这里写成了${spokenHair[0].value}发。` });
+          issues.push({ where, text: t('card.issueHair', { where, canon: [...canonHair].join('、'), spoken: spokenHair[0].value }).replace(`${where}：`, '') });
         }
         const spokenEyes = collectAttr(line, eyes);
         if (canonEyes.size && spokenEyes.length && spokenEyes.every((item) => !canonEyes.has(item.value))) {
-          issues.push({ where, text: `性格或情景里是${[...canonEyes].join('、')}瞳，这里写成了${spokenEyes[0].value}。` });
+          issues.push({ where, text: t('card.issueEyes', { where, canon: [...canonEyes].join('、'), spoken: spokenEyes[0].value }).replace(`${where}：`, '') });
         }
       });
     }
@@ -1092,7 +1096,7 @@
     const issues = [];
     const entries = book.entries || [];
     const placeOf = (entry) => (POSITIONS.find((item) => item.id === entry.position) || POSITIONS[0]).label;
-    steps.push(`世界书「${book.name || '未命名'}」共 ${entries.length} 条。下面逐条说关键词、是否恒定、顺序、插入位置，以及它在补充什么。`);
+    steps.push(t('book.lead', { name: book.name || '未命名', count: entries.length }));
     entries.forEach((entry, index) => {
       const name = entry.comment || `第 ${index + 1} 条`;
       const keys = (entry.keys || []).map((key) => String(key).trim()).filter(Boolean);
@@ -1100,21 +1104,22 @@
       const place = placeOf(entry);
       const order = Number(entry.order ?? 100);
       const meaning = clipWords(entry.content, 72);
-      let when;
-      if (entry.enabled === false) when = '这条目前停用，不会插入。';
-      else if (entry.constant) when = `这是恒定条目，不看关键词，按顺序 ${order} 插到「${place}」。`;
-      else if (entry.selective) when = `这不是恒定。试句里出现主关键词${keys.length ? `「${keys.join('、')}」` : '（没写）'}之后，还要再看次关键词${secondary.length ? `「${secondary.join('、')}」` : '（没写）'}，才按顺序 ${order} 插到「${place}」。`;
-      else when = `这不是恒定。试句里出现${keys.length ? `「${keys.join('、')}」` : '（没有关键词）'}时，按顺序 ${order} 插到「${place}」。`;
-      steps.push(`「${name}」：${when}${meaning ? `它在补充：「${meaning}」。` : '正文是空的。'}`);
+      const meaningText = meaning ? t('book.means', { text: meaning }) : t('book.meansEmpty');
+      const keysText = keys.length ? `「${keys.join('、')}」` : '（没写）';
+      const secondaryText = secondary.length ? `「${secondary.join('、')}」` : '（没写）';
+      if (entry.enabled === false) steps.push(t('book.off', { name, meaning: meaningText }));
+      else if (entry.constant) steps.push(t('book.constant', { name, order, place, meaning: meaningText }));
+      else if (entry.selective) steps.push(t('book.selective', { name, keys: keysText, secondary: secondaryText, order, place, meaning: meaningText }));
+      else steps.push(t('book.keyed', { name, keys: keysText, order, place, meaning: meaningText }));
     });
     const contentSeen = new Map();
     entries.forEach((entry, index) => {
       const name = entry.comment || `第 ${index + 1} 条`;
       const keys = (entry.keys || []).map((key) => String(key).trim()).filter(Boolean);
-      if (!entry.constant && !keys.length) issues.push({ where: `条目「${name}」`, text: '不是恒定条目，却没有主关键词，平时不会被插入。' });
+      if (!entry.constant && !keys.length) issues.push({ where: `条目「${name}」`, text: t('book.issueEmptyKeys', { name }) });
       const content = sameText(entry.content);
       if (content) {
-        if (contentSeen.has(content)) issues.push({ where: `条目「${name}」`, text: `和「${contentSeen.get(content)}」的正文相同。` });
+        if (contentSeen.has(content)) issues.push({ where: `条目「${name}」`, text: t('book.issueSame', { name, other: contentSeen.get(content) }) });
         else contentSeen.set(content, name);
       }
     });
@@ -1126,9 +1131,9 @@
         const otherKeys = (other.keys || []).map((key) => String(key).trim()).filter(Boolean);
         keys.forEach((key) => {
           otherKeys.forEach((otherKey) => {
-            if (key === otherKey) issues.push({ where: `条目「${name}」`, text: `和「${otherName}」用了同一个关键词「${key}」。` });
+            if (key === otherKey) issues.push({ where: `条目「${name}」`, text: t('book.issueDupKey', { name, other: otherName, key }) });
             else if (key !== otherKey && (key.includes(otherKey) || otherKey.includes(key))) {
-              issues.push({ where: `条目「${name}」`, text: `关键词「${key}」和「${otherName}」的「${otherKey}」互相包含，一句话可能同时触发两条。` });
+              issues.push({ where: `条目「${name}」`, text: t('book.issueOverlap', { name, other: otherName, key, otherKey }) });
             }
           });
         });
@@ -1140,7 +1145,7 @@
       const name = entry.comment || `第 ${index + 1} 条`;
       const bucket = `${entry.position}|${Number(entry.order ?? 100)}`;
       if (orderSeen.has(bucket)) {
-        issues.push({ where: `条目「${name}」`, text: `和「${orderSeen.get(bucket)}」的插入位置都是「${placeOf(entry)}」，顺序都是 ${Number(entry.order ?? 100)}，分不出先后。` });
+        issues.push({ where: `条目「${name}」`, text: t('book.issueOrder', { name, other: orderSeen.get(bucket), place: placeOf(entry), order: Number(entry.order ?? 100) }) });
       } else orderSeen.set(bucket, name);
     });
     const constants = entries.filter((entry) => entry.constant && entry.enabled !== false && String(entry.content || '').trim());
@@ -1149,7 +1154,7 @@
       constants.slice(index + 1).forEach((other) => {
         const otherName = other.comment || '另一条恒定条目';
         pairConflict(entry.content, other.content).forEach((note) => {
-          issues.push({ where: `条目「${name}」`, text: `和恒定条目「${otherName}」互相矛盾：${note}。` });
+          issues.push({ where: `条目「${name}」`, text: t('book.issueContra', { name, other: otherName, note }) });
         });
       });
     });
