@@ -10,6 +10,34 @@
     return `<p class="note">${UI.esc(text)}</p>`;
   }
 
+  function showReading(host, title, reading) {
+    if (!host) return;
+    host.replaceChildren();
+    if (!reading) return;
+    const eyebrow = document.createElement('p');
+    eyebrow.className = 'eyebrow';
+    eyebrow.textContent = title;
+    host.appendChild(eyebrow);
+    const lesson = document.createElement('div');
+    host.appendChild(lesson);
+    UI.fillLesson(lesson, reading.steps || []);
+    const flags = document.createElement('div');
+    host.appendChild(flags);
+    if (!reading.issues || !reading.issues.length) {
+      const ok = document.createElement('p');
+      ok.className = 'rx-ok';
+      ok.textContent = '没有标出重复或明显的逻辑问题。';
+      flags.appendChild(ok);
+      return;
+    }
+    reading.issues.forEach((issue) => {
+      const line = document.createElement('p');
+      line.className = 'rx-bad';
+      line.textContent = `${issue.where}：${issue.text}`;
+      flags.appendChild(line);
+    });
+  }
+
   function blankCharacter() {
     return {
       id: Store.uid('ch'), name: '新角色', description: '', personality: '', scenario: '',
@@ -54,8 +82,12 @@
     const specBook = book || partial.book;
     if (specBook) {
       const saved = adoptCharacterBook(specBook, character.name);
-      if (saved) UI.toast(`一并收入角色书「${saved.name}」，${saved.entries.length} 条`);
+      if (saved) {
+        UI.state.bookImport = Object.assign({ id: saved.id }, F.explainBook(saved));
+        UI.toast(`一并收入角色书「${saved.name}」，${saved.entries.length} 条`);
+      }
     }
+    UI.state.cardImport = Object.assign({ id: character.id }, F.explainCard(character));
     UI.state.lib.characters.unshift(character);
     UI.state.sel.character = character.id;
     UI.markDirty();
@@ -336,7 +368,8 @@
         <p class="clamp" id="prev-desc"></p>
         <div class="bubble" id="prev-mes"></div>
         <p class="muted" id="prev-meta"></p>
-        <div id="card-lesson"></div>`;
+        <div id="card-lesson"></div>
+        <div id="card-import"></div>`;
       preview.querySelector('#prev-name').textContent = character.name || '未命名';
       preview.querySelector('#prev-tags').innerHTML = (character.tags || []).map((tag) => `<span class="tag">${UI.esc(tag)}</span>`).join('');
       preview.querySelector('#prev-desc').textContent = character.description || '描述还空着。';
@@ -363,6 +396,8 @@
         data.character_book ? `附带世界书「${data.character_book.name || '未命名'}」，${data.character_book.entries.length} 条会放进 data.character_book。` : '现在不附带世界书，导出里没有 character_book。',
         '规格固定是 chara_card_v2 / 2.0。PNG 把同一份 JSON 放进图片的 chara 文本块。',
       ]);
+      const importedCard = UI.state.cardImport && UI.state.cardImport.id === character.id ? UI.state.cardImport : null;
+      showReading(preview.querySelector('#card-import'), '这张卡在说什么', importedCard);
     };
     paintPreview();
     UI.bindFields(body, character, (key) => {
@@ -403,6 +438,12 @@
 
   function lore(stage) {
     const lib = UI.state.lib;
+    stage.ondragover = (event) => event.preventDefault();
+    stage.ondrop = (event) => {
+      event.preventDefault();
+      const file = event.dataTransfer.files && event.dataTransfer.files[0];
+      if (file) importBook(file);
+    };
     if (!lib.worldBooks.length) {
       stage.innerHTML = `<div class="toolbar"><button type="button" class="btn btn-primary" id="new-book">新建世界书</button><button type="button" class="btn" id="import-book">导入 JSON</button>${hint('新建一本，或导入酒馆导出的世界信息 JSON。')}</div>`;
       stage.appendChild(UI.empty('还没有世界书', '新建一本，或导入酒馆导出的世界信息 JSON。', '', null));
@@ -429,6 +470,7 @@
       <button type="button" class="btn" id="lore-try">看会触发哪些</button>
       <div id="lore-hits"></div>
       <div id="lore-lesson"></div>
+      <div id="book-import"></div>
     </div>
     <div class="board-layout">
       <div class="board">${F.POSITIONS.map((position) => `<section class="column"><h3>${position.label}</h3>${entries.filter((item) => item.position === position.id).map((item) => `<article class="entry${item.id === (entry && entry.id) ? ' on' : ''}${item.enabled ? '' : ' off'}" data-id="${UI.esc(item.id)}"><b>${UI.esc(item.comment || '未命名')}</b><p>${UI.esc((item.keys || []).join(' / ') || '无关键词')}</p><div class="row"><span class="muted">${item.constant ? '恒定' : '触发'}</span><button type="button" class="btn btn-small" data-toggle="${UI.esc(item.id)}">${item.enabled ? '启用' : '停用'}</button></div></article>`).join('') || '<p class="dark-muted">空</p>'}</section>`).join('')}</div>
@@ -607,6 +649,7 @@
     stage.querySelector('#lore-sample').addEventListener('input', (event) => { UI.state.loreSample = event.target.value; paintHits(); });
     stage.querySelector('#lore-try').onclick = paintHits;
     paintHits();
+    showReading(stage.querySelector('#book-import'), '这本世界书在说什么', UI.state.bookImport && UI.state.bookImport.id === book.id ? UI.state.bookImport : null);
     paintEditor();
     function addBook() {
       const created = { id: Store.uid('book'), name: '新世界书', description: '', entries: [] };
@@ -615,8 +658,8 @@
       UI.markDirty();
       UI.renderStage();
     }
-    async function importBook() {
-      const file = await UI.pickFile('.json,application/json');
+    async function importBook(given) {
+      const file = given || await UI.pickFile('.json,application/json');
       if (!file) return;
       try {
         const json = await parseJsonFile(file);
@@ -624,6 +667,7 @@
         const created = { id: Store.uid('book'), name: file.name.replace(/\.json$/i, ''), description: '', entries };
         lib.worldBooks.unshift(created);
         UI.state.sel.book = created.id;
+        UI.state.bookImport = Object.assign({ id: created.id }, F.explainBook(created));
         UI.markDirty();
         UI.toast(`已导入 ${entries.length} 条`);
         UI.renderStage();
