@@ -26,14 +26,14 @@
     if (!reading.issues || !reading.issues.length) {
       const ok = document.createElement('p');
       ok.className = 'rx-ok';
-      ok.textContent = '没有标出重复或明显的逻辑问题。';
+      ok.textContent = UI.t('import.clean');
       flags.appendChild(ok);
       return;
     }
     reading.issues.forEach((issue) => {
       const line = document.createElement('p');
       line.className = 'rx-bad';
-      line.textContent = `${issue.where}：${issue.text}`;
+      line.textContent = String(issue.text || '').includes(issue.where) ? issue.text : `${issue.where}：${issue.text}`;
       flags.appendChild(line);
     });
   }
@@ -83,11 +83,11 @@
     if (specBook) {
       const saved = adoptCharacterBook(specBook, character.name);
       if (saved) {
-        UI.state.bookImport = Object.assign({ id: saved.id }, F.explainBook(saved));
+        UI.state.bookImportId = saved.id;
         UI.toast(`一并收入角色书「${saved.name}」，${saved.entries.length} 条`);
       }
     }
-    UI.state.cardImport = Object.assign({ id: character.id }, F.explainCard(character));
+    UI.state.cardImportId = character.id;
     UI.state.lib.characters.unshift(character);
     UI.state.sel.character = character.id;
     UI.markDirty();
@@ -215,7 +215,7 @@
     stage.innerHTML = `<section class="hero paper">
       <p class="eyebrow">听雨楼书案</p>
       <h2>稿子先在这里写完，再送去酒馆。</h2>
-      <p class="lede">酒馆工坊不代替 SillyTavern。角色、世界书、正则和一场聊天都留在这台浏览器里，导出的是酒馆认得的文件。</p>
+      <p class="lede">霓笺不代替 SillyTavern。角色、世界书、正则和一场聊天都留在这台浏览器里，导出的是酒馆认得的文件。</p>
       <div class="row">
         <button type="button" class="btn btn-primary" data-go="characters">去写角色</button>
         <button type="button" class="btn" data-go="backup">整库备份</button>
@@ -244,7 +244,7 @@
     if (character) UI.state.sel.character = character.id;
     const books = lib.worldBooks;
     const galleryOn = UI.state.cardView === 'gallery';
-    stage.innerHTML = `<div class="toolbar">
+    stage.innerHTML = `<div class="dropwell"><div><strong>把角色卡拖到这里</strong><span>JSON，或带 chara 数据的 PNG。</span></div><button type="button" class="btn btn-primary" id="card-drop-btn">选择文件</button></div><div class="toolbar">
       <button type="button" class="btn${galleryOn ? ' btn-primary' : ''}" data-act="view-gallery">画廊</button>
       <button type="button" class="btn${galleryOn ? '' : ' btn-primary'}" data-act="view-edit">编辑</button>
       <button type="button" class="btn btn-primary" data-act="new">新建角色</button>
@@ -281,9 +281,12 @@
       UI.markDirty();
       UI.renderStage();
     };
-    stage.querySelector('[data-act="import"]').onclick = async () => importCharacterFile(await UI.pickFile('.json,.png,application/json,image/png'));
-    stage.ondragover = (event) => event.preventDefault();
-    stage.ondrop = (event) => { event.preventDefault(); importCharacterFile(event.dataTransfer.files && event.dataTransfer.files[0]); };
+    const importCard = async (file) => importCharacterFile(file || await UI.pickFile('.json,.png,application/json,image/png'));
+    stage.querySelector('[data-act="import"]').onclick = () => importCard();
+    stage.querySelector('#card-drop-btn').onclick = () => importCard();
+    stage.ondragover = (event) => { event.preventDefault(); stage.querySelector('.dropwell')?.classList.add('hot'); };
+    stage.ondragleave = (event) => { if (!stage.contains(event.relatedTarget)) stage.querySelector('.dropwell')?.classList.remove('hot'); };
+    stage.ondrop = (event) => { event.preventDefault(); stage.querySelector('.dropwell')?.classList.remove('hot'); importCharacterFile(event.dataTransfer.files && event.dataTransfer.files[0]); };
     if (!character) {
       body.appendChild(UI.empty(lib.characters.length ? '没有符合的角色' : '还没有角色', '新建一张，或把酒馆导出的 JSON、PNG 拖到这页。', '', null));
       return;
@@ -396,8 +399,8 @@
         data.character_book ? `附带世界书「${data.character_book.name || '未命名'}」，${data.character_book.entries.length} 条会放进 data.character_book。` : '现在不附带世界书，导出里没有 character_book。',
         '规格固定是 chara_card_v2 / 2.0。PNG 把同一份 JSON 放进图片的 chara 文本块。',
       ]);
-      const importedCard = UI.state.cardImport && UI.state.cardImport.id === character.id ? UI.state.cardImport : null;
-      showReading(preview.querySelector('#card-import'), '这张卡在说什么', importedCard);
+      const importedCard = UI.state.cardImportId === character.id ? F.explainCard(character) : null;
+      showReading(preview.querySelector('#card-import'), UI.t('import.cardTitle'), importedCard);
     };
     paintPreview();
     UI.bindFields(body, character, (key) => {
@@ -438,24 +441,27 @@
 
   function lore(stage) {
     const lib = UI.state.lib;
-    stage.ondragover = (event) => event.preventDefault();
+    stage.ondragover = (event) => { event.preventDefault(); stage.querySelector('.dropwell')?.classList.add('hot'); };
+    stage.ondragleave = (event) => { if (!stage.contains(event.relatedTarget)) stage.querySelector('.dropwell')?.classList.remove('hot'); };
     stage.ondrop = (event) => {
       event.preventDefault();
+      stage.querySelector('.dropwell')?.classList.remove('hot');
       const file = event.dataTransfer.files && event.dataTransfer.files[0];
       if (file) importBook(file);
     };
     if (!lib.worldBooks.length) {
-      stage.innerHTML = `<div class="toolbar"><button type="button" class="btn btn-primary" id="new-book">新建世界书</button><button type="button" class="btn" id="import-book">导入 JSON</button>${hint('新建一本，或导入酒馆导出的世界信息 JSON。')}</div>`;
+      stage.innerHTML = `<div class="dropwell"><div><strong>把世界书拖到这里</strong><span>酒馆世界信息的 JSON。</span></div><button type="button" class="btn btn-primary" id="book-drop-btn">选择文件</button></div><div class="toolbar"><button type="button" class="btn btn-primary" id="new-book">新建世界书</button><button type="button" class="btn" id="import-book">导入 JSON</button>${hint('新建一本，或导入酒馆导出的世界信息 JSON。')}</div>`;
       stage.appendChild(UI.empty('还没有世界书', '新建一本，或导入酒馆导出的世界信息 JSON。', '', null));
       stage.querySelector('#new-book').onclick = () => addBook();
       stage.querySelector('#import-book').onclick = () => importBook();
+      stage.querySelector('#book-drop-btn').onclick = () => importBook();
       return;
     }
     const book = UI.selected(lib.worldBooks, UI.state.sel.book);
     UI.state.sel.book = book.id;
     const entries = book.entries.filter((entry) => UI.matchQuery([entry.comment, entry.content, ...(entry.keys || []), ...(entry.secondaryKeys || [])].join('\n')));
     const entry = entries.find((item) => item.id === UI.state.sel.entry) || null;
-    stage.innerHTML = `<div class="toolbar">
+    stage.innerHTML = `<div class="dropwell"><div><strong>把世界书拖到这里</strong><span>酒馆世界信息的 JSON。</span></div><button type="button" class="btn btn-primary" id="book-drop-btn">选择文件</button></div><div class="toolbar">
       <label class="dark-muted">书<select id="book-select">${lib.worldBooks.map((item) => `<option value="${UI.esc(item.id)}"${item.id === book.id ? ' selected' : ''}>${UI.esc(item.name)}</option>`).join('')}</select></label>
       <button type="button" class="btn" id="rename-book">改书名</button>
       <button type="button" class="btn btn-primary" id="new-entry">新建条目</button>
@@ -649,7 +655,8 @@
     stage.querySelector('#lore-sample').addEventListener('input', (event) => { UI.state.loreSample = event.target.value; paintHits(); });
     stage.querySelector('#lore-try').onclick = paintHits;
     paintHits();
-    showReading(stage.querySelector('#book-import'), '这本世界书在说什么', UI.state.bookImport && UI.state.bookImport.id === book.id ? UI.state.bookImport : null);
+    showReading(stage.querySelector('#book-import'), UI.t('import.bookTitle'), UI.state.bookImportId === book.id ? F.explainBook(book) : null);
+    stage.querySelector('#book-drop-btn').onclick = () => importBook();
     paintEditor();
     function addBook() {
       const created = { id: Store.uid('book'), name: '新世界书', description: '', entries: [] };
@@ -667,7 +674,7 @@
         const created = { id: Store.uid('book'), name: file.name.replace(/\.json$/i, ''), description: '', entries };
         lib.worldBooks.unshift(created);
         UI.state.sel.book = created.id;
-        UI.state.bookImport = Object.assign({ id: created.id }, F.explainBook(created));
+        UI.state.bookImportId = created.id;
         UI.markDirty();
         UI.toast(`已导入 ${entries.length} 条`);
         UI.renderStage();
@@ -1650,7 +1657,7 @@
       <button type="button" class="btn" id="export-css">下载 CSS</button>
       <button type="button" class="btn" id="copy-css">复制 CSS</button>
       <button type="button" class="btn btn-danger" id="del-theme">删除</button>
-      ${hint('改色会马上作用在工坊上。点「使用此主题」才记住这套。CSS 需自己贴进酒馆。')}
+      ${hint('改色会马上作用在霓笺上。点「使用此主题」才记住这套。CSS 需自己贴进酒馆。')}
     </div>${UI.picker(lib.themes, current.id, (item) => item.id === lib.activeThemeId ? '使用中' : '')}
     <div class="work"><div class="paper stack">
       ${UI.field('名称', UI.text('name', current.name))}
@@ -1776,7 +1783,7 @@
     }
     stage.querySelector('#save-backup').onclick = () => {
       const date = new Date().toISOString().slice(0, 10);
-      const filename = `酒馆工坊-备份-${date}.json`;
+      const filename = `霓笺-备份-${date}.json`;
       UI.downloadJson(filename, F.backupOf(lib));
       UI.toast('整库已导出');
       UI.showExport(filename, '整库 JSON。回到「整库备份」，拖进来再选替换或合并。');

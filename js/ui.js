@@ -1,21 +1,21 @@
 /* Shell, persistence, and small DOM helpers. Views live in views.js. */
 (function (root) {
   const ROUTES = [
-    { id: 'home', mark: '〇', label: '总览', eyebrow: 'ATELIER', title: '工坊总览', search: false, blurb: '看这台浏览器里有多少稿。点数字或角色，进入对应模块。' },
-    { id: 'characters', mark: '壹', label: '角色卡工坊', eyebrow: 'CARD V2', title: '角色卡工坊', search: true, placeholder: '搜角色、标签', blurb: '写酒馆角色卡 v2。导出 JSON 或 PNG，到角色列表里导入。' },
-    { id: 'lore', mark: '贰', label: '世界书看板', eyebrow: 'LORE', title: '世界书看板', search: true, placeholder: '搜条目、关键词', blurb: '按注入位置整理世界书。导出后到酒馆「世界信息」导入。' },
-    { id: 'prompts', mark: '叁', label: '提示词拼装', eyebrow: 'PROMPT', title: '提示词拼装', search: true, placeholder: '搜块名称', blurb: '把提示词块排好顺序。导出后对照抄进预设，不要整份覆盖。' },
-    { id: 'groups', mark: '肆', label: '群聊卡司', eyebrow: 'CAST', title: '群聊卡司', search: true, placeholder: '搜群名', blurb: '从库里选角色排成群聊。导出的是名单，酒馆不能直接导入群文件。' },
-    { id: 'chat', mark: '伍', label: '聊天阅览', eyebrow: 'READING', title: '聊天阅览', search: true, placeholder: '搜聊天标题', blurb: '读酒馆聊天来查阅、搜索、做书签。不会写回酒馆的 chats。' },
-    { id: 'assets', mark: '陆', label: '素材库', eyebrow: 'ASSETS', title: '素材库', search: true, placeholder: '搜素材名', blurb: '头像、表情和背景存在这台浏览器里，再指定给角色或聊天。' },
-    { id: 'regex', mark: '柒', label: '正则脚本', eyebrow: 'REGEX', title: '正则脚本', search: true, placeholder: '搜脚本', blurb: '写法与酒馆正则扩展一致。导出 JSON 数组后，在扩展里导入。' },
-    { id: 'quick', mark: '捌', label: '快捷回复', eyebrow: 'QUICK', title: '快捷回复', search: true, placeholder: '搜回复', blurb: '做一组可复制的短句。导出为 Quick Reply v2。' },
-    { id: 'timeline', mark: '玖', label: '作者注与情景时间线', eyebrow: 'TIMELINE', title: '作者注与情景时间线', search: true, placeholder: '搜注记、情节', blurb: '楼层注记和情节节拍画在同一条轴上。导出的是工坊自己的 JSON。' },
-    { id: 'graph', mark: '拾', label: '角色关系图', eyebrow: 'GRAPH', title: '角色关系图', search: false, blurb: '拖人物、连关系。导出时每条线变成世界书条目。' },
-    { id: 'check', mark: '拾壹', label: '人设一致性检查', eyebrow: 'CHECK', title: '人设一致性检查', search: false, blurb: '本地对照空字段、近名、发色瞳色，以及恒定条目和正文是否打架。不是模型审查。' },
-    { id: 'script', mark: '拾贰', label: '群聊剧本', eyebrow: 'SCRIPT', title: '群聊剧本', search: true, placeholder: '搜剧本、台词', blurb: '按顺序写旁白或角色的句子，可加触发词。导出工坊自己的 JSON。' },
-    { id: 'theme', mark: '拾叁', label: '主题预设', eyebrow: 'THEME', title: '主题预设', search: false, blurb: '改的是工坊自己的纸色和字号。酒馆要另贴 CSS，选择器不会自动对上。' },
-    { id: 'backup', mark: '拾肆', label: '整库备份', eyebrow: 'BACKUP', title: '整库备份', search: false, blurb: '一份 JSON 带走整库。恢复时可替换，或按编号合并。' },
+    { id: 'home', mark: '01', label: '总览', eyebrow: 'NEON', title: '总览', search: false, blurb: 'blurb.home' },
+    { id: 'characters', mark: '02', label: '角色卡工坊', eyebrow: 'CARD V2', title: '角色卡工坊', search: true, placeholder: '搜角色、标签', blurb: 'blurb.characters' },
+    { id: 'lore', mark: '03', label: '世界书看板', eyebrow: 'LORE', title: '世界书看板', search: true, placeholder: '搜条目、关键词', blurb: 'blurb.lore' },
+    { id: 'prompts', mark: '04', label: '提示词拼装', eyebrow: 'PROMPT', title: '提示词拼装', search: true, placeholder: '搜块名称', blurb: 'blurb.prompts' },
+    { id: 'groups', mark: '05', label: '群聊卡司', eyebrow: 'CAST', title: '群聊卡司', search: true, placeholder: '搜群名', blurb: 'blurb.groups' },
+    { id: 'chat', mark: '06', label: '聊天阅览', eyebrow: 'READING', title: '聊天阅览', search: true, placeholder: '搜聊天标题', blurb: 'blurb.chat' },
+    { id: 'assets', mark: '07', label: '素材库', eyebrow: 'ASSETS', title: '素材库', search: true, placeholder: '搜素材名', blurb: 'blurb.assets' },
+    { id: 'regex', mark: '08', label: '正则脚本', eyebrow: 'REGEX', title: '正则脚本', search: true, placeholder: '搜脚本', blurb: 'blurb.regex' },
+    { id: 'quick', mark: '09', label: '快捷回复', eyebrow: 'QUICK', title: '快捷回复', search: true, placeholder: '搜回复', blurb: 'blurb.quick' },
+    { id: 'timeline', mark: '10', label: '作者注与情景时间线', eyebrow: 'TIMELINE', title: '作者注与情景时间线', search: true, placeholder: '搜注记、情节', blurb: 'blurb.timeline' },
+    { id: 'graph', mark: '11', label: '角色关系图', eyebrow: 'GRAPH', title: '角色关系图', search: false, blurb: 'blurb.graph' },
+    { id: 'check', mark: '12', label: '人设一致性检查', eyebrow: 'CHECK', title: '人设一致性检查', search: false, blurb: 'blurb.check' },
+    { id: 'script', mark: '13', label: '群聊剧本', eyebrow: 'SCRIPT', title: '群聊剧本', search: true, placeholder: '搜剧本、台词', blurb: 'blurb.script' },
+    { id: 'theme', mark: '14', label: '主题预设', eyebrow: 'THEME', title: '主题预设', search: false, blurb: 'blurb.theme' },
+    { id: 'backup', mark: '15', label: '整库备份', eyebrow: 'BACKUP', title: '整库备份', search: false, blurb: 'blurb.backup' },
   ];
 
   const state = {
@@ -206,9 +206,10 @@
   function paintSave() {
     const pill = document.getElementById('save-pill');
     if (!pill) return;
-    const map = { saved: '已保存', dirty: '待写入', saving: '正在写入…', error: '未能写入' };
+    const tr = (text) => (root.TAI18n ? root.TAI18n.t(text) : text);
+    const map = { saved: tr('已保存'), dirty: tr('待写入'), saving: tr('正在写入…'), error: tr('未能写入') };
     pill.className = `pill${state.save === 'error' ? ' err' : state.save === 'saved' ? '' : ' dirty'}`;
-    pill.innerHTML = `<i></i>${map[state.save] || '已保存'}`;
+    pill.innerHTML = `<i></i>${map[state.save] || tr('已保存')}`;
   }
 
   function markDirty() {
@@ -258,15 +259,39 @@
     document.querySelectorAll('[data-nav]').forEach((button) => {
       button.classList.toggle('on', button.dataset.nav === state.route);
     });
+    const tr = (text) => (root.TAI18n ? root.TAI18n.t(text) : text);
     document.getElementById('eyebrow').textContent = meta.eyebrow;
-    document.getElementById('title').textContent = meta.title;
+    document.getElementById('title').textContent = tr(meta.title);
     const blurb = document.getElementById('blurb');
-    if (blurb) blurb.textContent = meta.blurb || '';
+    if (blurb) blurb.textContent = tr(meta.blurb || '');
     const search = document.getElementById('search');
     search.parentElement.hidden = !meta.search;
-    search.placeholder = meta.placeholder || '搜索';
+    search.placeholder = tr(meta.placeholder || '搜索');
     const searchNote = document.getElementById('search-note');
-    if (searchNote) searchNote.textContent = meta.search ? '只过滤这一页，不改库。' : '';
+    if (searchNote) searchNote.textContent = meta.search ? tr('只过滤这一页，不改库。') : '';
+    document.querySelectorAll('[data-nav]').forEach((button) => {
+      const route = ROUTES.find((item) => item.id === button.dataset.nav);
+      if (!route) return;
+      const mark = button.querySelector('.mark');
+      const name = button.querySelector('[data-label]');
+      if (mark) mark.textContent = route.mark;
+      if (name) name.textContent = tr(route.label);
+    });
+    const importCard = document.querySelector('[data-shell="import-card"]');
+    const importBook = document.querySelector('[data-shell="import-book"]');
+    const settingsButton = document.querySelector('[data-shell="settings"]');
+    const demoButton = document.querySelector('[data-shell="demo"]');
+    const clearButton = document.querySelector('[data-shell="clear"]');
+    const footNote = document.querySelector('.nav-foot .note');
+    const saveNote = document.querySelector('.save-wrap .note');
+    if (importCard) importCard.textContent = tr('导入角色卡');
+    if (importBook) importBook.textContent = tr('导入世界书');
+    if (settingsButton) settingsButton.textContent = tr('设置');
+    if (demoButton) demoButton.textContent = tr('载入示例');
+    if (clearButton) clearButton.textContent = tr('清空库');
+    if (footNote) footNote.textContent = tr('示例会替换当前库。清空只删这台浏览器里的稿。');
+    if (saveNote) saveNote.textContent = tr('改动自动写入这台浏览器。');
+    document.title = '霓笺';
   }
 
   function renderStage() {
@@ -279,6 +304,7 @@
     stage.ondrop = null;
     try {
       view(stage);
+      if (root.TAI18n) root.TAI18n.localize(stage);
     } catch (error) {
       console.error(error);
       stage.innerHTML = `<div class="paper empty"><h3>这一页没有画出来</h3><p>${esc(error.message)}</p></div>`;
@@ -379,6 +405,46 @@
     renderStage();
   }
 
+  function openSettings() {
+    const prefs = root.TAI18n ? root.TAI18n.prefs : { lang: 'zh', teach: true, scale: 1, density: 'comfortable' };
+    const tr = (text) => (root.TAI18n ? root.TAI18n.t(text) : text);
+    const host = document.getElementById('modal-root');
+    host.classList.add('show');
+    host.innerHTML = `<div class="modal paper" role="dialog" aria-modal="true">
+      <h3>${tr('设置')}</h3>
+      <label class="field"><span class="field-label">${tr('界面语言')}</span>
+        <select id="set-lang"><option value="zh">中文</option><option value="en">English</option><option value="ja">日本語</option></select>
+      </label>
+      <label class="check"><input id="set-teach" type="checkbox"> ${tr('显示逐步说明和导入解读')}</label>
+      <label class="field"><span class="field-label">${tr('界面字号')}</span><input id="set-scale" type="range" min="0.9" max="1.2" step="0.05"></label>
+      <label class="field"><span class="field-label">${tr('间距')}</span>
+        <select id="set-density"><option value="comfortable">${tr('舒适')}</option><option value="compact">${tr('紧凑')}</option></select>
+      </label>
+      <div class="row"><button type="button" class="btn btn-primary" id="set-close">${tr('关闭')}</button></div>
+    </div>`;
+    host.querySelector('#set-lang').value = prefs.lang || 'zh';
+    host.querySelector('#set-teach').checked = prefs.teach !== false;
+    host.querySelector('#set-scale').value = String(prefs.scale || 1);
+    host.querySelector('#set-density').value = prefs.density === 'compact' ? 'compact' : 'comfortable';
+    const commit = () => {
+      if (!root.TAI18n) return;
+      root.TAI18n.save({
+        lang: host.querySelector('#set-lang').value,
+        teach: host.querySelector('#set-teach').checked,
+        scale: Number(host.querySelector('#set-scale').value),
+        density: host.querySelector('#set-density').value,
+      });
+      renderStage();
+    };
+    host.querySelector('#set-lang').onchange = commit;
+    host.querySelector('#set-teach').onchange = commit;
+    host.querySelector('#set-scale').oninput = commit;
+    host.querySelector('#set-density').onchange = commit;
+    const close = () => { host.classList.remove('show'); host.innerHTML = ''; };
+    host.querySelector('#set-close').onclick = close;
+    host.onclick = (event) => { if (event.target === host) close(); };
+  }
+
   function mount(registered) {
     views = registered;
     const loaded = TAStore.load();
@@ -388,8 +454,13 @@
     const app = document.getElementById('app');
     app.innerHTML = `<div class="shell">
       <aside class="nav">
-        <div class="brand"><span class="seal">坊</span><span><strong>酒馆工坊</strong><em>TAVERN ATELIER</em></span></div>
-        <nav class="nav-list">${ROUTES.map((route) => `<button type="button" class="nav-btn" data-nav="${route.id}"><span class="mark">${route.mark}</span><span>${route.label}</span></button>`).join('')}</nav>
+        <div class="brand"><span class="seal">笺</span><span><strong>霓笺</strong><em>NEON</em></span></div>
+        <div class="nav-import">
+          <button type="button" class="btn btn-primary" data-shell="import-card">导入角色卡</button>
+          <button type="button" class="btn" data-shell="import-book">导入世界书</button>
+          <button type="button" class="btn" data-shell="settings">设置</button>
+        </div>
+        <nav class="nav-list">${ROUTES.map((route) => `<button type="button" class="nav-btn" data-nav="${route.id}"><span class="mark">${route.mark}</span><span data-label>${route.label}</span></button>`).join('')}</nav>
         <div class="nav-foot">
           <p class="note">示例会替换当前库。清空只删这台浏览器里的稿。</p>
           <button type="button" class="btn" data-shell="demo">载入示例</button>
@@ -416,6 +487,10 @@
     });
     document.querySelector('[data-shell="demo"]').onclick = confirmLoadDemo;
     document.querySelector('[data-shell="clear"]').onclick = confirmClear;
+    document.querySelector('[data-shell="import-card"]').onclick = () => { go('characters'); setTimeout(() => document.querySelector('[data-act="import"]')?.click(), 0); };
+    document.querySelector('[data-shell="import-book"]').onclick = () => { go('lore'); setTimeout(() => document.querySelector('#import-book')?.click(), 0); };
+    document.querySelector('[data-shell="settings"]').onclick = openSettings;
+    if (root.TAI18n) root.TAI18n.apply();
     document.getElementById('search').addEventListener('input', (event) => {
       state.query = event.target.value;
       renderStage();
@@ -444,6 +519,7 @@
     ROUTES, state, esc, toast, ask, downloadBlob, downloadText, downloadJson, pickFile, readText, readDataUrl, copyText,
     safeName, assetById, charById, selected, matchQuery, markDirty, flush, applyTheme, go, renderStage, show,
     field, area, text, bindFields, picker, bindPicker, empty, confirmLoadDemo, confirmClear, mount,
+    t: (key, vars) => (root.TAI18n ? root.TAI18n.t(key, vars) : key),
     estimateLength, mountLengths, showExport, fillLesson,
   };
 })(typeof globalThis !== 'undefined' ? globalThis : window);

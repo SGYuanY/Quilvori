@@ -98,7 +98,7 @@ try {
     save: document.querySelector('#save-pill').textContent
   })`);
   check('demo loaded', counts.characters >= 4 && counts.lore >= 6 && counts.messages >= 6, JSON.stringify(counts));
-  check('home title', counts.title === '工坊总览');
+  check('home title', counts.title === '总览');
   check('saved', counts.save.includes('已保存'));
 
   const routes = await evaluate(`[...document.querySelectorAll('[data-nav]')].map((b) => b.dataset.nav)`);
