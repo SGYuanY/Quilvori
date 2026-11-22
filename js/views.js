@@ -6,6 +6,10 @@
 
   function stamp() { return new Date().toISOString(); }
 
+  function hint(text) {
+    return `<p class="note">${UI.esc(text)}</p>`;
+  }
+
   function blankCharacter() {
     return {
       id: Store.uid('ch'), name: '新角色', description: '', personality: '', scenario: '',
@@ -186,6 +190,7 @@
         <button type="button" class="btn" id="home-demo">载入示例</button>
         <button type="button" class="btn btn-danger" id="home-clear">清空库</button>
       </div>
+      ${hint('点数字进入对应模块，点角色打开那张卡。载入示例会换掉当前库。')}
     </section>
     <div class="stats">${stats.map(([label, count, id]) => `<button type="button" class="paper stat" data-go="${id}"><b>${count}</b><span>${label}</span></button>`).join('')}</div>
     <div class="cast">${lib.characters.filter((character) => UI.matchQuery(character.name)).map((character) => {
@@ -215,6 +220,7 @@
       <label class="dark-muted">导出时附带<select id="attach-book"><option value="">不附带世界书</option>${books.map((book) => `<option value="${UI.esc(book.id)}">${UI.esc(book.name)}</option>`).join('')}</select></label>
       <button type="button" class="btn btn-primary" data-act="json" ${character ? '' : 'disabled'}>导出 JSON</button>
       <button type="button" class="btn btn-primary" data-act="png" ${character ? '' : 'disabled'}>导出 PNG</button>
+      ${hint('点上方名字切换卡。新建、导入 JSON 或 PNG（也可拖进来），或复制一张再改。导出前可选附带世界书，选中的书会放进 character_book。')}
     </div>
     ${UI.picker(list, character && character.id, (item) => (item.tags || []).slice(0, 3).join(' · '))}
     <div id="char-body"></div>`;
@@ -268,16 +274,16 @@
         </div>
         ${UI.field('标签', '<div id="char-tags" class="chips"></div>', '回车添加')}
         ${UI.field('头像', `<select data-field="avatarAssetId"><option value="">无</option>${avatars.map((asset) => `<option value="${UI.esc(asset.id)}"${asset.id === character.avatarAssetId ? ' selected' : ''}>${UI.esc(asset.name)}</option>`).join('')}</select>`, '图片在素材库上传')}
-        ${UI.field('话多程度', `<input data-field="talkativeness" type="range" min="0" max="1" step="0.05" value="${Number(character.talkativeness) || 0}">`)}
+        ${UI.field('话多程度', `<input data-field="talkativeness" type="range" min="0" max="1" step="0.05" value="${Number(character.talkativeness) || 0}">`, '0 很少开口，1 很爱说话。群聊导出时带上这个数。')}
         ${UI.field('描述', UI.area('description', character.description, 6))}
         ${UI.field('性格', UI.area('personality', character.personality, 4))}
         ${UI.field('情景', UI.area('scenario', character.scenario, 4))}
         ${UI.field('开场白', UI.area('first_mes', character.first_mes, 6))}
-        ${UI.field('备用开场', '<div id="greetings"></div>')}
+        ${UI.field('备用开场', '<div id="greetings"></div>', '点「添加」再写。导出为备用开场白。')}
         ${UI.field('对话示例', UI.area('mes_example', character.mes_example, 5), '可用 {{char}} 与 {{user}}')}
         ${UI.field('创作者备注', UI.area('creator_notes', character.creator_notes, 3))}
-        ${UI.field('系统提示', UI.area('system_prompt', character.system_prompt, 3))}
-        ${UI.field('历史后指令', UI.area('post_history_instructions', character.post_history_instructions, 3))}
+        ${UI.field('系统提示', UI.area('system_prompt', character.system_prompt, 3), '写入角色卡的系统提示。')}
+        ${UI.field('历史后指令', UI.area('post_history_instructions', character.post_history_instructions, 3), '放在对话历史之后，给模型的补充指令。')}
       </div>
       <aside class="paper card-preview" id="char-preview"></aside>
     </div>`;
@@ -335,7 +341,7 @@
   function lore(stage) {
     const lib = UI.state.lib;
     if (!lib.worldBooks.length) {
-      stage.innerHTML = `<div class="toolbar"><button type="button" class="btn btn-primary" id="new-book">新建世界书</button><button type="button" class="btn" id="import-book">导入 JSON</button></div>`;
+      stage.innerHTML = `<div class="toolbar"><button type="button" class="btn btn-primary" id="new-book">新建世界书</button><button type="button" class="btn" id="import-book">导入 JSON</button>${hint('新建一本，或导入酒馆导出的世界信息 JSON。')}</div>`;
       stage.appendChild(UI.empty('还没有世界书', '新建一本，或导入酒馆导出的世界信息 JSON。', '', null));
       stage.querySelector('#new-book').onclick = () => addBook();
       stage.querySelector('#import-book').onclick = () => importBook();
@@ -352,6 +358,7 @@
       <button type="button" class="btn" id="import-book">导入 JSON</button>
       <button type="button" class="btn btn-primary" id="export-book">导出世界书</button>
       <button type="button" class="btn btn-danger" id="del-book">删除此书</button>
+      ${hint('先选书。新建或导入条目，点卡片编辑。每一栏是一个注入位置。')}
     </div>
     <div class="board-layout">
       <div class="board">${F.POSITIONS.map((position) => `<section class="column"><h3>${position.label}</h3>${entries.filter((item) => item.position === position.id).map((item) => `<article class="entry${item.id === (entry && entry.id) ? ' on' : ''}${item.enabled ? '' : ' off'}" data-id="${UI.esc(item.id)}"><b>${UI.esc(item.comment || '未命名')}</b><p>${UI.esc((item.keys || []).join(' / ') || '无关键词')}</p><div class="row"><span class="muted">${item.constant ? '恒定' : '触发'}</span><button type="button" class="btn btn-small" data-toggle="${UI.esc(item.id)}">${item.enabled ? '启用' : '停用'}</button></div></article>`).join('') || '<p class="dark-muted">空</p>'}</section>`).join('')}</div>
@@ -406,7 +413,7 @@
         ${UI.field('主关键词', '<div id="keys" class="chips"></div>')}
         ${UI.field('次关键词', '<div id="keys2" class="chips"></div>', '选择性开启时，通常还要命中一个次关键词')}
         <div class="grid-2">
-          ${UI.field('顺序', `<input data-field="order" type="number" value="${Number(current.order) || 0}">`)}
+          ${UI.field('顺序', `<input data-field="order" type="number" value="${Number(current.order) || 0}">`, '原样写入酒馆的顺序。')}
           ${UI.field('深度', `<input data-field="depth" type="number" value="${Number(current.depth) || 4}">`, '指定深度时使用')}
         </div>
         ${UI.field('位置', `<select data-field="position">${F.POSITIONS.map((position) => `<option value="${position.id}"${position.id === current.position ? ' selected' : ''}>${position.label}</option>`).join('')}</select>`)}
@@ -414,6 +421,7 @@
         <label class="check"><input data-field="constant" type="checkbox" ${current.constant ? 'checked' : ''}>恒定注入</label>
         <label class="check"><input data-field="selective" type="checkbox" ${current.selective ? 'checked' : ''}>选择性</label>
         <label class="check"><input data-field="enabled" type="checkbox" ${current.enabled ? 'checked' : ''}>启用</label>
+        <p class="help">恒定注入不看关键词。选择性勾上后，通常还要命中一个次关键词。</p>
         <button type="button" class="btn btn-danger" id="del-entry">删除条目</button>
       </div>`;
       UI.bindFields(editor, current, (key) => {
@@ -465,6 +473,7 @@
       <button type="button" class="btn btn-primary" id="new-preset">新建预设</button>
       <button type="button" class="btn" id="import-preset">导入 JSON</button>
       <button type="button" class="btn btn-primary" id="export-preset" ${preset ? '' : 'disabled'}>导出预设</button>
+      ${hint('添加一块后，拖左侧「序」排列。关掉的块仍会导出，只是未启用。')}
     </div>`;
     const presets = lib.promptPresets.filter((item) => UI.matchQuery(item.name + item.blocks.map((block) => block.name).join(' ')));
     const current = presets.find((item) => item.id === UI.state.sel.preset) || presets[0] || null;
@@ -583,6 +592,7 @@
       <button type="button" class="btn btn-primary" id="new-group">新建群</button>
       <button type="button" class="btn btn-primary" id="export-group" ${group ? '' : 'disabled'}>导出群 JSON</button>
       <button type="button" class="btn btn-danger" id="del-group" ${group ? '' : 'disabled'}>删除</button>
+      ${hint('从下面选角色加入。取消「上场」则先不让这个角色开口。导出只是名单，回酒馆后按名单建群。')}
     </div>${UI.picker(groups, group && group.id, (item) => `${item.members.length} 人`)}<div id="group-body"></div>`;
     UI.bindPicker(stage, (id) => { UI.state.sel.group = id; UI.renderStage(); });
     stage.querySelector('#new-group').onclick = () => {
@@ -607,7 +617,7 @@
     body.innerHTML = `<div class="work"><div class="paper stack">
       ${UI.field('群名', UI.text('name', group.name))}
       ${UI.field('情景', UI.area('scenario', group.scenario, 4))}
-      ${UI.field('激活', `<select data-field="activation">${F.ACTIVATION.map((item) => `<option value="${item.id}"${group.activation === item.id ? ' selected' : ''}>${item.label}</option>`).join('')}</select>`)}
+      ${UI.field('激活', `<select data-field="activation">${F.ACTIVATION.map((item) => `<option value="${item.id}"${group.activation === item.id ? ' selected' : ''}>${item.label}</option>`).join('')}</select>`, '自然轮转、名单顺序、手动点名或池中随机。')}
       <div id="members">${group.members.map((member, index) => {
         const character = UI.charById(member.characterId);
         return `<div class="paper" data-member="${index}" style="padding:10px;margin-bottom:8px">
@@ -658,6 +668,7 @@
       <button type="button" class="btn" id="export-chat" ${current ? '' : 'disabled'}>导出阅读稿</button>
       <button type="button" class="btn btn-danger" id="del-chat" ${current ? '' : 'disabled'}>删除</button>
       <label class="dark-muted">背景<select id="chat-bg"><option value="">无</option>${backgrounds.map((asset) => `<option value="${UI.esc(asset.id)}"${lib.settings.chatBackgroundAssetId === asset.id ? ' selected' : ''}>${UI.esc(asset.name)}</option>`).join('')}</select></label>
+      ${hint('导入 jsonl 或消息数组，也可拖进来。背景只影响这页。导出的阅读稿不会写回酒馆。')}
     </div>${UI.picker(chats, current && current.id, (item) => `${item.messages.length} 条`)}<div id="chat-body"></div>`;
     UI.bindPicker(stage, (id) => { UI.state.sel.chat = id; UI.renderStage(); });
     stage.querySelector('#chat-bg').onchange = (event) => {
@@ -695,6 +706,7 @@
       <div id="bookmark-list">${current.bookmarks.map((mark) => `<button type="button" class="btn btn-small bookmark" data-jump="${mark.index}">#${mark.index} ${UI.esc(mark.excerpt)}</button>`).join('') || '<p class="muted">还没有书签</p>'}</div>
     </div><div class="paper chat-paper" id="chat-paper">
       <div class="row"><input id="passage" type="text" placeholder="在这场聊天里找句子" value="${UI.esc(query)}"><button type="button" class="btn btn-small" id="prev-hit">上一处</button><button type="button" class="btn btn-small" id="next-hit">下一处</button><button type="button" class="btn btn-small" id="copy-sel">复制选段</button><button type="button" class="btn btn-small" id="mark-sel">选段做成书签</button></div>
+      ${hint('涂选正文后再复制或做成书签。上一处、下一处在搜索命中之间跳。')}
       <p class="muted" id="hit-count"></p>
       <div id="chat-log"></div>
     </div></div>`;
@@ -783,6 +795,7 @@
       ${['all', 'avatar', 'expression', 'background'].map((value) => `<button type="button" class="btn btn-small${kind === value ? ' btn-primary' : ''}" data-filter="${value}">${{ all: '全部', avatar: '头像', expression: '表情', background: '背景' }[value]}</button>`).join('')}
       <span class="spacer"></span>
       <span class="dark-muted">库约 ${Math.round(Store.bytes(lib) / 1024)} KB</span>
+      ${hint('按种类上传。超过约 400KB 会先问你，超过 1.6MB 不收。拖进来的图先当头像。')}
     </div>
     <div class="work"><div class="asset-grid" id="asset-grid">${list.map((item) => `<button type="button" class="paper asset-card${item.id === (asset && asset.id) ? ' on' : ''}" data-id="${UI.esc(item.id)}"><img alt="" src="${UI.esc(item.dataUrl)}"><b>${UI.esc(item.name)}</b><small class="muted">${item.kind} · ${Math.max(1, Math.round((item.bytes || 0) / 1024))}KB</small></button>`).join('')}</div><div id="asset-side"></div></div>`;
     if (!list.length) stage.querySelector('#asset-grid').appendChild(UI.empty('素材库是空的', '上传头像、表情或聊天背景。大图会先提醒你。', '', null));
@@ -859,6 +872,7 @@
       <button type="button" class="btn" id="import-rx">导入 JSON</button>
       <button type="button" class="btn btn-primary" id="export-rx">导出全部</button>
       <button type="button" class="btn btn-danger" id="del-rx" ${script ? '' : 'disabled'}>删除</button>
+      ${hint('新建或导入酒馆的正则 JSON。导出的是全部脚本组成的数组。')}
     </div>${UI.picker(list, script && script.id, (item) => (item.disabled ? '停用' : '启用'))}<div id="rx-body"></div>`;
     UI.bindPicker(stage, (id) => { UI.state.sel.regex = id; UI.renderStage(); });
     stage.querySelector('#new-rx').onclick = () => {
@@ -886,12 +900,12 @@
       ${UI.field('查找', UI.text('findRegex', script.findRegex), '可写 /表达式/gi ，或不加斜杠')}
       <p class="help" id="rx-error"></p>
       ${UI.field('替换', UI.text('replaceString', script.replaceString), '可用 $1')}
-      <div class="stack" id="places">${F.PLACEMENTS.map((place) => `<label class="check"><input type="checkbox" value="${place.id}" ${(script.placement || []).includes(place.id) ? 'checked' : ''}>${place.label}</label>`).join('')}</div>
+      <div class="stack" id="places">${F.PLACEMENTS.map((place) => `<label class="check"><input type="checkbox" value="${place.id}" ${(script.placement || []).includes(place.id) ? 'checked' : ''}>${place.label}</label>`).join('')}<span class="help">勾选这则脚本作用的位置，与酒馆一致。</span></div>
       <label class="check"><input data-field="disabled" type="checkbox" ${script.disabled ? 'checked' : ''}>停用</label>
       <label class="check"><input data-field="markdownOnly" type="checkbox" ${script.markdownOnly ? 'checked' : ''}>仅 Markdown 显示</label>
       <label class="check"><input data-field="promptOnly" type="checkbox" ${script.promptOnly ? 'checked' : ''}>仅提示词</label>
       <div class="grid-2">${UI.field('最小深度', `<input data-field="minDepth" type="number" value="${script.minDepth ?? ''}">`)}${UI.field('最大深度', `<input data-field="maxDepth" type="number" value="${script.maxDepth ?? ''}">`)}</div>
-    </div><aside class="paper stack"><p class="eyebrow">试跑</p><textarea id="lab" rows="6">${UI.esc(UI.state.lab || '')}</textarea><button type="button" class="btn" id="run-rx">试跑</button><pre id="lab-out" class="snippet"></pre></aside></div>`;
+    </div><aside class="paper stack"><p class="eyebrow">试跑</p>${hint('用这段文字在本地试替换，不写入库。')}<textarea id="lab" rows="6">${UI.esc(UI.state.lab || '')}</textarea><button type="button" class="btn" id="run-rx">试跑</button><pre id="lab-out" class="snippet"></pre></aside></div>`;
     UI.bindFields(body, script, (key) => {
       if (key === 'minDepth' || key === 'maxDepth') script[key] = script[key] === '' ? null : Number(script[key]);
       body.querySelector('#rx-error').textContent = script.findRegex && !F.regexFromString(script.findRegex) ? '这则正则编译不过' : '';
@@ -921,6 +935,7 @@
       <button type="button" class="btn" id="import-qr">导入 JSON</button>
       <button type="button" class="btn btn-primary" id="export-qr" ${set ? '' : 'disabled'}>导出这套</button>
       <button type="button" class="btn btn-danger" id="del-qr" ${set ? '' : 'disabled'}>删除</button>
+      ${hint('一套里有多条短句。导出为 Quick Reply v2；每条颜色记在 atelierColor。点「复制内容」只复制句子。')}
     </div>${UI.picker(sets, set && set.id, (item) => `${item.replies.length} 条`)}<div id="qr-body"></div>`;
     UI.bindPicker(stage, (id) => { UI.state.sel.qr = id; UI.renderStage(); });
     stage.querySelector('#new-qr').onclick = () => {
@@ -981,6 +996,7 @@
       <button type="button" class="btn btn-primary" id="add-note">添加楼层注记</button>
       <button type="button" class="btn" id="add-beat">添加情节</button>
       <button type="button" class="btn btn-primary" id="export-tl">导出 JSON</button>
+      ${hint('注记钉在某一楼，情节是节拍。点一条再改标题和楼层。')}
     </div><div class="work"><div class="timeline" id="tl"></div><div id="tl-editor"></div></div>`;
     const tl = stage.querySelector('#tl');
     tl.innerHTML = items.map((item) => `<button type="button" class="paper tl-item" data-kind="${item.kind}" data-id="${UI.esc(item.data.id)}"><span class="eyebrow">${item.kind === 'beat' ? '情节' : '注记'} · 楼层 ${item.floor}</span><strong>${UI.esc(item.data.title || '未命名')}</strong><p class="muted">${UI.esc(item.kind === 'beat' ? item.data.summary : item.data.body)}</p></button>`).join('') || '<p class="dark-muted">时间线还是空的。</p>';
@@ -1035,6 +1051,7 @@
     stage.innerHTML = `<div class="toolbar">
       <button type="button" class="btn" id="sync-nodes">从角色同步</button>
       <button type="button" class="btn btn-primary" id="export-graph">导出为世界书</button>
+      ${hint('先从角色同步人物，再拖圆点。右侧选起点终点并写上关系。')}
     </div><div class="work"><div class="graph-wrap"><svg id="graph-svg" viewBox="0 0 800 560"></svg></div><div class="graph-side paper" id="graph-side"></div></div>`;
     const svg = stage.querySelector('#graph-svg');
     const paint = () => {
@@ -1183,6 +1200,7 @@
       <label class="dark-muted">对照世界书<select id="check-book"><option value="">不对照</option>${lib.worldBooks.map((item) => `<option value="${UI.esc(item.id)}"${book && item.id === book.id ? ' selected' : ''}>${UI.esc(item.name)}</option>`).join('')}</select></label>
       <button type="button" class="btn btn-primary" id="run-check">重新检查</button>
       <button type="button" class="btn" id="export-check">导出报告</button>
+      ${hint('选定角色，可选一本世界书对照。重新检查会刷新结果，导出报告不改卡。')}
     </div><div id="findings"></div>`;
     const paint = () => {
       const current = UI.charById(stage.querySelector('#check-char').value);
@@ -1219,6 +1237,7 @@
       <button type="button" class="btn btn-primary" id="new-script">新建剧本</button>
       <button type="button" class="btn btn-primary" id="export-script" ${current ? '' : 'disabled'}>导出 JSON</button>
       <button type="button" class="btn btn-danger" id="del-script" ${current ? '' : 'disabled'}>删除</button>
+      ${hint('选说话的人再写句子。触发词可留空。上移、下移改顺序，右侧是预览。')}
     </div>${UI.picker(scripts, current && current.id, (item) => `${item.beats.length} 拍`)}<div id="script-body"></div>`;
     UI.bindPicker(stage, (id) => { UI.state.sel.script = id; UI.renderStage(); });
     stage.querySelector('#new-script').onclick = () => {
@@ -1282,6 +1301,7 @@
       <button type="button" class="btn" id="export-css">下载 CSS</button>
       <button type="button" class="btn" id="copy-css">复制 CSS</button>
       <button type="button" class="btn btn-danger" id="del-theme">删除</button>
+      ${hint('改色会马上作用在工坊上。点「使用此主题」才记住这套。CSS 需自己贴进酒馆。')}
     </div>${UI.picker(lib.themes, current.id, (item) => item.id === lib.activeThemeId ? '使用中' : '')}
     <div class="work"><div class="paper stack">
       ${UI.field('名称', UI.text('name', current.name))}
@@ -1349,6 +1369,7 @@
       <button type="button" class="btn" id="load-backup">从备份恢复</button>
       <button type="button" class="btn" id="backup-demo">载入示例</button>
       <button type="button" class="btn btn-danger" id="backup-clear">清空库</button>
+      ${hint('导出一份带日期的 JSON。恢复时可把文件拖进来，再选替换或合并。')}
     </div>
     <div class="paper">
       <p class="eyebrow">LIBRARY</p>

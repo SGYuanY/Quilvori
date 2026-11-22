@@ -1,21 +1,21 @@
 /* Shell, persistence, and small DOM helpers. Views live in views.js. */
 (function (root) {
   const ROUTES = [
-    { id: 'home', mark: '〇', label: '总览', eyebrow: 'ATELIER', title: '工坊总览', search: false },
-    { id: 'characters', mark: '壹', label: '角色卡工坊', eyebrow: 'CARD V2', title: '角色卡工坊', search: true, placeholder: '搜角色、标签' },
-    { id: 'lore', mark: '贰', label: '世界书看板', eyebrow: 'LORE', title: '世界书看板', search: true, placeholder: '搜条目、关键词' },
-    { id: 'prompts', mark: '叁', label: '提示词拼装', eyebrow: 'PROMPT', title: '提示词拼装', search: true, placeholder: '搜块名称' },
-    { id: 'groups', mark: '肆', label: '群聊卡司', eyebrow: 'CAST', title: '群聊卡司', search: true, placeholder: '搜群名' },
-    { id: 'chat', mark: '伍', label: '聊天阅览', eyebrow: 'READING', title: '聊天阅览', search: true, placeholder: '搜聊天标题' },
-    { id: 'assets', mark: '陆', label: '素材库', eyebrow: 'ASSETS', title: '素材库', search: true, placeholder: '搜素材名' },
-    { id: 'regex', mark: '柒', label: '正则脚本', eyebrow: 'REGEX', title: '正则脚本', search: true, placeholder: '搜脚本' },
-    { id: 'quick', mark: '捌', label: '快捷回复', eyebrow: 'QUICK', title: '快捷回复', search: true, placeholder: '搜回复' },
-    { id: 'timeline', mark: '玖', label: '作者注与情景时间线', eyebrow: 'TIMELINE', title: '作者注与情景时间线', search: true, placeholder: '搜注记、情节' },
-    { id: 'graph', mark: '拾', label: '角色关系图', eyebrow: 'GRAPH', title: '角色关系图', search: false },
-    { id: 'check', mark: '拾壹', label: '人设一致性检查', eyebrow: 'CHECK', title: '人设一致性检查', search: false },
-    { id: 'script', mark: '拾贰', label: '群聊剧本', eyebrow: 'SCRIPT', title: '群聊剧本', search: true, placeholder: '搜剧本、台词' },
-    { id: 'theme', mark: '拾叁', label: '主题预设', eyebrow: 'THEME', title: '主题预设', search: false },
-    { id: 'backup', mark: '拾肆', label: '整库备份', eyebrow: 'BACKUP', title: '整库备份', search: false },
+    { id: 'home', mark: '〇', label: '总览', eyebrow: 'ATELIER', title: '工坊总览', search: false, blurb: '看这台浏览器里有多少稿。点数字或角色，进入对应模块。' },
+    { id: 'characters', mark: '壹', label: '角色卡工坊', eyebrow: 'CARD V2', title: '角色卡工坊', search: true, placeholder: '搜角色、标签', blurb: '写酒馆角色卡 v2。导出 JSON 或 PNG，到角色列表里导入。' },
+    { id: 'lore', mark: '贰', label: '世界书看板', eyebrow: 'LORE', title: '世界书看板', search: true, placeholder: '搜条目、关键词', blurb: '按注入位置整理世界书。导出后到酒馆「世界信息」导入。' },
+    { id: 'prompts', mark: '叁', label: '提示词拼装', eyebrow: 'PROMPT', title: '提示词拼装', search: true, placeholder: '搜块名称', blurb: '把提示词块排好顺序。导出后对照抄进预设，不要整份覆盖。' },
+    { id: 'groups', mark: '肆', label: '群聊卡司', eyebrow: 'CAST', title: '群聊卡司', search: true, placeholder: '搜群名', blurb: '从库里选角色排成群聊。导出的是名单，酒馆不能直接导入群文件。' },
+    { id: 'chat', mark: '伍', label: '聊天阅览', eyebrow: 'READING', title: '聊天阅览', search: true, placeholder: '搜聊天标题', blurb: '读酒馆聊天来查阅、搜索、做书签。不会写回酒馆的 chats。' },
+    { id: 'assets', mark: '陆', label: '素材库', eyebrow: 'ASSETS', title: '素材库', search: true, placeholder: '搜素材名', blurb: '头像、表情和背景存在这台浏览器里，再指定给角色或聊天。' },
+    { id: 'regex', mark: '柒', label: '正则脚本', eyebrow: 'REGEX', title: '正则脚本', search: true, placeholder: '搜脚本', blurb: '写法与酒馆正则扩展一致。导出 JSON 数组后，在扩展里导入。' },
+    { id: 'quick', mark: '捌', label: '快捷回复', eyebrow: 'QUICK', title: '快捷回复', search: true, placeholder: '搜回复', blurb: '做一组可复制的短句。导出为 Quick Reply v2。' },
+    { id: 'timeline', mark: '玖', label: '作者注与情景时间线', eyebrow: 'TIMELINE', title: '作者注与情景时间线', search: true, placeholder: '搜注记、情节', blurb: '楼层注记和情节节拍画在同一条轴上。导出的是工坊自己的 JSON。' },
+    { id: 'graph', mark: '拾', label: '角色关系图', eyebrow: 'GRAPH', title: '角色关系图', search: false, blurb: '拖人物、连关系。导出时每条线变成世界书条目。' },
+    { id: 'check', mark: '拾壹', label: '人设一致性检查', eyebrow: 'CHECK', title: '人设一致性检查', search: false, blurb: '本地对照空字段、近名、发色瞳色，以及恒定条目和正文是否打架。不是模型审查。' },
+    { id: 'script', mark: '拾贰', label: '群聊剧本', eyebrow: 'SCRIPT', title: '群聊剧本', search: true, placeholder: '搜剧本、台词', blurb: '按顺序写旁白或角色的句子，可加触发词。导出工坊自己的 JSON。' },
+    { id: 'theme', mark: '拾叁', label: '主题预设', eyebrow: 'THEME', title: '主题预设', search: false, blurb: '改的是工坊自己的纸色和字号。酒馆要另贴 CSS，选择器不会自动对上。' },
+    { id: 'backup', mark: '拾肆', label: '整库备份', eyebrow: 'BACKUP', title: '整库备份', search: false, blurb: '一份 JSON 带走整库。恢复时可替换，或按编号合并。' },
   ];
 
   const state = {
@@ -209,9 +209,13 @@
     });
     document.getElementById('eyebrow').textContent = meta.eyebrow;
     document.getElementById('title').textContent = meta.title;
+    const blurb = document.getElementById('blurb');
+    if (blurb) blurb.textContent = meta.blurb || '';
     const search = document.getElementById('search');
     search.parentElement.hidden = !meta.search;
     search.placeholder = meta.placeholder || '搜索';
+    const searchNote = document.getElementById('search-note');
+    if (searchNote) searchNote.textContent = meta.search ? '只过滤这一页，不改库。' : '';
   }
 
   function renderStage() {
@@ -334,16 +338,17 @@
         <div class="brand"><span class="seal">坊</span><span><strong>酒馆工坊</strong><em>TAVERN ATELIER</em></span></div>
         <nav class="nav-list">${ROUTES.map((route) => `<button type="button" class="nav-btn" data-nav="${route.id}"><span class="mark">${route.mark}</span><span>${route.label}</span></button>`).join('')}</nav>
         <div class="nav-foot">
+          <p class="note">示例会替换当前库。清空只删这台浏览器里的稿。</p>
           <button type="button" class="btn" data-shell="demo">载入示例</button>
           <button type="button" class="btn btn-danger" data-shell="clear">清空库</button>
         </div>
       </aside>
       <div class="main">
         <header class="top">
-          <div><p class="eyebrow" id="eyebrow">ATELIER</p><h1 id="title">工坊总览</h1></div>
+          <div><p class="eyebrow" id="eyebrow">ATELIER</p><h1 id="title">工坊总览</h1><p class="note" id="blurb"></p></div>
           <div class="top-actions">
-            <label class="search"><input id="search" type="search" placeholder="搜索" autocomplete="off"></label>
-            <span id="save-pill" class="pill"><i></i>已保存</span>
+            <label class="search"><input id="search" type="search" placeholder="搜索" autocomplete="off"><span class="note" id="search-note"></span></label>
+            <span class="save-wrap"><span id="save-pill" class="pill"><i></i>已保存</span><span class="note">改动自动写入这台浏览器。</span></span>
           </div>
         </header>
         <div id="storage-banner"></div>
