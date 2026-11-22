@@ -211,7 +211,10 @@
     const character = list.find((item) => item.id === UI.state.sel.character) || list[0] || null;
     if (character) UI.state.sel.character = character.id;
     const books = lib.worldBooks;
+    const galleryOn = UI.state.cardView === 'gallery';
     stage.innerHTML = `<div class="toolbar">
+      <button type="button" class="btn${galleryOn ? ' btn-primary' : ''}" data-act="view-gallery">画廊</button>
+      <button type="button" class="btn${galleryOn ? '' : ' btn-primary'}" data-act="view-edit">编辑</button>
       <button type="button" class="btn btn-primary" data-act="new">新建角色</button>
       <button type="button" class="btn" data-act="import">导入 JSON / PNG</button>
       <button type="button" class="btn" data-act="dup" ${character ? '' : 'disabled'}>复制</button>
@@ -220,12 +223,25 @@
       <label class="dark-muted">导出时附带<select id="attach-book"><option value="">不附带世界书</option>${books.map((book) => `<option value="${UI.esc(book.id)}">${UI.esc(book.name)}</option>`).join('')}</select></label>
       <button type="button" class="btn btn-primary" data-act="json" ${character ? '' : 'disabled'}>导出 JSON</button>
       <button type="button" class="btn btn-primary" data-act="png" ${character ? '' : 'disabled'}>导出 PNG</button>
-      ${hint('点上方名字切换卡。新建、导入 JSON 或 PNG（也可拖进来），或复制一张再改。导出前可选附带世界书，选中的书会放进 character_book。')}
+      ${hint(galleryOn ? '点卡片进入编辑。复制会另存一张，原来的还在。工具栏的导出作用于当前选中的卡。' : '点「画廊」看全部卡片，或点上方名字切换。新建、导入 JSON 或 PNG（也可拖进来），或复制一张再改。导出前可选附带世界书，选中的书会放进 character_book。')}
     </div>
     ${UI.picker(list, character && character.id, (item) => (item.tags || []).slice(0, 3).join(' · '))}
     <div id="char-body"></div>`;
     const body = stage.querySelector('#char-body');
     UI.bindPicker(stage, (id) => { UI.state.sel.character = id; UI.renderStage(); });
+    stage.querySelector('[data-act="view-gallery"]').onclick = () => { UI.state.cardView = 'gallery'; UI.renderStage(); };
+    stage.querySelector('[data-act="view-edit"]').onclick = () => { UI.state.cardView = 'edit'; UI.renderStage(); };
+    const duplicateCharacter = (source) => {
+      const copy = structuredClone(source);
+      copy.id = Store.uid('ch');
+      copy.name = `${source.name} 的副本`;
+      copy.createdAt = stamp();
+      copy.updatedAt = stamp();
+      lib.characters.unshift(copy);
+      UI.state.sel.character = copy.id;
+      UI.markDirty();
+      UI.renderStage();
+    };
     stage.querySelector('[data-act="new"]').onclick = () => {
       const created = blankCharacter();
       lib.characters.unshift(created);
@@ -240,16 +256,7 @@
       body.appendChild(UI.empty(lib.characters.length ? '没有符合的角色' : '还没有角色', '新建一张，或把酒馆导出的 JSON、PNG 拖到这页。', '', null));
       return;
     }
-    stage.querySelector('[data-act="dup"]').onclick = () => {
-      const copy = structuredClone(character);
-      copy.id = Store.uid('ch');
-      copy.name = `${character.name} 的副本`;
-      copy.createdAt = stamp();
-      lib.characters.unshift(copy);
-      UI.state.sel.character = copy.id;
-      UI.markDirty();
-      UI.renderStage();
-    };
+    stage.querySelector('[data-act="dup"]').onclick = () => duplicateCharacter(character);
     stage.querySelector('[data-act="del"]').onclick = async () => {
       const answer = await UI.ask({ title: `删除「${character.name}」`, body: '这张卡会从本机库里拿走。已经导出的文件还在。', actions: [{ id: 'yes', label: '删除', kind: 'btn-danger' }, { id: 'no', label: '留下' }] });
       if (answer !== 'yes') return;
@@ -260,10 +267,42 @@
     };
     const bookOf = () => lib.worldBooks.find((book) => book.id === stage.querySelector('#attach-book').value) || null;
     stage.querySelector('[data-act="json"]').onclick = () => {
-      UI.downloadJson(`${UI.safeName(character.name)}.json`, F.characterToCard(character, bookOf()));
+      const filename = `${UI.safeName(character.name)}.json`;
+      UI.downloadJson(filename, F.characterToCard(character, bookOf()));
       UI.toast('已导出角色卡 JSON');
+      UI.showExport(filename, '角色卡 JSON。到酒馆角色列表里「导入角色」。');
     };
-    stage.querySelector('[data-act="png"]').onclick = () => exportCharacterPng(character, bookOf()).then(() => UI.toast('已导出带 chara 数据的 PNG')).catch((error) => UI.toast(error.message));
+    stage.querySelector('[data-act="png"]').onclick = () => exportCharacterPng(character, bookOf()).then(() => {
+      UI.toast('已导出带 chara 数据的 PNG');
+      UI.showExport(`${UI.safeName(character.name)}.png`, '带 chara 数据的 PNG。在酒馆里按图片导入角色。');
+    }).catch((error) => UI.toast(error.message));
+    if (galleryOn) {
+      const picker = stage.querySelector('.picker');
+      if (picker) picker.hidden = true;
+      body.innerHTML = `<div class="gallery">${list.map((item) => {
+        const avatar = UI.assetById(item.avatarAssetId);
+        const face = avatar ? `<img alt="" src="${UI.esc(avatar.dataUrl)}">` : `<div class="seal-fallback">${UI.esc((item.name || '名').slice(0, 1))}</div>`;
+        return `<article class="paper gallery-card${item.id === character.id ? ' on' : ''}">
+          <button type="button" class="gallery-open" data-open-card="${UI.esc(item.id)}">${face}</button>
+          <div class="gallery-meta">
+            <strong>${UI.esc(item.name || '未命名')}</strong>
+            <div class="tags">${(item.tags || []).slice(0, 4).map((tag) => `<span class="tag">${UI.esc(tag)}</span>`).join('')}</div>
+            <p class="clamp-3">${UI.esc(item.description || '描述还空着。')}</p>
+            <div class="row"><span class="muted">话多 ${Number(item.talkativeness || 0).toFixed(2)}</span><button type="button" class="btn btn-small" data-dup-card="${UI.esc(item.id)}">复制</button></div>
+          </div>
+        </article>`;
+      }).join('')}</div>`;
+      body.querySelectorAll('[data-open-card]').forEach((button) => {
+        button.onclick = () => { UI.state.sel.character = button.dataset.openCard; UI.state.cardView = 'edit'; UI.renderStage(); };
+      });
+      body.querySelectorAll('[data-dup-card]').forEach((button) => {
+        button.onclick = () => {
+          const source = lib.characters.find((item) => item.id === button.dataset.dupCard);
+          if (source) duplicateCharacter(source);
+        };
+      });
+      return;
+    }
     const avatars = lib.assets.filter((asset) => asset.kind === 'avatar' || asset.kind === 'expression');
     body.innerHTML = `<div class="work">
       <div class="paper stack" id="char-form">
@@ -334,8 +373,10 @@
         UI.markDirty();
         paintGreetings();
       };
+      UI.mountLengths(greetHost);
     };
     paintGreetings();
+    UI.mountLengths(body);
   }
 
   function lore(stage) {
@@ -360,6 +401,12 @@
       <button type="button" class="btn btn-danger" id="del-book">删除此书</button>
       ${hint('先选书。新建或导入条目，点卡片编辑。每一栏是一个注入位置。')}
     </div>
+    <div class="paper lore-try">
+      <label class="field"><span class="field-label">试一句</span><textarea id="lore-sample" rows="2" data-nolen placeholder="贴一句聊天或开场白">${UI.esc(UI.state.loreSample || '')}</textarea></label>
+      ${hint('看这句话会触发当前书里哪些启用条目。恒定条目总会算上；选择性条目通常还要命中一个次关键词。')}
+      <button type="button" class="btn" id="lore-try">看会触发哪些</button>
+      <div id="lore-hits"></div>
+    </div>
     <div class="board-layout">
       <div class="board">${F.POSITIONS.map((position) => `<section class="column"><h3>${position.label}</h3>${entries.filter((item) => item.position === position.id).map((item) => `<article class="entry${item.id === (entry && entry.id) ? ' on' : ''}${item.enabled ? '' : ' off'}" data-id="${UI.esc(item.id)}"><b>${UI.esc(item.comment || '未命名')}</b><p>${UI.esc((item.keys || []).join(' / ') || '无关键词')}</p><div class="row"><span class="muted">${item.constant ? '恒定' : '触发'}</span><button type="button" class="btn btn-small" data-toggle="${UI.esc(item.id)}">${item.enabled ? '启用' : '停用'}</button></div></article>`).join('') || '<p class="dark-muted">空</p>'}</section>`).join('')}</div>
       <div id="lore-editor"></div>
@@ -378,8 +425,10 @@
       if (name && name.trim()) { book.name = name.trim(); UI.markDirty(); UI.renderStage(); }
     };
     stage.querySelector('#export-book').onclick = () => {
-      UI.downloadJson(`${UI.safeName(book.name)}.json`, F.bookToWorldInfo(book));
+      const filename = `${UI.safeName(book.name)}.json`;
+      UI.downloadJson(filename, F.bookToWorldInfo(book));
       UI.toast('已导出酒馆世界书 JSON');
+      UI.showExport(filename, '世界书 JSON。到酒馆「世界信息」导入。');
     };
     stage.querySelector('#import-book').onclick = () => importBook();
     stage.querySelector('#del-book').onclick = async () => {
@@ -422,7 +471,8 @@
         <label class="check"><input data-field="selective" type="checkbox" ${current.selective ? 'checked' : ''}>选择性</label>
         <label class="check"><input data-field="enabled" type="checkbox" ${current.enabled ? 'checked' : ''}>启用</label>
         <p class="help">恒定注入不看关键词。选择性勾上后，通常还要命中一个次关键词。</p>
-        <button type="button" class="btn btn-danger" id="del-entry">删除条目</button>
+        <div class="row"><button type="button" class="btn" id="dup-entry">复制条目</button><button type="button" class="btn btn-danger" id="del-entry">删除条目</button></div>
+        <p class="help">复制会另存一条，原来的还在。</p>
       </div>`;
       UI.bindFields(editor, current, (key) => {
         if (key === 'comment') {
@@ -433,6 +483,16 @@
       });
       mountChips(editor.querySelector('#keys'), current.keys, '主关键词', () => {});
       mountChips(editor.querySelector('#keys2'), current.secondaryKeys, '次关键词', () => {});
+      UI.mountLengths(editor);
+      editor.querySelector('#dup-entry').onclick = () => {
+        const copy = structuredClone(current);
+        copy.id = Store.uid('lore');
+        copy.comment = `${current.comment || '条目'} 的副本`;
+        book.entries.unshift(copy);
+        UI.state.sel.entry = copy.id;
+        UI.markDirty();
+        UI.renderStage();
+      };
       editor.querySelector('#del-entry').onclick = () => {
         book.entries = book.entries.filter((item) => item.id !== current.id);
         UI.state.sel.entry = null;
@@ -440,6 +500,53 @@
         UI.renderStage();
       };
     }
+    const includesKey = (text, key, sensitive) => {
+      const needle = String(key || '').trim();
+      if (!needle) return false;
+      if (sensitive) return text.includes(needle);
+      return text.toLowerCase().includes(needle.toLowerCase());
+    };
+    const loreHits = (sample) => book.entries.filter((entry) => entry.enabled !== false).map((entry) => {
+      if (entry.constant) return { entry, why: '恒定' };
+      const text = String(sample || '');
+      const sensitive = entry.caseSensitive === true;
+      const keys = (entry.keys || []).filter((key) => includesKey(text, key, sensitive));
+      if (!keys.length) return null;
+      const secondary = entry.secondaryKeys || [];
+      if (entry.selective && secondary.length) {
+        const hits = secondary.filter((key) => includesKey(text, key, sensitive));
+        const logic = Number(entry.selectiveLogic ?? 0);
+        const ok = logic === 1 ? hits.length === secondary.length
+          : logic === 2 ? hits.length === 0
+            : logic === 3 ? hits.length !== secondary.length
+              : hits.length > 0;
+        if (!ok) return null;
+      }
+      return { entry, why: `关键词 ${keys.join('、')}` };
+    }).filter(Boolean);
+    const paintHits = () => {
+      const sample = stage.querySelector('#lore-sample').value;
+      UI.state.loreSample = sample;
+      const hits = loreHits(sample);
+      const ids = new Set(hits.map((hit) => hit.entry.id));
+      stage.querySelectorAll('.entry').forEach((card) => card.classList.toggle('hit', ids.has(card.dataset.id)));
+      const host = stage.querySelector('#lore-hits');
+      if (!hits.length) {
+        host.innerHTML = `<p class="help">${sample.trim() ? '没有条目会被这句话触发。' : '先写一句，才会按关键词判断。恒定条目仍会列出。'}</p>`;
+        return;
+      }
+      host.innerHTML = `<div class="hit-row">${hits.map((hit) => `<button type="button" class="btn btn-small" data-hit="${UI.esc(hit.entry.id)}">${UI.esc(hit.entry.comment || '未命名')} · ${UI.esc(hit.why)}</button>`).join('')}</div>`;
+      host.querySelectorAll('[data-hit]').forEach((button) => {
+        button.onclick = () => {
+          UI.state.sel.entry = button.dataset.hit;
+          paintEditor();
+          stage.querySelectorAll('.entry').forEach((item) => item.classList.toggle('on', item.dataset.id === button.dataset.hit));
+        };
+      });
+    };
+    stage.querySelector('#lore-sample').addEventListener('input', (event) => { UI.state.loreSample = event.target.value; });
+    stage.querySelector('#lore-try').onclick = paintHits;
+    if (UI.state.loreSample) paintHits();
     paintEditor();
     function addBook() {
       const created = { id: Store.uid('book'), name: '新世界书', description: '', entries: [] };
@@ -506,8 +613,10 @@
       return;
     }
     stage.querySelector('#export-preset').onclick = () => {
-      UI.downloadJson(`${UI.safeName(current.name)}.json`, F.presetToExport(current));
+      const filename = `${UI.safeName(current.name)}.json`;
+      UI.downloadJson(filename, F.presetToExport(current));
       UI.toast('已导出。请把块抄进酒馆预设，不要整份覆盖。');
+      UI.showExport(filename, '提示词块。对照抄进酒馆预设，不要整份覆盖模型参数。');
     };
     const host = document.createElement('div');
     host.className = 'work';
@@ -579,6 +688,7 @@
           paint();
         });
       });
+      UI.mountLengths(host);
     };
     paint();
   }
@@ -604,8 +714,10 @@
     };
     if (!group) { stage.querySelector('#group-body').appendChild(UI.empty('还没有群', '把库里的角色排成一场夜话。', '', null)); return; }
     stage.querySelector('#export-group').onclick = () => {
-      UI.downloadJson(`${UI.safeName(group.name)}.json`, F.groupToExport(group, lib));
+      const filename = `${UI.safeName(group.name)}.json`;
+      UI.downloadJson(filename, F.groupToExport(group, lib));
       UI.toast('已导出群名单。酒馆需先有角色卡，再按名单建群。');
+      UI.showExport(filename, '群名单。先导入角色卡，再按这份名单在酒馆里建群。');
     };
     stage.querySelector('#del-group').onclick = () => {
       lib.groups = lib.groups.filter((item) => item.id !== group.id);
@@ -697,7 +809,11 @@
       stage.querySelector('#chat-body').appendChild(empty);
       return;
     }
-    stage.querySelector('#export-chat').onclick = () => UI.downloadJson(`${UI.safeName(current.name)}.json`, current);
+    stage.querySelector('#export-chat').onclick = () => {
+      const filename = `${UI.safeName(current.name)}.json`;
+      UI.downloadJson(filename, current);
+      UI.showExport(filename, '阅读稿。只供保存查阅，不会写回酒馆的 chats。');
+    };
     stage.querySelector('#del-chat').onclick = () => { lib.chats = lib.chats.filter((item) => item.id !== current.id); UI.markDirty(); UI.renderStage(); };
     const body = stage.querySelector('#chat-body');
     const query = UI.state.passageQuery || '';
@@ -882,7 +998,11 @@
       UI.markDirty();
       UI.renderStage();
     };
-    stage.querySelector('#export-rx').onclick = () => { UI.downloadJson('regex-scripts.json', F.regexToExport(lib.regexScripts)); UI.toast('已导出正则数组'); };
+    stage.querySelector('#export-rx').onclick = () => {
+      UI.downloadJson('regex-scripts.json', F.regexToExport(lib.regexScripts));
+      UI.toast('已导出正则数组');
+      UI.showExport('regex-scripts.json', '正则数组。在酒馆的正则扩展里导入。');
+    };
     stage.querySelector('#import-rx').onclick = async () => {
       const file = await UI.pickFile('.json,application/json');
       if (!file) return;
@@ -905,7 +1025,7 @@
       <label class="check"><input data-field="markdownOnly" type="checkbox" ${script.markdownOnly ? 'checked' : ''}>仅 Markdown 显示</label>
       <label class="check"><input data-field="promptOnly" type="checkbox" ${script.promptOnly ? 'checked' : ''}>仅提示词</label>
       <div class="grid-2">${UI.field('最小深度', `<input data-field="minDepth" type="number" value="${script.minDepth ?? ''}">`)}${UI.field('最大深度', `<input data-field="maxDepth" type="number" value="${script.maxDepth ?? ''}">`)}</div>
-    </div><aside class="paper stack"><p class="eyebrow">试跑</p>${hint('用这段文字在本地试替换，不写入库。')}<textarea id="lab" rows="6">${UI.esc(UI.state.lab || '')}</textarea><button type="button" class="btn" id="run-rx">试跑</button><pre id="lab-out" class="snippet"></pre></aside></div>`;
+    </div><aside class="paper stack"><p class="eyebrow">试跑</p>${hint('用这段文字在本地试替换，不写入库。')}<textarea id="lab" rows="6" data-nolen>${UI.esc(UI.state.lab || '')}</textarea><button type="button" class="btn" id="run-rx">试跑</button><pre id="lab-out" class="snippet"></pre></aside></div>`;
     UI.bindFields(body, script, (key) => {
       if (key === 'minDepth' || key === 'maxDepth') script[key] = script[key] === '' ? null : Number(script[key]);
       body.querySelector('#rx-error').textContent = script.findRegex && !F.regexFromString(script.findRegex) ? '这则正则编译不过' : '';
@@ -959,7 +1079,12 @@
       } catch (error) { UI.toast(error.message); }
     };
     if (!set) { stage.querySelector('#qr-body').appendChild(UI.empty('还没有快捷回复', '做一组可以复制进输入框的短句。', '', null)); return; }
-    stage.querySelector('#export-qr').onclick = () => { UI.downloadJson(`${UI.safeName(set.name)}.json`, F.qrToExport(set)); UI.toast('已导出快捷回复集'); };
+    stage.querySelector('#export-qr').onclick = () => {
+      const filename = `${UI.safeName(set.name)}.json`;
+      UI.downloadJson(filename, F.qrToExport(set));
+      UI.toast('已导出快捷回复集');
+      UI.showExport(filename, 'Quick Reply v2。在酒馆快捷回复扩展里导入。');
+    };
     stage.querySelector('#del-qr').onclick = () => { lib.quickReplySets = lib.quickReplySets.filter((item) => item.id !== set.id); UI.markDirty(); UI.renderStage(); };
     const body = stage.querySelector('#qr-body');
     body.innerHTML = `<div class="paper stack">${UI.field('套名', UI.text('name', set.name))}
@@ -969,6 +1094,7 @@
       </div>`).join('')}</div>
       <button type="button" class="btn" id="add-qr">添加一条</button></div>`;
     UI.bindFields(body, set);
+    UI.mountLengths(body);
     body.querySelectorAll('[data-id]').forEach((row) => {
       const reply = set.replies.find((item) => item.id === row.dataset.id);
       row.querySelectorAll('[data-k]').forEach((node) => {
@@ -1016,7 +1142,11 @@
       UI.markDirty();
       UI.renderStage();
     };
-    stage.querySelector('#export-tl').onclick = () => { UI.downloadJson('timeline.json', F.timelineToExport(lib)); UI.toast('已导出时间线'); };
+    stage.querySelector('#export-tl').onclick = () => {
+      UI.downloadJson('timeline.json', F.timelineToExport(lib));
+      UI.toast('已导出时间线');
+      UI.showExport('timeline.json', '工坊自己的时间线 JSON。酒馆没有对应的导入。');
+    };
     const editor = stage.querySelector('#tl-editor');
     const paint = (kind, id) => {
       UI.state.sel.tlKind = kind;
@@ -1030,6 +1160,7 @@
         <button type="button" class="btn btn-danger" id="del-tl">删除</button>
       </div>`;
       UI.bindFields(editor, data);
+      UI.mountLengths(editor);
       editor.querySelector('#del-tl').onclick = () => {
         if (kind === 'beat') lib.timeline.beats = lib.timeline.beats.filter((item) => item.id !== id);
         else lib.timeline.notes = lib.timeline.notes.filter((item) => item.id !== id);
@@ -1184,6 +1315,7 @@
       UI.downloadJson('关系图.json', F.bookToWorldInfo(book));
       UI.markDirty();
       UI.toast('已写入世界书「关系图」，并下载 JSON');
+      UI.showExport('关系图.json', '已写入世界书「关系图」。到酒馆「世界信息」导入这份 JSON。');
     };
     paint();
     paintSide();
@@ -1217,7 +1349,9 @@
     stage.querySelector('#check-book').onchange = (event) => { UI.state.sel.checkBook = event.target.value; paint(); };
     stage.querySelector('#export-check').onclick = () => {
       paint();
-      UI.downloadJson(`一致性-${UI.safeName(UI.state.lastFindings.character)}.json`, UI.state.lastFindings);
+      const filename = `一致性-${UI.safeName(UI.state.lastFindings.character)}.json`;
+      UI.downloadJson(filename, UI.state.lastFindings);
+      UI.showExport(filename, '一致性报告。没有改动角色卡。');
     };
     paint();
   }
@@ -1248,7 +1382,12 @@
       UI.renderStage();
     };
     if (!current) { stage.querySelector('#script-body').appendChild(UI.empty('还没有剧本', '按顺序写旁白和角色的句子。', '', null)); return; }
-    stage.querySelector('#export-script').onclick = () => { UI.downloadJson(`${UI.safeName(current.name)}.json`, F.scriptToExport(current, lib)); UI.toast('已导出剧本'); };
+    stage.querySelector('#export-script').onclick = () => {
+      const filename = `${UI.safeName(current.name)}.json`;
+      UI.downloadJson(filename, F.scriptToExport(current, lib));
+      UI.toast('已导出剧本');
+      UI.showExport(filename, '剧本草稿 JSON。酒馆没有对应的导入。');
+    };
     stage.querySelector('#del-script').onclick = () => { lib.scripts = lib.scripts.filter((item) => item.id !== current.id); UI.markDirty(); UI.renderStage(); };
     const speakers = [['narrator', '旁白'], ...lib.characters.map((character) => [character.id, character.name])];
     const body = stage.querySelector('#script-body');
@@ -1281,6 +1420,7 @@
         row.querySelector('[data-down]').onclick = () => { if (index >= current.beats.length - 1) return; const [item] = current.beats.splice(index, 1); current.beats.splice(index + 1, 0, item); UI.markDirty(); paint(); };
       });
       body.querySelector('#add-beat').onclick = () => { current.beats.push({ id: Store.uid('sb'), speaker: 'narrator', line: '', trigger: '' }); UI.markDirty(); paint(); };
+      UI.mountLengths(body);
     };
     paint();
   }
@@ -1336,9 +1476,20 @@
       UI.markDirty();
       UI.renderStage();
     };
-    stage.querySelector('#export-theme').onclick = () => UI.downloadJson(`${UI.safeName(current.name)}.json`, F.themeToExport(current));
-    stage.querySelector('#export-css').onclick = () => UI.downloadText(`${UI.safeName(current.name)}.css`, F.themeToCss(current), 'text/css');
-    stage.querySelector('#copy-css').onclick = () => UI.copyText(F.themeToCss(current));
+    stage.querySelector('#export-theme').onclick = () => {
+      const filename = `${UI.safeName(current.name)}.json`;
+      UI.downloadJson(filename, F.themeToExport(current));
+      UI.showExport(filename, '主题 JSON。只给工坊自己恢复用，酒馆不读这份。');
+    };
+    stage.querySelector('#export-css').onclick = () => {
+      const filename = `${UI.safeName(current.name)}.css`;
+      UI.downloadText(filename, F.themeToCss(current), 'text/css');
+      UI.showExport(filename, 'CSS 变量。酒馆的选择器不同，贴进去只是起点。');
+    };
+    stage.querySelector('#copy-css').onclick = () => {
+      UI.copyText(F.themeToCss(current));
+      UI.showExport('CSS', '已复制。贴进酒馆自定义 CSS 时，选择器要自己改。');
+    };
     stage.querySelector('#del-theme').onclick = () => {
       if (lib.themes.length <= 1) { UI.toast('至少留一个主题'); return; }
       lib.themes = lib.themes.filter((item) => item.id !== current.id);
@@ -1403,8 +1554,10 @@
     }
     stage.querySelector('#save-backup').onclick = () => {
       const date = new Date().toISOString().slice(0, 10);
-      UI.downloadJson(`酒馆工坊-备份-${date}.json`, F.backupOf(lib));
+      const filename = `酒馆工坊-备份-${date}.json`;
+      UI.downloadJson(filename, F.backupOf(lib));
       UI.toast('整库已导出');
+      UI.showExport(filename, '整库 JSON。回到「整库备份」，拖进来再选替换或合并。');
     };
     stage.querySelector('#load-backup').onclick = async () => restoreFile(await UI.pickFile('.json,application/json'));
     stage.querySelector('#backup-demo').onclick = UI.confirmLoadDemo;
