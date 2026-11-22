@@ -14,6 +14,18 @@
     return new Date().toISOString();
   }
 
+  function defaultSections() {
+    return {
+      r18: { on: false, preset: 'hint', custom: '', text: '' },
+      nsfw: { on: false, preset: 'tease', custom: '', text: '' },
+      style: { on: false, preset: 'short', custom: '', text: '' },
+      pov: { on: false, preset: 'third', thoughts: false, custom: '', text: '' },
+      bond: { on: false, preset: 'stranger', custom: '', text: '' },
+      safe: { on: false, word: '停', custom: '', text: '' },
+      format: { on: false, custom: '', text: '' },
+    };
+  }
+
   function emptyLibrary() {
     return {
       version: 1,
@@ -32,6 +44,7 @@
       themes: [],
       activeThemeId: null,
       settings: { chatBackgroundAssetId: null },
+      sections: defaultSections(),
     };
   }
 
@@ -348,6 +361,12 @@
     if (!Array.isArray(lib.timeline.beats)) lib.timeline.beats = [];
     if (!Array.isArray(lib.graph.nodes)) lib.graph.nodes = [];
     if (!Array.isArray(lib.graph.edges)) lib.graph.edges = [];
+    const sectionDefaults = defaultSections();
+    const incomingSections = (input && input.sections) || {};
+    lib.sections = {};
+    Object.keys(sectionDefaults).forEach((key) => {
+      lib.sections[key] = Object.assign({}, sectionDefaults[key], incomingSections[key] || {});
+    });
     lib.themes.forEach((theme) => {
       const vars = theme && theme.vars;
       if (!vars || theme.name !== '夜漆') return;
@@ -419,6 +438,7 @@
     mergeNamed('graph', 'edges');
     if (next.activeThemeId) out.activeThemeId = next.activeThemeId;
     if (next.settings && next.settings.chatBackgroundAssetId) out.settings.chatBackgroundAssetId = next.settings.chatBackgroundAssetId;
+    if (next.sections) out.sections = next.sections;
     out.meta.name = next.meta.name || out.meta.name;
     out.meta.seeded = out.meta.seeded || next.meta.seeded;
     return out;
