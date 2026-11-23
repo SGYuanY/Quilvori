@@ -850,7 +850,7 @@
         const raw = child.nodeValue;
         const trimmed = raw.trim();
         if (!trimmed) return;
-        const skipContent = child.parentElement && child.parentElement.closest && child.parentElement.closest('textarea, .msg .body, #char-preview, .cast, .gallery, figcaption, .snippet, .entry > p');
+        const skipContent = child.parentElement && child.parentElement.closest && child.parentElement.closest('textarea, .msg .body, #char-preview, .cast, .gallery, figcaption, .snippet, .entry > p, #studio-think-body');
         if (skipContent) {
           const only = phraseOf(trimmed);
           if (only) child.nodeValue = raw.replace(trimmed, only);

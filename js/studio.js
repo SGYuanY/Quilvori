@@ -661,6 +661,16 @@
 
   const WRITE_TASK = `根据用户的要求、回答和已接受的灵感，写出可导入酒馆工坊的 JSON。键只能是 sections, character, world, prompt, group, chat, asset, regex, quick, timeline, graph, script, check, memory, backup。世界书每条必须自带主关键词和次关键词，格式 {"条目名":"","主关键词":["名字","地点"],"次关键词":["一个配角或物件"],"正文":""}，不能留空。已有主开场白时，新的开场白放进 character.alternate_greetings，不要覆盖 first_mes。外貌和身材写进 character.description，并写进条目名包含「女主」或「设定」的正文。HTML 记忆必须按这个模板填实，不要只回一行纯文字：${MEMORY_TEMPLATE}。没把握时只回 {"unsure":true,"question":"..."}。不要先写固定问卷。`;
 
+  function paintThinking() {
+    const body = document.querySelector('#studio-think-body');
+    if (!body) return;
+    const text = root.NIJANModel && root.NIJANModel.lastReasoning ? root.NIJANModel.lastReasoning() : '';
+    body.textContent = text || '这个模型没有返回思考';
+    if (root.TAI18n) root.TAI18n.localize(body);
+  }
+
+  root.addEventListener('nijan-reasoning', paintThinking);
+
   function render(stage) {
     const ui = root.TAUI;
     const data = draft();
@@ -705,6 +715,7 @@
       <section class="studio-live paper">
         <label class="field"><span class="field-label">写的时候补充</span><div class="row"><input id="studio-more" data-path="supplement" type="text" value="${esc(data.supplement || '')}" placeholder="任何补充都可以，不限外貌"><button type="button" class="btn" id="studio-send">发送补充</button></div><p class="help">模型正在写时，发送会让它停下并按这条重新想。写完之后仍可以再发，直到你满意。</p></label>
         <div class="studio-status"><span class="tide" id="studio-tide" style="--p:${Number(data.progressRatio) || 0}"></span><p id="studio-progress" class="studio-progress${data.writing ? '' : ' done'}">${esc(data.progress || '还没开始写。')}</p><span class="bell${!data.writing && Number(data.progressRatio) >= 1 ? ' on' : ''}" id="studio-bell" aria-hidden="true"></span></div>
+        <div id="studio-think">${ui.fold('thinking', '思考', '<p id="studio-think-body" class="think-body"></p>')}</div>
         <p class="help studio-links"><a href="characters.html">角色卡工坊</a> · <a href="lore.html">世界书看板</a> · <a href="regex.html">正则</a> · <a href="quick.html">快捷回复</a> · <a href="timeline.html">作者注与时间线</a> · <a href="graph.html">角色关系图</a> · <a href="script.html">群聊剧本</a> · <a href="backup.html">整库备份</a> · <a href="memory.html">HTML 记忆</a></p>
       </section>
       <div id="studio-scan"></div>
@@ -741,6 +752,8 @@
     };
     paintScan();
     ui.mountFolds(stage.querySelector('.studio-results'), 'studio');
+    ui.mountFolds(stage.querySelector('#studio-think'), 'think');
+    paintThinking();
     stage.querySelectorAll('[data-path]').forEach((node) => {
       const eventName = node.tagName === 'SELECT' ? 'change' : 'input';
       node.addEventListener(eventName, () => {
