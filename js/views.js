@@ -294,7 +294,7 @@
     if (character) UI.state.sel.character = character.id;
     const books = lib.worldBooks;
     const galleryOn = UI.state.cardView === 'gallery';
-    stage.innerHTML = `<div class="dropwell"><div><strong>把角色卡拖到这里</strong><span>JSON，或带 chara 数据的 PNG。</span></div><button type="button" class="btn btn-primary" id="card-drop-btn">选择文件</button></div><div id="writer"></div><div id="sticker-host"></div><div id="json-host"></div><div class="toolbar">
+    stage.innerHTML = `<div class="dropwell"><div><strong>把角色卡拖到这里</strong><span>JSON，或带 chara 数据的 PNG。</span></div><button type="button" class="btn btn-primary" id="card-drop-btn">选择文件</button></div><div id="sticker-host"></div><div id="json-host"></div><div class="toolbar">
       <button type="button" class="btn${galleryOn ? ' btn-primary' : ''}" data-act="view-gallery">画廊</button>
       <button type="button" class="btn${galleryOn ? '' : ' btn-primary'}" data-act="view-edit">编辑</button>
       <button type="button" class="btn btn-primary" data-act="new">新建角色</button>
@@ -331,7 +331,6 @@
       UI.markDirty();
       UI.renderStage();
     };
-    if (root.NIJANModel) root.NIJANModel.mount(stage, 'card');
     mountSticker(stage, character);
     mountJson(stage, 'card', character);
     const importCard = async (file) => importCharacterFile(file || await UI.pickFile('.json,.png,application/json,image/png'));
@@ -509,8 +508,7 @@
       if (file) importBook(file);
     };
     if (!lib.worldBooks.length) {
-      stage.innerHTML = `<div class="dropwell"><div><strong>把世界书拖到这里</strong><span>酒馆世界信息的 JSON。</span></div><button type="button" class="btn btn-primary" id="book-drop-btn">选择文件</button></div><div id="writer"></div><div id="sticker-host"></div><div id="json-host"></div><div class="toolbar"><button type="button" class="btn btn-primary" id="new-book">新建世界书</button><button type="button" class="btn" id="import-book">导入 JSON</button>${hint('新建一本，或导入酒馆导出的世界信息 JSON。')}</div>`;
-      if (root.NIJANModel) root.NIJANModel.mount(stage, 'book');
+      stage.innerHTML = `<div class="dropwell"><div><strong>把世界书拖到这里</strong><span>酒馆世界信息的 JSON。</span></div><button type="button" class="btn btn-primary" id="book-drop-btn">选择文件</button></div><div id="sticker-host"></div><div id="json-host"></div><div class="toolbar"><button type="button" class="btn btn-primary" id="new-book">新建世界书</button><button type="button" class="btn" id="import-book">导入 JSON</button>${hint('新建一本，或导入酒馆导出的世界信息 JSON。')}</div>`;
       stage.appendChild(UI.empty('还没有世界书', '新建一本，或导入酒馆导出的世界信息 JSON。', '', null));
       stage.querySelector('#new-book').onclick = () => addBook();
       stage.querySelector('#import-book').onclick = () => importBook();
@@ -527,7 +525,7 @@
       loreUndo.push(JSON.stringify(book.entries));
       if (loreUndo.length > 40) loreUndo.shift();
     };
-    stage.innerHTML = `<div class="dropwell"><div><strong>把世界书拖到这里</strong><span>酒馆世界信息的 JSON。</span></div><button type="button" class="btn btn-primary" id="book-drop-btn">选择文件</button></div><div id="writer"></div><div id="sticker-host"></div><div id="json-host"></div><div class="toolbar">
+    stage.innerHTML = `<div class="dropwell"><div><strong>把世界书拖到这里</strong><span>酒馆世界信息的 JSON。</span></div><button type="button" class="btn btn-primary" id="book-drop-btn">选择文件</button></div><div id="sticker-host"></div><div id="json-host"></div><div class="toolbar">
       <button type="button" class="btn" id="lore-undo">撤销</button>
       <label class="dark-muted">书<select id="book-select">${lib.worldBooks.map((item) => `<option value="${UI.esc(item.id)}"${item.id === book.id ? ' selected' : ''}>${UI.esc(item.name)}</option>`).join('')}</select></label>
       <button type="button" class="btn" id="rename-book">改书名</button>
