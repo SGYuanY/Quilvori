@@ -5,7 +5,8 @@
   "description": "霓笺 desktop shell. The UI is the existing HTML.",
   "main": "electron/main.js",
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "test": "node test/models.mjs && node test/world-import.mjs && node test/entry-title.mjs && node test/roundtrip.mjs && node test/ai-workflow.mjs && node test/model-transport.mjs && node test/review-report.mjs && node test/creation-session.mjs && node test/i18n-locales.mjs"
   },
   "devDependencies": {
     "electron": "^33.2.1"

@@ -1,375 +1,620 @@
-/* OpenAI-compatible client. The key stays in localStorage and is never written to the library. */
+/* Model transport. Task prompts and write permissions live in ai-tasks.js. */
 (function (root) {
-  const KEY = 'nijan-model';
-
+  "use strict";
+  const KEY = "nijan-model";
+  const REASONING_EFFORTS = ['auto', 'none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
+  const records = [];
+  let catalog = [],
+    sequence = 0;
   function load() {
-    try { return Object.assign({ baseUrl: '', model: '', key: '', profile: 'default', temperature: 0.7 }, JSON.parse(localStorage.getItem(KEY) || '{}')); }
-    catch (error) { return { baseUrl: '', model: '', key: '', profile: 'default', temperature: 0.7 }; }
+    try {
+      return Object.assign(
+        {
+          baseUrl: "",
+          model: "",
+          key: "",
+          profile: "default",
+          temperature: 0.7,
+          protocol: "auto",
+          reasoningEffort: "auto",
+        },
+        JSON.parse(localStorage.getItem(KEY) || "{}"),
+      );
+    } catch (_) {
+      return {
+        baseUrl: "",
+        model: "",
+        key: "",
+        profile: "default",
+        temperature: 0.7,
+        protocol: "auto",
+        reasoningEffort: "auto",
+      };
+    }
   }
-
   function save(next) {
-    const current = load();
-    const merged = Object.assign(current, next || {});
-    if (!next || !Object.prototype.hasOwnProperty.call(next, 'key')) merged.key = current.key;
-    const temperature = Number(merged.temperature);
-    localStorage.setItem(KEY, JSON.stringify({
-      baseUrl: merged.baseUrl || '',
-      model: merged.model || '',
-      key: merged.key || '',
-      profile: merged.profile || 'default',
-      temperature: Number.isFinite(temperature) ? temperature : 0.7,
-    }));
-    return merged;
+    const config = Object.assign(load(), next || {});
+    config.protocol = ["auto", "chat", "responses"].includes(config.protocol)
+      ? config.protocol
+      : "auto";
+    config.temperature = Number.isFinite(Number(config.temperature))
+      ? Number(config.temperature)
+      : 0.7;
+    config.reasoningEffort = REASONING_EFFORTS.includes(config.reasoningEffort) ? config.reasoningEffort : 'auto';
+    localStorage.setItem(
+      KEY,
+      JSON.stringify(
+        Object.fromEntries(
+          ["baseUrl", "model", "key", "profile", "temperature", "protocol", "reasoningEffort"].map(
+            (key) => [key, config[key]],
+          ),
+        ),
+      ),
+    );
+    return config;
   }
-
-  let catalog = [];
-
-  function apiRoot(baseUrl) {
-    return String(baseUrl || '').trim().replace(/\/$/, '').replace(/\/chat\/completions$/, '').replace(/\/models$/, '');
+  function apiRoot(url) {
+    return String(url || "")
+      .trim()
+      .replace(/\/+$/, "")
+      .replace(/\/(?:chat\/completions|responses|models)$/, "");
   }
-
-  function modelsFromPayload(data) {
-    const list = Array.isArray(data) ? data : ((data && (data.data || data.models)) || []);
-    return list.map((item) => {
-      if (typeof item === 'string') return item.trim();
-      if (!item || typeof item !== 'object') return '';
-      return String(item.id || item.name || item.model || '').trim();
-    }).filter(Boolean);
-  }
-
   function configured() {
-    const cfg = load();
-    return !!(cfg.baseUrl && cfg.model && cfg.key);
+    const config = load();
+    return !!(apiRoot(config.baseUrl) && config.model && config.key);
   }
-
-  function jsonMode() {
-    return !!(root.TAI18n && root.TAI18n.prefs && root.TAI18n.prefs.jsonMode);
-  }
-
-  function allowsAdult() {
-    return load().profile !== 'strict';
-  }
-
-  function writingGuide() {
-    const prefs = (root.TAI18n && root.TAI18n.prefs) || {};
-    const mode = prefs.replyLength || 'medium';
-    const custom = Math.max(50, Math.min(8000, Number(prefs.replyChars) || 600));
-    const count = mode === 'short' ? 200 : mode === 'long' ? 1500 : mode === 'custom' ? custom : 600;
-    const sections = (root.TAUI && root.TAUI.state && root.TAUI.state.lib && root.TAUI.state.lib.sections) || {};
-    const group = sections.style || {};
-    const presets = {
-      short: '句子短。少形容词。一句只做一件事。',
-      long: '允许把环境、触觉和光线写长。句子可以慢慢收束。',
-      talk: '多用对白推进。叙述只补动作和停顿。',
-      spare: '不把情绪说满。留下没写完的半句，让空白自己工作。',
-    };
-    const style = String(group.custom || '').trim() || String(group.text || '').trim() || presets[group.preset] || presets.short;
-    return { mode, count, style };
-  }
-
-  function systemPrompt(task) {
-    const profile = load().profile || 'default';
-    const english = profile === 'weak-zh';
-    const sections = (root.TAUI && root.TAUI.state && root.TAUI.state.lib && root.TAUI.state.lib.sections) || {};
-    const guide = writingGuide();
-    const adultOk = allowsAdult() && !!(root.TAI18n && root.TAI18n.prefs && root.TAI18n.prefs.adult);
-    const r18 = adultOk && sections.r18 && sections.r18.on;
-    const nsfw = adultOk && sections.nsfw && sections.nsfw.on;
-    if (english) {
-      let text = 'You help write SillyTavern character cards and world books. Reply in JSON only. If you are unsure, reply {"unsure":true,"question":"..."} and do not invent the document. ' + task;
-      if (profile === 'strict' || !adultOk) text += ' Do not write sexual, erotic, or 18+ content.';
-      else {
-        if (r18) text += ' The user enabled R18. You may include adult intimacy only with clear consent, aftercare, and hard limits.';
-        if (nsfw) text += ' The user enabled NSFW. You may write the selected NSFW tone.';
-      }
-      text += ` Writing style: ${guide.style} Keep prose near ${guide.count} characters.`;
-      return text;
-    }
-    let text = '你帮用户写酒馆角色卡和世界书。只回 JSON。没把握时只回 {"unsure":true,"question":"..."}，不要硬写。' + task;
-    if (profile === 'strict' || !adultOk) text += '不要写任何成人、色情或 18+ 内容。';
-    else {
-      if (r18) text += '用户打开了 R18，可以写成人亲密，但必须有同意、事后照料和硬界限。';
-      if (nsfw) text += '用户打开了 NSFW，可以按所选的 NSFW 预设来写。';
-    }
-    text += `文风：${guide.style} 正文篇幅大约 ${guide.count} 字，不要明显更短或更长。`;
-    return text;
-  }
-
-  let lastReasoning = '';
-
-  function piece(value, depth) {
-    if (value == null || depth > 4) return '';
-    if (typeof value === 'string') return value.trim();
-    if (Array.isArray(value)) return value.map((item) => piece(item, depth + 1)).filter(Boolean).join('\n').trim();
-    if (typeof value !== 'object') return '';
-    if (value.reasoning_content != null) {
-      const named = piece(value.reasoning_content, depth + 1);
-      if (named) return named;
-    }
-    if (value.reasoning != null && value.reasoning !== value) {
-      const named = piece(value.reasoning, depth + 1);
-      if (named) return named;
-    }
-    if (typeof value.text === 'string' && value.text.trim()) return value.text.trim();
-    if (typeof value.content === 'string') return value.content.trim();
-    if (Array.isArray(value.content)) return piece(value.content, depth + 1);
-    return '';
-  }
-
-  function readReasoning(data) {
-    const choice = data && data.choices && data.choices[0];
-    const message = (choice && choice.message) || null;
-    const chunks = [];
-    const push = (value) => {
-      const text = piece(value, 0);
-      if (text && !chunks.includes(text)) chunks.push(text);
-    };
-    if (message) {
-      push(message.reasoning_content);
-      push(message.reasoning);
-    }
-    if (choice) {
-      push(choice.reasoning_content);
-      push(choice.reasoning);
-    }
-    if (data && typeof data === 'object') {
-      push(data.reasoning_content);
-      push(data.reasoning);
-    }
-    const content = message && message.content;
-    if (Array.isArray(content)) {
-      content.forEach((part) => {
-        const type = String((part && (part.type || part.kind)) || '').toLowerCase();
-        if (type === 'reasoning' || type === 'reasoning_content' || type === 'reasoning_text') push(part);
-      });
-    }
-    return chunks.join('\n\n');
-  }
-
-  function announceReasoning() {
-    try { root.dispatchEvent(new CustomEvent('nijan-reasoning', { detail: lastReasoning })); } catch (error) { /* 页面还没听 */ }
-  }
-
-  async function complete(messages, signal) {
-    const cfg = load();
-    if (!cfg.baseUrl || !cfg.model || !cfg.key) {
-      const error = new Error('先在设置里连接，并选一个模型。密钥只留在这台浏览器。');
-      error.code = 'no-model';
-      throw error;
-    }
-    const url = cfg.baseUrl.replace(/\/$/, '').replace(/\/chat\/completions$/, '') + '/chat/completions';
-    const response = await fetch(url, {
-      method: 'POST',
-      signal,
-      headers: { Authorization: `Bearer ${cfg.key}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: cfg.model, temperature: Number.isFinite(Number(cfg.temperature)) ? Number(cfg.temperature) : 0.7, messages }),
-    });
-    let data = null;
-    try { data = await response.json(); } catch (error) { data = null; }
-    lastReasoning = readReasoning(data);
-    announceReasoning();
-    if (!response.ok) throw new Error(`接口返回 ${response.status}`);
-    const message = data && data.choices && data.choices[0] && data.choices[0].message;
-    const content = message && message.content;
-    if (typeof content === 'string') return content;
-    if (Array.isArray(content)) {
-      return content.map((part) => {
-        const type = String((part && (part.type || part.kind)) || 'text').toLowerCase();
-        if (type === 'reasoning' || type === 'reasoning_content' || type === 'reasoning_text') return '';
-        return piece(part, 0);
-      }).filter(Boolean).join('\n');
-    }
-    return content || '';
-  }
-
-  function parseJson(text) {
-    const trimmed = String(text || '').trim();
-    const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/);
-    const raw = fenced ? fenced[1] : trimmed;
-    return JSON.parse(raw);
-  }
-
-  function localInspirations(kind, answers) {
-    const seed = (answers || []).filter(Boolean).join('；') || '还没有补充';
-    if (kind === 'card') {
-      return [
-        `把「${seed}」收成一个安静、话少的人。`,
-        `把「${seed}」收成一个爱把话说一半的人。`,
-        `把「${seed}」收成一个规矩很多、但会照顾人的人。`,
-      ];
-    }
+  function modelsFromPayload(value) {
+    const list = Array.isArray(value)
+      ? value
+      : (value && (value.data || value.models)) || [];
+    if (!Array.isArray(list)) return [];
     return [
-      `用「${seed}」写成一条恒定规矩。`,
-      `用「${seed}」写成靠关键词触发的条目。`,
-      `用「${seed}」写成一条只在事后出现的条目。`,
+      ...new Set(
+        list
+          .map((item) =>
+            typeof item === "string"
+              ? item.trim()
+              : String(
+                  (item && (item.id || item.name || item.model)) || "",
+                ).trim(),
+          )
+          .filter(Boolean),
+      ),
     ];
   }
-
-  async function askModel(kind, answers) {
-    const task = kind === 'card'
-      ? '根据用户的回答，写出角色卡 JSON：name, personality, scenario, first_mes, mes_example, system_prompt。'
-      : '根据用户的回答，写出世界书 JSON：{"entries":[{"条目名":"","触发关键词":[],"正文":""}]}。';
-    const content = await complete([
-      { role: 'system', content: systemPrompt(task) },
-      { role: 'user', content: JSON.stringify({ answers, json: jsonMode() }) },
-    ]);
-    return parseJson(content);
+  function allowsAdult() {
+    return load().profile !== "strict";
   }
-
-  function diffLines(before, after) {
-    const lines = [];
-    const keys = new Set([...Object.keys(before || {}), ...Object.keys(after || {})]);
-    keys.forEach((key) => {
-      const left = JSON.stringify(before[key] ?? '');
-      const right = JSON.stringify(after[key] ?? '');
-      if (left !== right) lines.push(`${key}：${left} → ${right}`);
-    });
-    return lines;
+  function jsonMode() {
+    return !!(root.TAI18n && root.TAI18n.prefs.jsonMode);
   }
-
-  function mount(stage, kind) {
-    const host = stage.querySelector('#writer');
-    if (!host || host.dataset.ready) return;
-    host.dataset.ready = '1';
-    const ui = root.TAUI;
-    host.className = 'paper stack writer';
-    host.innerHTML = `<p class="eyebrow">模型</p><p class="help">先问清楚，再给几条灵感。接受或拒绝之后才写。没把握会停下来再问。</p><div class="row"><button type="button" class="btn" id="writer-ask">先问几个问题</button><button type="button" class="btn" id="writer-ideas">给我灵感</button><button type="button" class="btn btn-primary" id="writer-go">开始写</button></div><div id="writer-body"></div>`;
-    const body = host.querySelector('#writer-body');
-    let answers = [];
-    let chosen = '';
-    const paintQuestions = (extra) => {
-      const questions = extra || [];
-      body.innerHTML = questions.map((q, i) => `<label class="field"><span class="field-label">${ui.esc(q)}</span><input data-answer="${i}" type="text" value="${ui.esc(answers[i] || '')}"></label>`).join('');
-      body.querySelectorAll('[data-answer]').forEach((input) => {
-        input.oninput = () => { answers[Number(input.dataset.answer)] = input.value; };
-      });
+  function writingGuide() {
+    const prefs = (root.TAI18n && root.TAI18n.prefs) || {};
+    const group = (root.TAUI && root.TAUI.state.lib.sections.style) || {};
+    const styles = {
+      short: "句子短，叙述具体。",
+      long: "允许展开环境、动作和细节。",
+      talk: "用对白推进，叙述补动作。",
+      spare: "保留余地，不把情绪说满。",
     };
-    host.querySelector('#writer-ask').onclick = async () => {
-      paintQuestions();
-      if (!configured()) return;
-      try {
-        const more = await complete([
-          { role: 'system', content: systemPrompt('再提两个必须先问清的问题，只回 JSON：{"questions":["...","..."]}') },
-          { role: 'user', content: kind },
-        ]);
-        const parsed = parseJson(more);
-        paintQuestions(parsed.questions || []);
-      } catch (error) {
-        ui.toast(error.message);
+    const count =
+      prefs.replyLength === "short"
+        ? 200
+        : prefs.replyLength === "long"
+          ? 1500
+          : prefs.replyLength === "custom"
+            ? Math.max(50, Math.min(8000, Number(prefs.replyChars) || 600))
+            : 600;
+    return {
+      mode: prefs.replyLength || "medium",
+      count,
+      style: String(
+        group.custom || group.text || styles[group.preset] || styles.short,
+      ),
+    };
+  }
+  function systemPrompt(task, mode) {
+    let text = String(task || "");
+    const language =
+      {
+        zh: "中文",
+        en: "英语",
+        ja: "日语",
+        ru: "俄语",
+        ko: "韩语",
+        th: "泰语",
+      }[root.TAI18n?.prefs?.lang || "zh"] || "中文";
+    text += `\n默认用${language}填写新正文、沟通答复和检查报告；用户明确指定语言时以用户要求为准。引用原文保持原样，JSON 字段名保持任务规定的格式。`;
+    if (mode && mode.startsWith("create:")) {
+      const guide = writingGuide();
+      if (!["create:regex", "create:backup", "create:graph"].includes(mode))
+        text += `\n创作正文参考文风：${guide.style}。单段正文目标约 ${guide.count} 字，按该栏用途调整。可选栏位不必填满。`;
+      const prefs = (root.TAI18n && root.TAI18n.prefs) || {};
+      if (!allowsAdult() || !prefs.adult)
+        text += "\n不生成色情或露骨的性内容。";
+      else text += "\n亲密设定仅涉及成年人和明确同意，尊重用户指定的边界。";
+    }
+    return text;
+  }
+  function notify(record) {
+    try {
+      root.dispatchEvent(new CustomEvent("nijan-task", { detail: record }));
+    } catch (_) {}
+  }
+  function piece(value) {
+    if (typeof value === "string") return value;
+    if (Array.isArray(value)) return value.map(piece).join("");
+    if (value && typeof value === "object")
+      return piece(value.text || value.content || "");
+    return "";
+  }
+  function extract(data, protocol) {
+    if (protocol === "responses") {
+      const output = Array.isArray(data.output) ? data.output : [];
+      return {
+        text:
+          piece(data.output_text) ||
+          output
+            .filter((item) => item.type === "message")
+            .map((item) =>
+              piece(
+                (item.content || []).filter(
+                  (part) => part.type === "output_text" || part.type === "text",
+                ),
+              ),
+            )
+            .join("\n"),
+        reasoning: output
+          .filter((item) => item.type === "reasoning")
+          .map((item) => piece(item.summary || item.content || ""))
+          .filter(Boolean)
+          .join("\n"),
+      };
+    }
+    const message =
+      (data.choices && data.choices[0] && data.choices[0].message) || {};
+    return {
+      text:
+        typeof message.content === "string"
+          ? message.content
+          : piece(
+              (message.content || []).filter(
+                (part) => !String(part.type || "").startsWith("reasoning"),
+              ),
+            ),
+      reasoning: piece(
+        message.reasoning_content ||
+          message.reasoning ||
+          data.reasoning_content ||
+          "",
+      ),
+    };
+  }
+  function cleanError(message, config) {
+    return String(message || "请求失败")
+      .split(config.key || "\0")
+      .join("[密钥已隐藏]")
+      .slice(0, 500);
+  }
+  function checkCompletion(data, protocol) {
+    if (!data || typeof data !== "object" || Array.isArray(data))
+      throw new Error("接口返回了无效的响应。");
+    if (data.error)
+      throw new Error(
+        typeof data.error === "string"
+          ? data.error
+          : data.error.message || "接口未完成请求。",
+      );
+    if (protocol === "responses") {
+      if (
+        (data.status && data.status !== "completed") ||
+        (data.output || []).some(
+          (item) => item.status === "incomplete" || item.status === "failed",
+        )
+      )
+        throw new Error("模型输出未完成，原稿已保留。");
+    } else {
+      const finish =
+        data.choices && data.choices[0] && data.choices[0].finish_reason;
+      if (finish && finish !== "stop")
+        throw new Error(
+          "模型输出被截断或未完成，原稿已保留。请缩小范围后重试。",
+        );
+    }
+  }
+  async function streamResult(response, protocol, record) {
+    if (
+      !String(response.headers.get("content-type") || "").includes(
+        "text/event-stream",
+      )
+    ) {
+      const data = await response.json();
+      checkCompletion(data, protocol);
+      record.usage = data.usage;
+      return extract(data, protocol);
+    }
+    const reader = response.body.getReader(),
+      decoder = new TextDecoder();
+    let buffer = "",
+      eventData = [],
+      text = "",
+      reasoning = "",
+      final = null,
+      finished = false;
+    const event = () => {
+      if (!eventData.length) return;
+      const raw = eventData.join("\n");
+      eventData = [];
+      if (raw === "[DONE]") {
+        if (protocol === "chat") finished = true;
+        return;
       }
-    };
-    host.querySelector('#writer-ideas').onclick = async () => {
-      let ideas = localInspirations(kind, answers);
-      if (configured()) {
-        try {
-          const raw = await complete([
-            { role: 'system', content: systemPrompt('给三条不同的写法灵感，只回 JSON：{"ideas":["...","...","..."]}。先不要写完整文档。') },
-            { role: 'user', content: JSON.stringify(answers) },
-          ]);
-          ideas = parseJson(raw).ideas || ideas;
-        } catch (error) {
-          ui.toast(error.message);
+      const value = JSON.parse(raw);
+      if (
+        value.error ||
+        value.type === "error" ||
+        value.type === "response.failed" ||
+        value.type === "response.incomplete"
+      )
+        throw new Error(
+          (value.error && value.error.message) ||
+            (value.response &&
+              value.response.error &&
+              value.response.error.message) ||
+            "模型输出未完成，原稿已保留。",
+        );
+      if (protocol === "chat") {
+        const delta =
+          (value.choices && value.choices[0] && value.choices[0].delta) || {};
+        text += piece(delta.content);
+        reasoning += piece(delta.reasoning_content || delta.reasoning);
+        const finish =
+          value.choices && value.choices[0] && value.choices[0].finish_reason;
+        if (finish && finish !== "stop")
+          throw new Error(
+            "模型输出被截断或未完成，原稿已保留。请缩小范围后重试。",
+          );
+        if (finish) finished = true;
+        if (value.usage) record.usage = value.usage;
+      } else {
+        if (value.type === "response.output_text.delta")
+          text += value.delta || "";
+        if (
+          value.type === "response.reasoning_summary_text.delta" ||
+          value.type === "response.reasoning_text.delta"
+        )
+          reasoning += value.delta || "";
+        if (value.type === "response.completed") {
+          final = value.response;
+          checkCompletion(final, protocol);
+          record.usage = final.usage;
+          finished = true;
         }
       }
-      body.innerHTML = ideas.map((idea, index) => `<div class="row"><span>${ui.esc(idea)}</span><button type="button" class="btn btn-small" data-yes="${index}">接受</button><button type="button" class="btn btn-small" data-no="${index}">拒绝</button></div>`).join('');
-      body.querySelectorAll('[data-yes]').forEach((button) => {
-        button.onclick = () => { chosen = ideas[Number(button.dataset.yes)]; ui.toast('已接受这条灵感'); };
-      });
-      body.querySelectorAll('[data-no]').forEach((button) => {
-        button.onclick = () => { if (chosen === ideas[Number(button.dataset.no)]) chosen = ''; button.closest('.row').remove(); };
-      });
+      record.reasoning = reasoning;
+      record.output = text;
+      notify(record);
     };
-    host.querySelector('#writer-go').onclick = async () => {
-      if (!chosen && !answers.filter(Boolean).length) { ui.toast('先回答问题，或接受一条灵感'); return; }
-      if (!configured()) { ui.toast('还没有配置模型。先在设置里连接，并从列表里选一个。'); return; }
-      try {
-        let result = await askModel(kind, answers.concat(chosen ? [`采用灵感：${chosen}`] : []));
-        if (result && result.unsure) {
-          const answer = await ui.ask({ title: '先停一下', body: result.question || '这里我没把握。', actions: [{ id: 'yes', label: '按这个继续', kind: 'btn-primary' }, { id: 'no', label: '先不写' }] });
-          if (answer !== 'yes') return;
-          result = await askModel(kind, answers.concat([result.question, '用户确认可以继续']));
+    const line = (value) => {
+      if (value === "") event();
+      else if (value.startsWith("data:"))
+        eventData.push(value.slice(5).trimStart());
+    };
+    try {
+      while (true) {
+        const chunk = await reader.read();
+        buffer += decoder.decode(chunk.value || new Uint8Array(), {
+          stream: !chunk.done,
+        });
+        let index;
+        while ((index = buffer.indexOf("\n")) >= 0) {
+          line(buffer.slice(0, index).replace(/\r$/, ""));
+          buffer = buffer.slice(index + 1);
         }
-        if (kind === 'card') applyCard(result);
-        else applyBook(result);
-      } catch (error) {
-        ui.toast(error.message);
+        if (chunk.done) break;
       }
+      if (buffer) line(buffer.replace(/\r$/, ""));
+      event();
+    } finally {
+      reader.releaseLock();
+    }
+    if (!finished) throw new Error("连接在输出完成前中断，原稿已保留。");
+    const extracted = final ? extract(final, protocol) : null;
+    return {
+      text: (extracted && extracted.text) || text,
+      reasoning: (extracted && extracted.reasoning) || reasoning,
     };
   }
-
-  function applyCard(result) {
-    const ui = root.TAUI;
-    const character = ui.state.lib.characters.find((item) => item.id === ui.state.sel.character) || ui.state.lib.characters[0];
-    if (!character) { ui.toast('先有一张角色卡'); return; }
-    const before = { name: character.name, personality: character.personality, scenario: character.scenario, first_mes: character.first_mes, mes_example: character.mes_example, system_prompt: character.system_prompt };
-    const next = {
-      name: result.name || before.name,
-      personality: result.personality || before.personality,
-      scenario: result.scenario || before.scenario,
-      first_mes: result.first_mes || before.first_mes,
-      mes_example: result.mes_example || before.mes_example,
-      system_prompt: result.system_prompt || before.system_prompt,
+  async function complete(messages, options) {
+    const config = load(),
+      opts = options || {};
+    if (!configured()) throw new Error("先在设置里连接，并选一个模型。");
+    const base = apiRoot(config.baseUrl);
+    if (!/^https?:\/\//i.test(base))
+      throw new Error("接口地址需要以 http:// 或 https:// 开头。");
+    const record = {
+      id: `task_${++sequence}_${Date.now()}`,
+      task: opts.task || "test",
+      label: opts.label || "接口测试",
+      status: "running",
+      model: config.model,
+      reasoningEffort: REASONING_EFFORTS.includes(config.reasoningEffort) ? config.reasoningEffort : 'auto',
+      reasoning: "",
+      output: "",
+      scope: opts.scopeSummary || "连接测试，没有发送角色卡或世界书。",
+      startedAt: new Date().toISOString(),
     };
-    const lines = diffLines(before, next);
-    ui.ask({ title: '模型改了这些', body: lines.join('\n') || '没有改动', actions: [{ id: 'no', label: '放弃' }], swipe: '滑开写入角色卡' }).then((answer) => {
-      if (answer !== 'yes') return;
-      Object.assign(character, next);
-      ui.markDirty();
-      ui.renderStage();
-    });
+    records.push(record);
+    if (records.length > 24) records.shift();
+    notify(record);
+    const controller = new AbortController();
+    let timedOut = false;
+    const cancel = () => controller.abort();
+    if (opts.signal) {
+      if (opts.signal.aborted) controller.abort();
+      else opts.signal.addEventListener("abort", cancel, { once: true });
+    }
+    const timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, opts.timeoutMs || 180000);
+    try {
+      const protocols =
+        config.protocol === "chat"
+          ? ["chat"]
+          : config.protocol === "responses"
+            ? ["responses"]
+            : ["responses", "chat"];
+      let result;
+      for (let index = 0; index < protocols.length; index += 1) {
+        const protocol = protocols[index];
+        record.protocol = protocol;
+        const body =
+          protocol === "responses"
+            ? {
+                model: config.model,
+                input: messages,
+                stream: true,
+                store: false,
+              }
+            : { model: config.model, messages, stream: true };
+        if (protocol === "chat" && opts.creative)
+          body.temperature = config.temperature;
+        if (record.reasoningEffort !== 'auto') {
+          if (protocol === 'responses') body.reasoning = { effort: record.reasoningEffort };
+          else body.reasoning_effort = record.reasoningEffort;
+        }
+        const request = () =>
+          fetch(
+            `${base}/${protocol === "responses" ? "responses" : "chat/completions"}`,
+            {
+              method: "POST",
+              signal: controller.signal,
+              headers: {
+                Authorization: `Bearer ${config.key}`,
+                "Content-Type": "application/json",
+                Accept: "text/event-stream, application/json",
+              },
+              body: JSON.stringify(body),
+            },
+          );
+        let response = await request();
+        if (
+          response.status === 400 &&
+          Object.prototype.hasOwnProperty.call(body, "temperature")
+        ) {
+          const detail = await response.clone().text();
+          if (
+            /temperature/i.test(detail) &&
+            /unsupported|not supported|does not support|only.*default|不支持/i.test(
+              detail,
+            )
+          ) {
+            delete body.temperature;
+            record.transportNote = "接口不支持温度参数，已使用模型默认值。";
+            response = await request();
+          }
+        }
+        if (!response.ok) {
+          const detail = cleanError(await response.text(), config);
+          if (response.status === 400 && record.reasoningEffort !== 'auto' && /reasoning|effort/i.test(detail)) {
+            const message = '当前模型或接口不支持所选推理强度，请换一个档位或选择跟随模型。';
+            throw new Error(`${root.TAI18n ? root.TAI18n.t(message) : message} ${detail}`);
+          }
+          if (
+            index + 1 < protocols.length &&
+            [404, 405, 501].includes(response.status)
+          )
+            continue;
+          throw new Error(`接口返回 ${response.status}：${detail}`);
+        }
+        result = await streamResult(response, protocol, record);
+        break;
+      }
+      if (!result || !result.text.trim())
+        throw new Error("模型没有返回正文，原稿已保留。");
+      record.output = result.text;
+      record.reasoning = result.reasoning;
+      record.status = "received";
+      record.finishedAt = new Date().toISOString();
+      notify(record);
+      return { text: result.text, record };
+    } catch (error) {
+      record.status = timedOut
+        ? "error"
+        : controller.signal.aborted
+          ? "cancelled"
+          : "error";
+      record.error = timedOut
+        ? "请求超时，原稿已保留。"
+        : controller.signal.aborted
+          ? "已停止，原稿已保留。"
+          : cleanError(error.message, config);
+      record.finishedAt = new Date().toISOString();
+      notify(record);
+      const wrapped = new Error(record.error);
+      wrapped.name = controller.signal.aborted ? "AbortError" : "Error";
+      throw wrapped;
+    } finally {
+      clearTimeout(timer);
+      controller.abort();
+      if (opts.signal) opts.signal.removeEventListener("abort", cancel);
+    }
   }
-
-  function applyBook(result) {
-    const ui = root.TAUI;
-    const book = ui.state.lib.worldBooks.find((item) => item.id === ui.state.sel.book) || ui.state.lib.worldBooks[0];
-    if (!book) { ui.toast('先有一本世界书'); return; }
-    const entries = root.TAFormats.worldInfoToEntries(result.entries ? result : { entries: result.entries || result });
-    const before = { count: book.entries.length };
-    const after = { count: entries.length, names: entries.map((entry) => entry.comment).join('、') };
-    ui.ask({ title: '模型准备写入的条目', body: diffLines(before, { count: after.count, names: after.names }).join('\n'), actions: [{ id: 'no', label: '放弃' }], swipe: '滑开写入世界书' }).then((answer) => {
-      if (answer !== 'yes') return;
-      book.entries = entries.map((entry) => Object.assign({ id: `lore_${Math.random().toString(16).slice(2)}`, secondaryKeys: [], constant: false, selective: true, order: 100, position: 'before_char', enabled: true, depth: 4, outletName: '' }, entry));
-      ui.markDirty();
-      ui.renderStage();
-    });
+  function parseJson(raw) {
+    const trimmed = String(raw || "").trim();
+    const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/);
+    try {
+      return JSON.parse(fenced ? fenced[1] : trimmed);
+    } catch (_) {
+      throw new Error(
+        "模型返回的内容不是完整 JSON，原稿已保留。请重试或缩小范围。",
+      );
+    }
   }
-
-  async function listModels() {
-    const cfg = load();
-    if (!cfg.baseUrl || !cfg.key) {
-      const error = new Error('先填写接口地址和密钥。密钥只留在这台浏览器。');
-      error.code = 'no-model';
+  async function runTask(task, context, options) {
+    const input = context || {};
+    if (
+      task === "edit" &&
+      (!String(input.instruction || "").trim() || !(input.targets || []).length)
+    )
+      throw new Error("先选择要修改的对象、栏位，并写下要求。");
+    if (task === "review" && !input.card && !input.book)
+      throw new Error("先选择要检查的角色卡或世界书。");
+    if (task === "discuss" && !String(input.instruction || "").trim())
+      throw new Error("先写下要和 AI 沟通的内容。");
+    if (
+      task.startsWith("create:") &&
+      !String(input.brief || input.instruction || "").trim()
+    )
+      throw new Error("先写下创作要求。");
+    const serialized = JSON.stringify(input);
+    if (serialized.length > 350000)
+      throw new Error(
+        "本次内容过多，请到 AI 创作台的“修改已有”减少勾选条目，再分批修改或检查。",
+      );
+    const instruction = systemPrompt(root.NIJANAI.prompt(task, input), task);
+    const response = await complete(
+      [
+        { role: "system", content: instruction },
+        { role: "user", content: serialized },
+      ],
+      Object.assign({}, options, {
+        task,
+        creative: task.startsWith("create:"),
+        scopeSummary: [
+          `任务：${options?.label || task}`,
+          ...(input.ideas?.length
+            ? [
+                `已采用灵感：${input.ideas.map((idea, index) => `${index + 1}. ${idea}`).join("\n")}`,
+              ]
+            : []),
+          ...(input.instruction ? [`本轮补充：${input.instruction}`] : []),
+          ...(input.targets || []).map(
+            (target) =>
+              `可修改：${target.name || target.id} · ${target.fields.map((field) => root.NIJANAI.CARD_FIELDS[field] || root.NIJANAI.ENTRY_FIELDS[field] || field).join("、")}`,
+          ),
+          `参考角色卡：${(input.card || input.reference?.card)?.name || "未选用"}`,
+          ...(input.book || input.reference?.book
+            ? (() => {
+                const book = input.book || input.reference.book;
+                return [
+                  `世界书：${book.name}，实际提供 ${book.entries.length} / ${book.scope?.totalEntries ?? book.entries.length} 条${book.scope?.mode === "reference" ? "参考条目（选中原文另外完整发送）" : book.scope?.mode === "selected_entries" ? "选中条目" : "条目"}`,
+                  `提供的条目：${book.entries.map((entry) => entry.comment || entry.id).join("、") || "无"}`,
+                ];
+              })()
+            : ["世界书：未选用"]),
+        ].join("\n"),
+      }),
+    );
+    try {
+      const result = root.NIJANAI.validate(
+        task,
+        parseJson(response.text),
+        input,
+      );
+      response.record.status = "validated";
+      response.record.result = result;
+      if (task === "review") response.record.reviewSource = serialized;
+      notify(response.record);
+      return result;
+    } catch (error) {
+      response.record.status =
+        error.code === "needs-input" ? "needs_input" : "error";
+      response.record.error = error.message;
+      notify(response.record);
       throw error;
     }
-    const response = await fetch(`${apiRoot(cfg.baseUrl)}/models`, {
-      headers: { Authorization: `Bearer ${cfg.key}` },
-    });
-    if (!response.ok) throw new Error(`模型列表返回 ${response.status}`);
-    catalog = modelsFromPayload(await response.json());
-    return catalog.slice();
   }
-
+  async function listModels() {
+    const config = load();
+    if (!config.baseUrl || !config.key)
+      throw new Error("先填写接口地址和密钥。");
+    const controller = new AbortController(),
+      timer = setTimeout(() => controller.abort(), 20000);
+    try {
+      const response = await fetch(`${apiRoot(config.baseUrl)}/models`, {
+        signal: controller.signal,
+        headers: { Authorization: `Bearer ${config.key}` },
+      });
+      if (!response.ok) throw new Error(`模型列表返回 ${response.status}`);
+      catalog = modelsFromPayload(await response.json());
+      return catalog.slice();
+    } finally {
+      clearTimeout(timer);
+    }
+  }
   async function askJson(task, user, signal) {
-    const raw = await complete([
-      { role: 'system', content: systemPrompt(task) },
-      { role: 'user', content: typeof user === 'string' ? user : JSON.stringify(user) },
-    ], signal);
-    return parseJson(raw);
+    const response = await complete(
+      [
+        { role: "system", content: systemPrompt(task) },
+        {
+          role: "user",
+          content: typeof user === "string" ? user : JSON.stringify(user),
+        },
+      ],
+      { signal, task: "utility", label: "辅助任务" },
+    );
+    const result = parseJson(response.text);
+    if (result && result.unsure) {
+      const error = new Error(result.question || "模型需要补充信息。");
+      error.code = "needs-input";
+      throw error;
+    }
+    return result;
   }
-
-  async function testMessage(text) {
-    return String(await complete([{ role: 'user', content: text || '请只回复：收到' }]) || '');
+  async function testMessage(message) {
+    return (
+      await complete([{ role: "user", content: message || "请只回复：收到" }], {
+        label: "连接测试",
+      })
+    ).text;
   }
-
-  async function semanticFindings(character) {
-    if (!configured()) return [];
-    const raw = await complete([
-      { role: 'system', content: systemPrompt('检查人设是否前后矛盾。只回 JSON：{"findings":[{"title":"","detail":""}]}。空字段和关键词重复不用你报。') },
-      { role: 'user', content: JSON.stringify({ name: character.name, personality: character.personality, scenario: character.scenario, first_mes: character.first_mes, description: character.description }) },
-    ]);
-    const parsed = parseJson(raw);
-    return parsed.findings || [];
+  async function semanticFindings(character, book) {
+    const result = await runTask(
+      "review",
+      { card: character, book: book || null },
+      { label: "人设与设定检查" },
+    );
+    return result.items;
   }
-
-  root.NIJANModel = { load, save, configured, allowsAdult, jsonMode, systemPrompt, writingGuide, mount, semanticFindings, listModels, testMessage, askJson, modelsFromPayload, rememberedModels: () => catalog.slice(), lastReasoning: () => lastReasoning };
-})(typeof globalThis !== 'undefined' ? globalThis : window);
+  root.NIJANModel = {
+    load,
+    save,
+    configured,
+    allowsAdult,
+    jsonMode,
+    systemPrompt,
+    writingGuide,
+    modelsFromPayload,
+    listModels,
+    runTask,
+    askJson,
+    testMessage,
+    semanticFindings,
+    rememberedModels: () => catalog.slice(),
+    history: () => records.slice(),
+    lastReasoning: () =>
+      records.length ? records[records.length - 1].reasoning : "",
+  };
+})(typeof globalThis !== "undefined" ? globalThis : window);

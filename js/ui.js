@@ -41,15 +41,63 @@
     }[ch]));
   }
 
-  function toast(message) {
+  function toast(message, options = {}) {
     const host = document.getElementById('toasts');
     if (!host) return;
+    const value = String(message || '');
+    if (!value.trim()) return;
+    const t = (text) => root.TAI18n ? root.TAI18n.t(text) : text;
+    const kind = options.kind || (/失败|错误|未能|不支持|超时/.test(value) ? 'error' : /^已|成功|完成/.test(value) ? 'success' : 'info');
+    const title = options.title || t({ success: '操作完成', error: '需要处理', warning: '请留意', info: '提示' }[kind] || '提示');
+    const icon = root.TAWorkspace?.icon(kind === 'success' ? 'checkmark' : kind === 'error' ? 'tutorial' : 'studio') || '';
+    const positions = () => new Map([...host.children].map((item) => [item, item.getBoundingClientRect().top]));
+    const shift = (before) => before.forEach((top, item) => {
+      if (!item.isConnected || item.classList.contains('toast-leaving')) return;
+      const distance = top - item.getBoundingClientRect().top;
+      if (distance && !matchMedia('(prefers-reduced-motion: reduce)').matches) item.animate([{ transform: `translateY(${distance}px)` }, { transform: 'translateY(0)' }], { duration: 280, easing: 'cubic-bezier(.2,.8,.2,1)' });
+    });
+    [...host.children].filter((item) => options.id ? item.dataset.toastId === options.id : item.dataset.message === value).forEach((item) => item.dismissToast?.(true));
+    const before = positions();
     const node = document.createElement('div');
-    node.className = 'toast';
-    node.textContent = message;
+    node.className = `toast toast-${['success', 'error', 'warning', 'info'].includes(kind) ? kind : 'info'}`;
+    node.dataset.message = value;
+    if (options.id) node.dataset.toastId = options.id;
+    node.setAttribute('role', kind === 'error' ? 'alert' : 'status');
+    node.innerHTML = `<span class="toast-symbol" aria-hidden="true">${icon}</span><div class="toast-content"><strong class="toast-title"></strong><p class="toast-message"></p><div class="toast-actions"></div></div><button type="button" class="toast-close" aria-label="${esc(t('关闭提示'))}">${root.TAWorkspace?.icon('close') || '×'}</button><span class="toast-track" aria-hidden="true"><i></i></span>`;
+    node.querySelector('.toast-title').textContent = title;
+    const body = node.querySelector('.toast-message'); body.textContent = value;
+    const actions = node.querySelector('.toast-actions');
+    let leaving = false;
+    const duration = options.duration || Math.min(15000, Math.max(options.action ? 10000 : 5600, value.length * 65));
+    const dismiss = (immediate = false) => {
+      if (leaving) return; leaving = true;
+      progress.cancel(); node.classList.add('toast-leaving');
+      const remove = () => { const prior = positions(); node.remove(); shift(prior); };
+      if (immediate || matchMedia('(prefers-reduced-motion: reduce)').matches) remove(); else setTimeout(remove, 200);
+    };
+    node.dismissToast = dismiss;
+    node.querySelector('.toast-close').onclick = () => dismiss();
+    if (options.action?.label && typeof options.action.onClick === 'function') {
+      const action = document.createElement('button'); action.type = 'button'; action.className = 'toast-action'; action.textContent = options.action.label;
+      action.onclick = () => { try { options.action.onClick(); } finally { dismiss(); } }; actions.appendChild(action);
+    }
+    if (value.length > 96) {
+      const expand = document.createElement('button'); expand.type = 'button'; expand.className = 'toast-expand'; expand.textContent = t('展开'); expand.setAttribute('aria-expanded', 'false');
+      expand.onclick = () => { const on = body.classList.toggle('expanded'); expand.textContent = t(on ? '收起' : '展开'); expand.setAttribute('aria-expanded', String(on)); if (on) progress.pause(); };
+      actions.appendChild(expand);
+    }
+    if (!actions.childElementCount) actions.remove();
     host.appendChild(node);
-    while (host.children.length > 2) host.firstChild.remove();
-    setTimeout(() => node.remove(), 3200);
+    const progress = node.querySelector('.toast-track i').animate([{ transform: 'scaleX(1)' }, { transform: 'scaleX(0)' }], { duration, easing: 'linear', fill: 'forwards' });
+    progress.onfinish = () => dismiss();
+    node.onpointerenter = () => progress.pause();
+    const resume = () => { if (!leaving && !node.matches(':hover') && !node.contains(document.activeElement) && !body.classList.contains('expanded')) progress.play(); };
+    node.onpointerleave = resume;
+    node.onfocusin = () => progress.pause();
+    node.onfocusout = () => requestAnimationFrame(resume);
+    shift(before);
+    [...host.children].filter((item) => !item.classList.contains('toast-leaving')).slice(0, -3).forEach((item) => item.dismissToast?.());
+    return { close: dismiss, element: node };
   }
 
   function ask({ title, body, actions, swipe }) {
@@ -296,7 +344,10 @@
     const theme = (state.lib.themes || []).find((item) => item.id === state.lib.activeThemeId);
     const style = document.documentElement.style;
     if (!theme) return;
-    const vars = theme.vars || {};
+    const stored = theme.vars || {};
+    const legacyNeutral = stored.bg === '#1c1c1c' && stored.lacquer === '#141414' && (!stored.accent || stored.accent === '#d0d0d0');
+    const vars = legacyNeutral ? Object.assign(stored, { bg: '#121319', lacquer: '#15161d', paper: '#1c1e27', ink: '#e8e6f0', accent: '#b9a6ec' }) : stored;
+    if (legacyNeutral) markDirty();
     style.setProperty('--bg', vars.bg || '#1c1c1c');
     style.setProperty('--lacquer', vars.lacquer || '#141414');
     style.setProperty('--paper', vars.paper || '#2e2e2e');
@@ -378,7 +429,9 @@
     stage.ondragover = null;
     stage.ondrop = null;
     try {
+      closeSelect();
       view(stage);
+      if (root.TAWorkspace) root.TAWorkspace.enhance(stage);
       if (root.TAI18n) {
         root.TAI18n.localize(document.getElementById('app'));
         root.TAI18n.localize(document.getElementById('modal-root'));
@@ -596,6 +649,7 @@
   }
 
   function openSettings() {
+    const previousFocus = document.activeElement;
     const prefs = root.TAI18n ? root.TAI18n.prefs : { lang: 'zh', teach: true, scale: 1, density: 'comfortable' };
     const tr = (text, vars) => (root.TAI18n ? root.TAI18n.t(text, vars) : text);
     const host = document.getElementById('modal-root');
@@ -603,16 +657,19 @@
     host.innerHTML = `<div class="modal paper" role="dialog" aria-modal="true">
       <h3>${tr('设置')}</h3>
       <label class="field"><span class="field-label">${tr('界面语言')}</span>
-        <select id="set-lang"><option value="zh">中文</option><option value="en">English</option><option value="ja">日本語</option></select>
+        <select id="set-lang" data-no-translate>${Object.entries(root.TAI18n.languages).map(([code,label])=>`<option value="${code}">${label}</option>`).join('')}</select>
       </label>
       <label class="check"><input id="set-teach" type="checkbox"> ${tr('显示逐步说明和导入解读')}</label>
       <label class="check"><input id="set-json" type="checkbox"> 书写时用 JSON 互转（默认关闭）</label>
       <p class="field-label">模型接口（密钥只留在这台浏览器）</p>
       <label class="field"><span class="field-label">地址</span><input id="set-base" type="text" placeholder="https://api.openai.com/v1" autocomplete="off"></label>
+      <label class="field"><span class="field-label">接口协议</span><select id="set-protocol"><option value="auto">自动（优先 Responses）</option><option value="responses">Responses</option><option value="chat">Chat Completions</option></select></label>
       <label class="field"><span class="field-label">密钥</span><input id="set-key" type="password" autocomplete="off"></label>
       <div class="row"><button type="button" class="btn btn-primary" id="set-connect">连接</button></div>
       <p class="help">点连接后，从接口列出的模型里选一个。不用手填名称。</p>
       <label class="field"><span class="field-label">选用模型</span><select id="set-model" disabled><option value="">先点连接</option></select></label>
+      <label class="field"><span class="field-label">推理强度</span><select id="set-reasoning"><option value="auto">跟随模型（默认）</option><option value="none">关闭推理 · none</option><option value="minimal">极低 · minimal</option><option value="low">低 · low</option><option value="medium">中 · medium</option><option value="high">高 · high</option><option value="xhigh">极高 · xhigh</option><option value="max">最高 · max</option></select></label>
+      <p class="help">较高强度通常需要更长时间。可用档位取决于模型和接口，默认不额外发送推理参数。</p>
       <label class="field"><span class="field-label">测试一句</span><input id="set-ping" type="text" value="请只回复：收到"></label>
       <div class="row"><button type="button" class="btn" id="set-test">发送测试</button></div>
       <p id="set-reply" class="help">还没有发送。</p>
@@ -620,9 +677,9 @@
       <label class="field"><span class="field-label">温度</span><input id="set-temp" type="range" min="0" max="2" step="0.1"></label>
       <label class="field"><span class="field-label">回复篇幅</span><select id="set-length"><option value="short">短，约 200 字</option><option value="medium">中，约 600 字</option><option value="long">长，约 1500 字</option><option value="custom">自定义字数</option></select></label>
       <label class="field"><span class="field-label">自定义字数</span><input id="set-chars" type="number" min="50" max="8000" step="50"></label>
-      <p class="help">篇幅会写进模型请求。文风仍在段落预设里选，选中的文风也会一并送出。</p>
+      <p class="help">篇幅与文风用于新建创作。逻辑检查按原文证据输出，不套用创作篇幅。</p>
       <label class="check stretch"><input id="set-adult" type="checkbox"> 允许成人内容。模型倾向为审核严时，打开也不会写进提示。</label>
-      <label class="check stretch"><input id="set-live" type="checkbox"> 创作页的修改实时送进角色卡、世界书和其余工坊</label>
+      <p class="help">AI 建议先预览，点击应用后保存到对应栏位。可以撤销上一次应用。</p>
       <p class="field-label">主题</p>
       <label class="field"><span class="field-label">背景</span><input id="set-bg" type="color"></label>
       <label class="field"><span class="field-label">纸色</span><input id="set-paper" type="color"></label>
@@ -641,6 +698,8 @@
     host.querySelector('#set-json').checked = !!prefs.jsonMode;
     const model = root.NIJANModel ? root.NIJANModel.load() : { baseUrl: '', model: '', key: '', profile: 'default' };
     host.querySelector('#set-base').value = model.baseUrl || '';
+    host.querySelector('#set-protocol').value = model.protocol || 'auto';
+    host.querySelector('#set-reasoning').value = model.reasoningEffort || 'auto';
     host.querySelector('#set-key').value = model.key || '';
     const known = root.NIJANModel ? root.NIJANModel.rememberedModels() : [];
     const paintModels = (names, selected) => {
@@ -656,7 +715,6 @@
     host.querySelector('#set-length').value = prefs.replyLength || 'medium';
     host.querySelector('#set-chars').value = String(prefs.replyChars || 600);
     host.querySelector('#set-adult').checked = !!prefs.adult;
-    host.querySelector('#set-live').checked = prefs.liveImport !== false;
     const theme = ensureTheme();
     const vars = theme.vars;
     host.querySelector('#set-bg').value = vars.bg || '#07090d';
@@ -688,13 +746,14 @@
         cursorSize: Number(host.querySelector('#set-cursor').value) || 32,
         jsonMode: host.querySelector('#set-json').checked,
         adult: host.querySelector('#set-adult').checked,
-        liveImport: host.querySelector('#set-live').checked,
         replyLength: host.querySelector('#set-length').value,
         replyChars: Number(host.querySelector('#set-chars').value) || 600,
       });
       if (root.NIJANModel) {
         root.NIJANModel.save({
           baseUrl: host.querySelector('#set-base').value.trim(),
+          protocol: host.querySelector('#set-protocol').value,
+          reasoningEffort: host.querySelector('#set-reasoning').value,
           key: host.querySelector('#set-key').value,
           profile: host.querySelector('#set-profile').value,
           temperature: Number(host.querySelector('#set-temp').value),
@@ -706,6 +765,8 @@
     host.querySelector('#set-teach').onchange = commit;
     host.querySelector('#set-json').onchange = commit;
     host.querySelector('#set-base').oninput = commit;
+    host.querySelector('#set-protocol').onchange = commit;
+    host.querySelector('#set-reasoning').onchange = commit;
     host.querySelector('#set-key').oninput = commit;
     const reply = host.querySelector('#set-reply');
     const say = (text) => { reply.textContent = text; };
@@ -743,7 +804,6 @@
     host.querySelector('#set-length').onchange = commit;
     host.querySelector('#set-chars').oninput = commit;
     host.querySelector('#set-adult').onchange = commit;
-    host.querySelector('#set-live').onchange = commit;
     host.querySelector('#set-scale').oninput = commit;
     host.querySelector('#set-density').onchange = commit;
     host.querySelector('#set-cursor').oninput = () => {
@@ -751,12 +811,13 @@
       commit();
     };
     const close = () => {
-      commit();
-      host.classList.remove('show');
-      host.innerHTML = '';
+      try { commit(); }
+      catch (error) { toast(`设置保存失败：${error.message}`); }
+      finally { host.classList.remove('show'); host.innerHTML = ''; host.onclick = null; previousFocus?.focus?.(); }
     };
     host.querySelector('#set-close').onclick = close;
     host.onclick = (event) => { if (event.target === host) close(); };
+    if (root.TAWorkspace) root.TAWorkspace.prepareSettings(host);
     if (root.TAI18n) root.TAI18n.localize(host);
   }
 
@@ -767,32 +828,38 @@
     state.persistent = loaded.persistent;
     state.fresh = loaded.fresh;
     const app = document.getElementById('app');
+    const icon = (name) => root.TAWorkspace ? root.TAWorkspace.icon(name) : '';
+    const navButton = (route) => `<button type="button" class="nav-btn" data-nav="${route.id}" title="${esc(route.label)}" aria-label="${esc(route.label)}">${icon(route.id)}<span data-label>${route.label}</span></button>`;
+    const primary = ['home', 'studio', 'characters', 'lore'];
+    const writing = ['sections', 'prompts', 'graph', 'check'];
     app.innerHTML = `<div class="shell">
       <aside class="nav">
-        <div class="brand"><img class="mark" src="img/mark.svg" alt=""><span><strong data-product>织境</strong><em data-tagline>从一个念头，写出人物与世界。</em></span></div>
+        <div class="brand"><img class="mark" src="img/mark.svg" alt=""><span><strong data-product>织境</strong><em>REALMWEAVE</em></span></div>
         <div class="nav-import">
-          <button type="button" class="btn btn-primary" data-shell="import-card">导入角色卡</button>
+          <button type="button" class="btn" data-shell="import-card">导入角色卡</button>
           <button type="button" class="btn" data-shell="import-book">导入世界书</button>
-          <button type="button" class="btn" data-shell="settings">设置</button>
         </div>
-        <nav class="nav-list">${ROUTES.map((route) => `<button type="button" class="nav-btn" data-nav="${route.id}"><span data-label>${route.label}</span></button>`).join('')}</nav>
+        <nav class="nav-list" aria-label="主要导航"><div class="nav-section-label">创作空间</div>${primary.map((id) => navButton(ROUTES.find((route) => route.id === id))).join('')}<div class="nav-section-label">设定与打磨</div>${writing.map((id) => navButton(ROUTES.find((route) => route.id === id))).join('')}<details class="nav-tools"${[...primary, ...writing].includes(document.body.dataset.page || location.hash.slice(1) || 'home') ? '' : ' open'}><summary>${icon('more')}<span>更多工具</span>${icon('chevron')}</summary>${ROUTES.filter((route) => ![...primary, ...writing].includes(route.id)).map(navButton).join('')}</details></nav>
         <div class="rail-label">人物</div>
         <div id="rail-cast" class="rail-cast"></div>
         <div class="nav-foot">
-          <p class="note">示例会替换当前库。清空只删这台浏览器里的稿。</p>
-          <button type="button" class="btn" data-shell="demo">载入示例</button>
-          <button type="button" class="btn btn-danger" data-shell="clear">清空库</button>
+          <button type="button" class="btn" data-shell="settings">设置</button>
+          <details class="nav-library"><summary>库管理</summary><p class="note">示例会替换当前库。清空只删这台浏览器里的稿。</p><button type="button" class="btn" data-shell="demo">载入示例</button><button type="button" class="btn btn-danger" data-shell="clear">清空库</button></details>
+          <div class="nav-local"><i></i><span>本地创作 · 自动保存</span></div>
         </div>
       </aside>
       <div class="main">
         <header class="top">
-          <div class="top-title"><img class="mark" src="img/mark.svg" alt=""><div><p class="eyebrow" id="eyebrow">HOME</p><h1 id="title">总览</h1><p class="note" id="blurb"></p></div></div>
+          <div class="top-title"><button type="button" class="ws-icon-button" data-workspace="sidebar" aria-label="展开或收起导航" title="展开或收起导航" aria-expanded="true">${icon('sidebar')}</button><div><p class="eyebrow" id="eyebrow">HOME</p><h1 id="title">总览</h1><p class="note" id="blurb"></p></div></div>
           <div class="top-actions">
             <label class="search"><input id="search" type="search" placeholder="搜索角色、世界书、正则" autocomplete="off"><span class="note" id="search-note">跨页搜索，不改库。</span><div id="search-results"></div></label>
+            <button type="button" class="ws-command-trigger" data-workspace="command" aria-label="搜索或跳转" title="搜索或跳转 · Ctrl+K">${icon('search')}<kbd class="ws-key">Ctrl K</kbd></button>
+            <button type="button" class="ws-icon-button" data-workspace="focus" aria-label="专注模式" title="专注模式" aria-pressed="false">${icon('focus')}</button>
+            <button type="button" class="ws-icon-button" data-workspace="settings" aria-label="设置" title="设置">${icon('settings')}</button>
             <span class="save-wrap"><span id="save-pill" class="pill"><i></i>已保存</span><span class="note">改动自动写入这台浏览器。</span></span>
           </div>
         </header>
-        <div id="folders" class="folders"></div>
+        <details class="workspace-folders"><summary>${icon('backup')}<span>本地文件夹</span></summary><div id="folders" class="folders"></div></details>
         <div id="storage-banner"></div>
         <div id="export-slip"></div>
         <div class="stage" id="stage"></div>
@@ -830,6 +897,7 @@
       document.getElementById('storage-banner').innerHTML = '<div class="banner">这台浏览器没有把本地存储开放给当前页面。改动只留在这次打开里，离开前请导出整库备份。</div>';
     }
     applyTheme();
+    if (root.TAWorkspace) root.TAWorkspace.mount();
     window.addEventListener('hashchange', () => show((location.hash || '#home').slice(1)));
     window.addEventListener('beforeunload', () => {
       if (state.save !== 'saved') {
@@ -856,6 +924,16 @@
     show(initial);
   }
 
+  let openSelect = null;
+  let selectEventsReady = false;
+  function closeSelect() {
+    if (!openSelect) return;
+    const { menu, button } = openSelect;
+    if (menu.hidePopover && menu.matches(':popover-open')) menu.hidePopover();
+    menu.hidden = true;
+    button.setAttribute('aria-expanded', 'false');
+    openSelect = null;
+  }
   function enhanceSelect(select) {
     if (!select || select.dataset.enhanced) return;
     select.dataset.enhanced = '1';
@@ -863,35 +941,89 @@
     wrap.className = 'dark-select';
     select.parentNode.insertBefore(wrap, select);
     wrap.appendChild(select);
+    select.tabIndex = -1;
+    select.setAttribute('aria-hidden', 'true');
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'dark-select-value';
+    button.setAttribute('role', 'combobox');
+    button.setAttribute('aria-haspopup', 'listbox');
+    button.setAttribute('aria-expanded', 'false');
+    const label = wrap.closest('label')?.querySelector('.field-label');
+    if (label) button.setAttribute('aria-label', label.textContent);
     const menu = document.createElement('div');
     menu.className = 'dark-select-menu';
+    menu.id = `select-menu-${TAStore.uid()}`;
+    menu.setAttribute('role', 'listbox');
+    button.setAttribute('aria-controls', menu.id);
+    if (menu.showPopover) menu.setAttribute('popover', 'auto');
     menu.hidden = true;
     const paint = () => {
       const current = select.options[select.selectedIndex];
       button.textContent = current ? current.text : '';
+      button.disabled = select.disabled;
       menu.replaceChildren(...[...select.options].map((opt, index) => {
         const item = document.createElement('button');
         item.type = 'button';
         item.className = 'dark-select-opt';
         if (index === select.selectedIndex) item.classList.add('on');
         item.textContent = opt.text;
+        item.disabled = opt.disabled;
+        item.setAttribute('role', 'option');
+        item.setAttribute('aria-selected', String(index === select.selectedIndex));
         item.onclick = () => {
+          closeSelect();
           select.selectedIndex = index;
           select.dispatchEvent(new Event('change', { bubbles: true }));
           paint();
-          menu.hidden = true;
         };
         return item;
       }));
     };
     paint();
-    button.onclick = () => { menu.hidden = !menu.hidden; };
-    document.addEventListener('pointerdown', (event) => {
-      if (!wrap.contains(event.target)) menu.hidden = true;
-    });
+    const open = () => {
+      if (select.disabled) return;
+      closeSelect();
+      paint();
+      menu.hidden = false;
+      const rect = button.getBoundingClientRect();
+      const below = window.innerHeight - rect.bottom - 8;
+      const above = rect.top - 8;
+      const upward = below < 150 && above > below;
+      const height = Math.max(40, Math.min(240, upward ? above : below));
+      menu.style.width = `${Math.min(rect.width, window.innerWidth - 16)}px`;
+      menu.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - rect.width - 8))}px`;
+      menu.style.top = upward ? 'auto' : `${rect.bottom + 4}px`;
+      menu.style.bottom = upward ? `${window.innerHeight - rect.top + 4}px` : 'auto';
+      menu.style.maxHeight = `${height}px`;
+      openSelect = { wrap, menu, button };
+      button.setAttribute('aria-expanded', 'true');
+      if (menu.showPopover) menu.showPopover();
+    };
+    button.onclick = () => { if (openSelect?.button === button) closeSelect(); else open(); };
+    button.onkeydown = (event) => {
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault(); open();
+        (menu.querySelector('.on:not(:disabled)') || menu.querySelector('button:not(:disabled)'))?.focus();
+      }
+    };
+    menu.onkeydown = (event) => {
+      const items = [...menu.querySelectorAll('button:not(:disabled)')];
+      const index = items.indexOf(document.activeElement);
+      if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+        event.preventDefault();
+        const next = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1 : (index + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+        items[next]?.focus();
+      }
+      if (event.key === 'Escape') { event.preventDefault(); closeSelect(); button.focus(); }
+    };
+    menu.addEventListener('toggle', () => { if (menu.matches(':popover-open') === false && openSelect?.menu === menu) closeSelect(); });
+    if (!selectEventsReady) {
+      document.addEventListener('pointerdown', (event) => { if (openSelect && !openSelect.wrap.contains(event.target) && !openSelect.menu.contains(event.target)) closeSelect(); });
+      document.addEventListener('scroll', (event) => { if (openSelect && !openSelect.menu.contains(event.target)) closeSelect(); }, true);
+      window.addEventListener('resize', closeSelect);
+      selectEventsReady = true;
+    }
     select.addEventListener('change', paint);
     wrap.append(button, menu);
   }

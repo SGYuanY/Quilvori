@@ -17,8 +17,12 @@ function writePaths(next) {
 
 function createWindow() {
   const win = new BrowserWindow({
-    width: 1280,
-    height: 860,
+    width: 1440,
+    height: 960,
+    minWidth: 900,
+    minHeight: 660,
+    backgroundColor: '#121319',
+    autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
