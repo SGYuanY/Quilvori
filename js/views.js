@@ -382,9 +382,7 @@
           <button type="button" class="gallery-open" data-open-card="${UI.esc(item.id)}">${face}</button>
           <div class="gallery-meta">
             <strong>${UI.esc(item.name || '未命名')}</strong>
-            <div class="tags">${(item.tags || []).slice(0, 4).map((tag) => `<span class="tag">${UI.esc(tag)}</span>`).join('')}</div>
-            <p class="clamp-3">${UI.esc(item.description || '描述还空着。')}</p>
-            <div class="row"><span class="muted">话多 ${Number(item.talkativeness || 0).toFixed(2)}</span><button type="button" class="btn btn-small" data-dup-card="${UI.esc(item.id)}">复制</button></div>
+            <div class="row"><button type="button" class="btn btn-small" data-dup-card="${UI.esc(item.id)}">复制</button></div>
           </div>
         </article>`;
       }).join('')}</div>`;
@@ -401,24 +399,22 @@
     }
     const avatars = lib.assets.filter((asset) => asset.kind === 'avatar' || asset.kind === 'expression');
     body.innerHTML = `<div class="work">
-      <div class="paper stack" id="char-form">
-        ${UI.field('名字', UI.text('name', character.name))}
-        <div class="grid-2">
-          ${UI.field('创作者', UI.text('creator', character.creator))}
-          ${UI.field('版本', UI.text('character_version', character.character_version))}
-        </div>
-        ${UI.field('标签', '<div id="char-tags" class="chips"></div>', '回车添加')}
-        ${UI.field('头像', `<select data-field="avatarAssetId"><option value="">无</option>${avatars.map((asset) => `<option value="${UI.esc(asset.id)}"${asset.id === character.avatarAssetId ? ' selected' : ''}>${UI.esc(asset.name)}</option>`).join('')}</select>`, '图片在素材库上传')}
-        ${UI.field('话多程度', `<input data-field="talkativeness" type="range" min="0" max="1" step="0.05" value="${Number(character.talkativeness) || 0}">`, '0 很少开口，1 很爱说话。群聊导出时带上这个数。')}
-        ${UI.field('描述', UI.area('description', character.description, 6))}
-        ${UI.field('性格', UI.area('personality', character.personality, 4))}
-        ${UI.field('情景', UI.area('scenario', character.scenario, 4))}
-        ${UI.field('开场白', UI.area('first_mes', character.first_mes, 6))}
-        ${UI.field('备用开场', '<div id="greetings"></div>', '点「添加」再写。导出为备用开场白。')}
-        ${UI.field('对话示例', UI.area('mes_example', character.mes_example, 5), '可用 {{char}} 与 {{user}}')}
-        ${UI.field('创作者备注', UI.area('creator_notes', character.creator_notes, 3))}
-        ${UI.field('系统提示', UI.area('system_prompt', character.system_prompt, 3), '写入角色卡的系统提示。')}
-        ${UI.field('历史后指令', UI.area('post_history_instructions', character.post_history_instructions, 3), '放在对话历史之后，给模型的补充指令。')}
+      <div class="paper stack folds" id="char-form">
+        ${UI.fold('name', '名字', UI.text('name', character.name))}
+        ${UI.fold('creator', '创作者', UI.text('creator', character.creator))}
+        ${UI.fold('character_version', '版本', UI.text('character_version', character.character_version))}
+        ${UI.fold('tags', '标签', '<div id="char-tags" class="chips"></div>', '回车添加')}
+        ${UI.fold('avatarAssetId', '头像', `<select data-field="avatarAssetId"><option value="">无</option>${avatars.map((asset) => `<option value="${UI.esc(asset.id)}"${asset.id === character.avatarAssetId ? ' selected' : ''}>${UI.esc(asset.name)}</option>`).join('')}</select>`, '图片在素材库上传')}
+        ${UI.fold('talkativeness', '话多程度', `<input data-field="talkativeness" type="range" min="0" max="1" step="0.05" value="${Number(character.talkativeness) || 0}">`, '0 很少开口，1 很爱说话。群聊导出时带上这个数。')}
+        ${UI.fold('description', '描述', UI.area('description', character.description, 6))}
+        ${UI.fold('personality', '性格', UI.area('personality', character.personality, 4))}
+        ${UI.fold('scenario', '情景', UI.area('scenario', character.scenario, 4))}
+        ${UI.fold('first_mes', '开场白', UI.area('first_mes', character.first_mes, 6))}
+        ${UI.fold('greetings', '备用开场', '<div id="greetings"></div>', '点「添加」再写。导出为备用开场白。')}
+        ${UI.fold('mes_example', '对话示例', UI.area('mes_example', character.mes_example, 5), '可用 {{char}} 与 {{user}}')}
+        ${UI.fold('creator_notes', '创作者备注', UI.area('creator_notes', character.creator_notes, 3))}
+        ${UI.fold('system_prompt', '系统提示', UI.area('system_prompt', character.system_prompt, 3), '写入角色卡的系统提示。')}
+        ${UI.fold('post_history_instructions', '历史后指令', UI.area('post_history_instructions', character.post_history_instructions, 3), '放在对话历史之后，给模型的补充指令。')}
       </div>
       <aside class="paper card-preview" id="char-preview"></aside>
     </div>`;
@@ -464,6 +460,7 @@
       showReading(preview.querySelector('#card-import'), UI.t('import.cardTitle'), importedCard);
     };
     paintPreview();
+    UI.mountFolds(body.querySelector('#char-form'), 'char');
     UI.bindFields(body, character, (key) => {
       if (key === 'avatarAssetId' && !character.avatarAssetId) character.avatarAssetId = null;
       character.updatedAt = stamp();
@@ -549,7 +546,7 @@
       <div id="lore-ai"></div>
     </div>
     <div class="board-layout">
-      <div class="board">${F.POSITIONS.map((position) => `<section class="column"><h3>${position.label}</h3>${entries.filter((item) => item.position === position.id).map((item) => `<article class="entry${item.id === (entry && entry.id) ? ' on' : ''}${item.enabled ? '' : ' off'}" data-id="${UI.esc(item.id)}"><b>${UI.esc(item.comment || '未命名')}</b><p>${UI.esc((item.keys || []).join(' / ') || '无关键词')}</p><div class="row"><span class="muted">${item.constant ? '恒定' : '触发'}</span><button type="button" class="btn btn-small" data-toggle="${UI.esc(item.id)}">${item.enabled ? '启用' : '停用'}</button></div></article>`).join('') || '<p class="dark-muted">空</p>'}</section>`).join('')}</div>
+      <div class="board">${F.POSITIONS.map((position) => `<section class="column"><h3>${position.label}</h3>${entries.filter((item) => item.position === position.id).map((item) => `<article class="entry${item.id === (entry && entry.id) ? ' on' : ''}${item.enabled ? '' : ' off'}" data-id="${UI.esc(item.id)}"><b>${UI.esc(item.comment || '未命名')}</b><button type="button" class="btn btn-small" data-toggle="${UI.esc(item.id)}">${item.enabled ? '启用' : '停用'}</button></article>`).join('') || '<p class="dark-muted">空</p>'}</section>`).join('')}</div>
       <div id="lore-editor"></div>
     </div>`;
     const editor = stage.querySelector('#lore-editor');
@@ -584,7 +581,18 @@
       UI.renderStage();
     };
     stage.querySelectorAll('.entry').forEach((card) => {
-      card.onclick = () => { UI.state.sel.entry = card.dataset.id; paintEditor(); stage.querySelectorAll('.entry').forEach((item) => item.classList.toggle('on', item.dataset.id === card.dataset.id)); };
+      card.onclick = () => {
+        if (!UI.state.openFold) UI.state.openFold = {};
+        if (UI.state.sel.entry === card.dataset.id) {
+          UI.state.sel.entry = null;
+          UI.state.openFold.lore = '';
+        } else {
+          UI.state.sel.entry = card.dataset.id;
+          UI.state.openFold.lore = 'content';
+        }
+        paintEditor();
+        stage.querySelectorAll('.entry').forEach((item) => item.classList.toggle('on', item.dataset.id === UI.state.sel.entry));
+      };
     });
     stage.querySelectorAll('[data-toggle]').forEach((button) => {
       button.onclick = (event) => {
@@ -601,24 +609,19 @@
         editor.innerHTML = '<div class="paper empty"><h3>选一条</h3><p class="muted">左边是按注入位置分的看板。点开一条来改。</p></div>';
         return;
       }
-      editor.innerHTML = `<div class="paper stack">
-        ${UI.field('条目名', UI.text('comment', current.comment))}
-        ${UI.field('内容', UI.area('content', current.content, 8))}
-        ${UI.field('主关键词', '<div id="keys" class="chips"></div>')}
-        ${UI.field('次关键词', '<div id="keys2" class="chips"></div>', '选择性开启时，通常还要命中一个次关键词')}
-        <div class="grid-2">
-          ${UI.field('顺序', `<input data-field="order" type="number" value="${Number(current.order) || 0}">`, '原样写入酒馆的顺序。')}
-          ${UI.field('深度', `<input data-field="depth" type="number" value="${Number(current.depth) || 4}">`, '指定深度时使用')}
-        </div>
-        ${UI.field('位置', `<select data-field="position">${F.POSITIONS.map((position) => `<option value="${position.id}"${position.id === current.position ? ' selected' : ''}>${position.label}</option>`).join('')}</select>`)}
-        ${UI.field('出口名', UI.text('outletName', current.outletName), '位置为出口时填写')}
-        <label class="check"><input data-field="constant" type="checkbox" ${current.constant ? 'checked' : ''}>恒定注入</label>
-        <label class="check"><input data-field="selective" type="checkbox" ${current.selective ? 'checked' : ''}>选择性</label>
-        <label class="check"><input data-field="enabled" type="checkbox" ${current.enabled ? 'checked' : ''}>启用</label>
-        <p class="help">恒定注入不看关键词。选择性勾上后，通常还要命中一个次关键词。</p>
+      editor.innerHTML = `<div class="paper stack folds">
+        ${UI.fold('comment', '条目名', UI.text('comment', current.comment))}
+        ${UI.fold('content', '内容', UI.area('content', current.content, 8))}
+        ${UI.fold('keys', '主关键词', '<div id="keys" class="chips"></div>')}
+        ${UI.fold('keys2', '次关键词', '<div id="keys2" class="chips"></div>', '选择性开启时，通常还要命中一个次关键词')}
+        ${UI.fold('order', '顺序', `<input data-field="order" type="number" value="${Number(current.order) || 0}">`, '原样写入酒馆的顺序。')}
+        ${UI.fold('depth', '深度', `<input data-field="depth" type="number" value="${Number(current.depth) || 4}">`, '指定深度时使用')}
+        ${UI.fold('position', '位置', `<select data-field="position">${F.POSITIONS.map((position) => `<option value="${position.id}"${position.id === current.position ? ' selected' : ''}>${position.label}</option>`).join('')}</select>`)}
+        ${UI.fold('outletName', '出口名', UI.text('outletName', current.outletName), '位置为出口时填写')}
+        ${UI.fold('flags', '开关', `<label class="check"><input data-field="constant" type="checkbox" ${current.constant ? 'checked' : ''}>恒定注入</label><label class="check"><input data-field="selective" type="checkbox" ${current.selective ? 'checked' : ''}>选择性</label><label class="check"><input data-field="enabled" type="checkbox" ${current.enabled ? 'checked' : ''}>启用</label><p class="help">恒定注入不看关键词。选择性勾上后，通常还要命中一个次关键词。</p>`)}
         <div class="row"><button type="button" class="btn" id="dup-entry">复制条目</button><button type="button" class="btn btn-danger" id="del-entry">删除条目</button></div>
-        <p class="help">复制会另存一条，原来的还在。</p>
       </div>`;
+      UI.mountFolds(editor, 'lore');
       UI.bindFields(editor, current, (key) => {
         if (!editor.dataset.snapped) { snapLore(); editor.dataset.snapped = '1'; }
         if (key === 'comment') {
@@ -724,7 +727,9 @@
       host.innerHTML = `<div class="hit-row">${hits.map((hit) => `<button type="button" class="btn btn-small" data-hit="${UI.esc(hit.entry.id)}">${UI.esc(hit.entry.comment || '未命名')} · ${UI.esc(hit.why)}</button>`).join('')}</div>`;
       host.querySelectorAll('[data-hit]').forEach((button) => {
         button.onclick = () => {
+          if (!UI.state.openFold) UI.state.openFold = {};
           UI.state.sel.entry = button.dataset.hit;
+          UI.state.openFold.lore = 'content';
           paintEditor();
           stage.querySelectorAll('.entry').forEach((item) => item.classList.toggle('on', item.dataset.id === button.dataset.hit));
         };

@@ -723,6 +723,8 @@
     ['HTML 记忆不是按模板写的面板', 'HTML memory is not a panel from the template', 'HTML 記憶はテンプレートのパネルではありません'],
     ['多出来的开场白写在备用开场，一行一条，不替换主开场白。', 'Extra greetings go in alternate greetings, one per line. They do not replace the main greeting.', '追加の挨拶は代替挨拶へ、一行に一つ。最初の挨拶は置き換えません。'],
     ['备用开场', 'Alternate greetings', '代替の挨拶'],
+    ['展开', 'Open', '開く'],
+    ['收起', 'Close', '閉じる'],
   ];
   const extra = {};
   rows.forEach(([zh, en, ja]) => { extra[zh] = { en, ja }; });

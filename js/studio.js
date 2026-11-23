@@ -668,6 +668,8 @@
     const esc = ui.esc;
     const area = (label, path, value, rows) => `<label class="field"><span class="field-label">${esc(label)}</span><textarea data-path="${path}" rows="${rows || 4}">${esc(value || '')}</textarea></label>`;
     const text = (label, path, value) => `<label class="field"><span class="field-label">${esc(label)}</span><input data-path="${path}" type="text" value="${esc(value || '')}"></label>`;
+    const foldArea = (label, path, value, rows, help) => ui.fold(path, label, `<textarea data-path="${path}" rows="${rows || 4}">${esc(value || '')}</textarea>`, help);
+    const foldText = (label, path, value) => ui.fold(path, label, `<input data-path="${path}" type="text" value="${esc(value || '')}">`);
     const ideas = data.ideas.length
       ? data.ideas.map((idea, index) => `<div class="idea check-item${idea.status === 'yes' ? ' checked' : ''}"><span class="tick" aria-hidden="true"></span><p>${esc(idea.text)}</p><div class="row"><button type="button" class="btn btn-small" data-yes="${index}">接受</button><button type="button" class="btn btn-small" data-no="${index}">拒绝</button><span class="muted">${idea.status === 'yes' ? '已接受' : idea.status === 'no' ? '已拒绝' : '未决定'}</span></div></div>`).join('')
       : '<p class="help">还没有灵感。先写下要求，再向模型要。</p>';
@@ -707,32 +709,38 @@
       </section>
       <div id="studio-scan"></div>
       <section class="studio-results"${data.writing ? '' : ' hidden'}>
-      <article class="studio-col paper"><h3>段落预设</h3>${area('文风', 'sections.style', data.sections.style, 3)}${area('人称和视角', 'sections.pov', data.sections.pov, 3)}${area('关系边界', 'sections.bond', data.sections.bond, 3)}${area('安全词', 'sections.safe', data.sections.safe, 2)}${area('输出格式', 'sections.format', data.sections.format, 2)}</article>
-      <article class="studio-col paper"><h3>角色卡</h3>${text('名字', 'card.name', data.card.name)}${area('描述', 'card.description', data.card.description, 3)}${area('性格', 'card.personality', data.card.personality, 3)}${area('情景', 'card.scenario', data.card.scenario, 3)}${area('开场', 'card.first_mes', data.card.first_mes, 3)}${area('备用开场', 'greetings', data.greetings, 4)}<p class="help">多出来的开场白写在备用开场，一行一条，不替换主开场白。</p>${area('示例', 'card.mes_example', data.card.mes_example, 3)}${area('系统提示', 'card.system_prompt', data.card.system_prompt, 2)}</article>
-      <article class="studio-col paper"><h3>世界书</h3>${text('书名', 'bookName', data.bookName)}${area('条目', 'bookText', data.bookText, 8)}<p class="help">一条一块。条目名、关键词、正文各占一行，条目之间空一行。</p></article>
-      <article class="studio-col paper"><h3>提示词拼装</h3>${text('名称', 'promptName', data.promptName)}${area('块', 'promptText', data.promptText, 5)}<p class="help">一行一块：名称：内容</p></article>
-      <article class="studio-col paper"><h3>群聊卡司</h3>${text('群名', 'groupName', data.groupName)}${area('情景', 'groupScenario', data.groupScenario, 4)}</article>
-      <article class="studio-col paper"><h3>聊天阅览</h3>${text('标题', 'chatName', data.chatName)}${area('对白', 'chatText', data.chatText, 6)}<p class="help">一行一句：名字：话。自己说用「我：」。</p></article>
-      <article class="studio-col paper"><h3>素材库</h3>${text('名称', 'assetName', data.assetName)}<label class="field"><span class="field-label">种类</span><select data-path="assetKind"><option value="expression"${data.assetKind === 'expression' ? ' selected' : ''}>表情</option><option value="avatar"${data.assetKind === 'avatar' ? ' selected' : ''}>头像</option><option value="background"${data.assetKind === 'background' ? ' selected' : ''}>背景</option></select></label>${area('说明', 'assetNote', data.assetNote, 3)}</article>
-      <details class="studio-fold"><summary>正则</summary><article class="studio-col paper"><h3>正则</h3>${text('名称', 'regexName', data.regexName)}${text('查找', 'regexFind', data.regexFind)}${text('替换', 'regexReplace', data.regexReplace)}</article></details>
-      <details class="studio-fold"><summary>快捷回复</summary><article class="studio-col paper"><h3>快捷回复</h3>${text('套名', 'quickName', data.quickName)}${area('回复', 'quickText', data.quickText, 5)}<p class="help">一行一条：标签：内容</p></article></details>
-      <details class="studio-fold"><summary>作者注</summary><article class="studio-col paper"><h3>作者注与情景时间线</h3>${area('作者注', 'noteText', data.noteText, 4)}${area('情节', 'beatText', data.beatText, 4)}<p class="help">一行一条：标题：内容</p></article></details>
-      <details class="studio-fold"><summary>关系图</summary><article class="studio-col paper"><h3>角色关系图</h3>${area('人物', 'graphNodes', data.graphNodes, 4)}${area('关系', 'graphEdges', data.graphEdges, 4)}<p class="help">人物一行一个。关系写成「甲 -> 乙：关系」。</p></article></details>
-      <details class="studio-fold"><summary>剧本</summary><article class="studio-col paper"><h3>群聊剧本</h3>${text('剧本名', 'scriptName', data.scriptName)}${area('句子', 'scriptText', data.scriptText, 6)}<p class="help">一行一句：旁白：句子，或角色名：句子。</p></article></details>
-      <details class="studio-fold"><summary>备份</summary><article class="studio-col paper"><h3>整库备份</h3>${area('备份说明', 'backupNote', data.backupNote, 4)}</article></details>
-      <details class="studio-fold"><summary>HTML 记忆</summary><article class="studio-col paper"><h3>HTML 记忆</h3>${area('记忆 HTML', 'memoryHtml', data.memoryHtml, 6)}</article></details>
-      <article class="studio-col paper"><h3>人设一致性检查</h3>${area('判断', 'check', data.check, 6)}<button type="button" class="btn" id="studio-judge">让模型看逻辑</button><p class="help">空字段和关键词仍在一致性页里查。这里是模型读完全稿后的判断。</p></article>
+      <article class="studio-col paper folds"><h3>段落预设</h3>${foldArea('文风', 'sections.style', data.sections.style, 3)}${foldArea('人称和视角', 'sections.pov', data.sections.pov, 3)}${foldArea('关系边界', 'sections.bond', data.sections.bond, 3)}${foldArea('安全词', 'sections.safe', data.sections.safe, 2)}${foldArea('输出格式', 'sections.format', data.sections.format, 2)}</article>
+      <article class="studio-col paper folds"><h3>角色卡</h3>${foldText('名字', 'card.name', data.card.name)}${foldArea('描述', 'card.description', data.card.description, 3)}${foldArea('性格', 'card.personality', data.card.personality, 3)}${foldArea('情景', 'card.scenario', data.card.scenario, 3)}${foldArea('开场', 'card.first_mes', data.card.first_mes, 3)}${foldArea('备用开场', 'greetings', data.greetings, 4, '多出来的开场白写在备用开场，一行一条，不替换主开场白。')}${foldArea('示例', 'card.mes_example', data.card.mes_example, 3)}${foldArea('系统提示', 'card.system_prompt', data.card.system_prompt, 2)}</article>
+      <article class="studio-col paper folds"><h3>世界书</h3>${foldText('书名', 'bookName', data.bookName)}${foldArea('条目', 'bookText', data.bookText, 8, '一条一块。条目名、关键词、正文各占一行，条目之间空一行。')}</article>
+      <article class="studio-col paper folds"><h3>提示词拼装</h3>${foldText('名称', 'promptName', data.promptName)}${foldArea('块', 'promptText', data.promptText, 5, '一行一块：名称：内容')}</article>
+      <article class="studio-col paper folds"><h3>群聊卡司</h3>${foldText('群名', 'groupName', data.groupName)}${foldArea('情景', 'groupScenario', data.groupScenario, 4)}</article>
+      <article class="studio-col paper folds"><h3>聊天阅览</h3>${foldText('标题', 'chatName', data.chatName)}${foldArea('对白', 'chatText', data.chatText, 6, '一行一句：名字：话。自己说用「我：」。')}</article>
+      <article class="studio-col paper folds"><h3>素材库</h3>${foldText('名称', 'assetName', data.assetName)}${ui.fold('assetKind', '种类', `<select data-path="assetKind"><option value="expression"${data.assetKind === 'expression' ? ' selected' : ''}>表情</option><option value="avatar"${data.assetKind === 'avatar' ? ' selected' : ''}>头像</option><option value="background"${data.assetKind === 'background' ? ' selected' : ''}>背景</option></select>`)}${foldArea('说明', 'assetNote', data.assetNote, 3)}</article>
+      <details class="studio-fold"><summary>正则</summary><article class="studio-col paper folds"><h3>正则</h3>${foldText('名称', 'regexName', data.regexName)}${foldText('查找', 'regexFind', data.regexFind)}${foldText('替换', 'regexReplace', data.regexReplace)}</article></details>
+      <details class="studio-fold"><summary>快捷回复</summary><article class="studio-col paper folds"><h3>快捷回复</h3>${foldText('套名', 'quickName', data.quickName)}${foldArea('回复', 'quickText', data.quickText, 5, '一行一条：标签：内容')}</article></details>
+      <details class="studio-fold"><summary>作者注</summary><article class="studio-col paper folds"><h3>作者注与情景时间线</h3>${foldArea('作者注', 'noteText', data.noteText, 4)}${foldArea('情节', 'beatText', data.beatText, 4, '一行一条：标题：内容')}</article></details>
+      <details class="studio-fold"><summary>关系图</summary><article class="studio-col paper folds"><h3>角色关系图</h3>${foldArea('人物', 'graphNodes', data.graphNodes, 4)}${foldArea('关系', 'graphEdges', data.graphEdges, 4, '人物一行一个。关系写成「甲 -> 乙：关系」。')}</article></details>
+      <details class="studio-fold"><summary>剧本</summary><article class="studio-col paper folds"><h3>群聊剧本</h3>${foldText('剧本名', 'scriptName', data.scriptName)}${foldArea('句子', 'scriptText', data.scriptText, 6, '一行一句：旁白：句子，或角色名：句子。')}</article></details>
+      <details class="studio-fold"><summary>备份</summary><article class="studio-col paper folds"><h3>整库备份</h3>${foldArea('备份说明', 'backupNote', data.backupNote, 4)}</article></details>
+      <details class="studio-fold"><summary>HTML 记忆</summary><article class="studio-col paper folds"><h3>HTML 记忆</h3>${foldArea('记忆 HTML', 'memoryHtml', data.memoryHtml, 6)}</article></details>
+      <article class="studio-col paper folds"><h3>人设一致性检查</h3>${foldArea('判断', 'check', data.check, 6)}<button type="button" class="btn" id="studio-judge">让模型看逻辑</button><p class="help">空字段和关键词仍在一致性页里查。这里是模型读完全稿后的判断。</p></article>
       </section>
     </div>`;
     const paintScan = () => {
       const host = stage.querySelector('#studio-scan');
       if (!host) return;
       const split = splitEntries();
-      const card = (entry, checked) => `<article class="scan-entry check-item${checked ? ' checked' : ''}"><span class="tick" aria-hidden="true"></span><div><strong>${esc(entry.comment || '未命名')}</strong><p class="muted">${esc(entry.bookName || '')}${(entry.keys || []).length ? ` · ${ui.t('关键词')} ${esc(entry.keys.join('、'))}` : ''}</p><p>${esc(String(entry.content || '').replace(/\s+/g, ' ').slice(0, 80))}</p>${entry.reason ? `<p class="help">${esc(entry.reason)}</p>` : ''}</div></article>`;
-      const column = (title, rows, checked) => `<article class="paper scan-col"><h3>${title}</h3>${rows.map((entry) => card(entry, checked)).join('') || '<p class="help">这里还没有。</p>'}</article>`;
+      const card = (entry, checked, index) => {
+        const id = `${checked ? 'on' : 'off'}-${index}-${entry.comment || ''}`;
+        const keys = (entry.keys || []).join('、');
+        return `<article class="scan-entry check-item${checked ? ' checked' : ''}">${ui.fold(id, entry.comment || '未命名', `<p class="muted">${esc(entry.bookName || '')}${keys ? ` · ${ui.t('关键词')} ${esc(keys)}` : ''}</p><p>${esc(String(entry.content || '').replace(/\s+/g, ' '))}</p>${entry.reason ? `<p class="help">${esc(entry.reason)}</p>` : ''}`)}</article>`;
+      };
+      const column = (title, rows, checked) => `<article class="paper scan-col folds"><h3>${title}</h3>${rows.map((entry, index) => card(entry, checked, index)).join('') || '<p class="help">这里还没有。</p>'}</article>`;
       host.innerHTML = `${draft().classNote ? `<p class="help">${esc(draft().classNote)}</p>` : ''}<div class="studio-scan">${column('触发的', split.triggered, true)}${column('未触发的', split.idle, false)}</div>`;
+      ui.mountFolds(host, 'studio');
     };
     paintScan();
+    ui.mountFolds(stage.querySelector('.studio-results'), 'studio');
     stage.querySelectorAll('[data-path]').forEach((node) => {
       const eventName = node.tagName === 'SELECT' ? 'change' : 'input';
       node.addEventListener(eventName, () => {

@@ -488,6 +488,39 @@
     return `<label class="field"><span class="field-label">${label}</span>${inner}${help ? `<span class="help">${help}</span>` : ''}</label>`;
   }
 
+  function fold(id, label, inner, help) {
+    return `<div class="fold" data-fold="${esc(id)}"><button type="button" class="fold-name"><span class="field-label">${esc(label)}</span><span class="fold-state">展开</span></button><div class="fold-body" hidden>${inner}${help ? `<span class="help">${esc(help)}</span>` : ''}</div></div>`;
+  }
+
+  function mountFolds(rootNode, slot) {
+    if (!rootNode) return;
+    if (!state.openFold) state.openFold = {};
+    rootNode.querySelectorAll('.fold').forEach((item) => { item.dataset.slot = slot; });
+    const apply = () => {
+      const open = state.openFold[slot] || '';
+      document.querySelectorAll(`.fold[data-slot="${slot}"]`).forEach((item) => {
+        const on = item.dataset.fold === open;
+        const body = item.querySelector(':scope > .fold-body');
+        if (body) body.hidden = !on;
+        item.classList.toggle('on', on);
+        const mark = item.querySelector(':scope > .fold-name .fold-state');
+        if (mark) {
+          mark.textContent = on ? '收起' : '展开';
+          if (root.TAI18n) root.TAI18n.localize(mark);
+        }
+      });
+    };
+    apply();
+    rootNode.querySelectorAll('.fold-name').forEach((button) => {
+      button.onclick = (event) => {
+        event.preventDefault();
+        const id = button.closest('.fold').dataset.fold;
+        state.openFold[slot] = state.openFold[slot] === id ? '' : id;
+        apply();
+      };
+    });
+  }
+
   function area(name, value, rows) {
     return `<textarea data-field="${name}" rows="${rows || 5}">${esc(value || '')}</textarea>`;
   }
@@ -821,7 +854,7 @@
   root.TAUI = {
     ROUTES, state, esc, toast, ask, downloadBlob, downloadText, downloadJson, pickFile, readText, readDataUrl, copyText,
     safeName, assetById, charById, selected, matchQuery, markDirty, flush, applyTheme, ensureTheme, go, renderStage, show, flyPlane,
-    field, area, text, bindFields, picker, bindPicker, empty, confirmLoadDemo, confirmClear, mount,
+    field, fold, mountFolds, area, text, bindFields, picker, bindPicker, empty, confirmLoadDemo, confirmClear, mount,
     t: (key, vars) => (root.TAI18n ? root.TAI18n.t(key, vars) : key),
     estimateLength, mountLengths, showExport, fillLesson, enhanceSelect,
   };
