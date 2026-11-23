@@ -110,7 +110,7 @@ try {
   check('saved', counts.save.includes('已保存'));
 
   const routes = await evaluate(`[...document.querySelectorAll('[data-nav]')].map((b) => b.dataset.nav)`);
-  check('17 routes', routes.length === 17, String(routes.length));
+  check('16 routes', routes.length === 16, String(routes.length));
   for (const id of routes) {
     const broken = await evaluate(`new Promise((resolve) => {
       document.querySelector('[data-nav="${id}"]').click();
@@ -178,16 +178,23 @@ try {
   })`);
   check('chat search keeps focus', chat.marks >= 1 && chat.focused, JSON.stringify(chat));
 
-  const theme = await evaluate(`new Promise((resolve) => {
-    document.querySelector('[data-nav="theme"]').click();
-    setTimeout(() => {
-      const input = document.querySelector('[data-color="bg"]');
-      input.value = '#102030';
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-      resolve(getComputedStyle(document.documentElement).getPropertyValue('--bg').trim());
-    }, 40);
-  })`);
-  check('theme live', theme === '#102030', theme);
+  const theme = await evaluate(`(() => {
+    document.querySelector('[data-shell="settings"]').click();
+    const bg = document.querySelector('#set-bg');
+    bg.value = '#102030';
+    bg.dispatchEvent(new Event('input', { bubbles: true }));
+    const radius = document.querySelector('#set-radius');
+    radius.value = '8';
+    radius.dispatchEvent(new Event('input', { bubbles: true }));
+    const out = {
+      bg: getComputedStyle(document.documentElement).getPropertyValue('--bg').trim(),
+      radius: getComputedStyle(document.documentElement).getPropertyValue('--radius').trim(),
+      nav: !!document.querySelector('[data-nav="theme"]'),
+    };
+    document.querySelector('#set-close').click();
+    return out;
+  })()`);
+  check('theme live', theme.bg === '#102030' && theme.radius === '8px' && !theme.nav, JSON.stringify(theme));
 
   const findings = await evaluate(`new Promise((resolve) => {
     document.querySelector('[data-nav="check"]').click();
