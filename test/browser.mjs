@@ -83,6 +83,9 @@ try {
   sessionId = attached.sessionId;
   await send('Page.enable');
   await send('Runtime.enable');
+  await send('Network.enable');
+  await send('Network.setCacheDisabled', { cacheDisabled: true });
+  await send('Page.reload', { ignoreCache: true });
   await send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
   for (let i = 0; i < 40; i += 1) {
     const ready = await evaluate('!!document.querySelector("#title") && !!window.TAUI');
@@ -187,6 +190,20 @@ try {
     }, 40);
   })`);
   check('no fixed questions', !formula.card && !formula.book, JSON.stringify(formula));
+  const studioLayout = await evaluate(`new Promise((resolve) => {
+    document.querySelector('[data-nav="studio"]').click();
+    setTimeout(() => {
+      const requestEl = document.querySelector('.studio-request');
+      const boardEl = document.querySelector('.studio');
+      const resultEl = document.querySelector('.studio-results .studio-col');
+      if (!requestEl || !boardEl || !resultEl) { resolve({ missing: true, text: (document.querySelector('#stage')?.innerText || '').slice(0, 180) }); return; }
+      const request = requestEl.getBoundingClientRect();
+      const board = boardEl.getBoundingClientRect();
+      const result = resultEl.getBoundingClientRect();
+      resolve({ request: Math.round(request.width), board: Math.round(board.width), result: Math.round(result.width) });
+    }, 40);
+  })`);
+  check('studio uses width', studioLayout.request > studioLayout.board * 0.4 && studioLayout.result > 280 && studioLayout.board > 700, JSON.stringify(studioLayout));
 
   const chat = await evaluate(`new Promise((resolve) => {
     document.querySelector('[data-nav="chat"]').click();
