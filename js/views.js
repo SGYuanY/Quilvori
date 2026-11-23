@@ -212,7 +212,25 @@
       ['时间线', lib.timeline.notes.length + lib.timeline.beats.length, 'timeline'],
       ['关系', lib.graph.edges.length, 'graph'],
     ];
-    stage.innerHTML = `<section class="hero paper">
+    const cfg = root.NIJANModel ? root.NIJANModel.load() : { baseUrl: '', model: '', key: '' };
+    const known = root.NIJANModel ? root.NIJANModel.rememberedModels() : [];
+    stage.innerHTML = `<section class="connect paper" id="model-panel">
+      <div>
+        <p class="eyebrow">MODEL</p>
+        <h2>连接模型</h2>
+        <p class="lede">点连接后，从接口列出的模型里选一个。密钥只留在这台浏览器，不写进稿子。</p>
+        <label class="field"><span class="field-label">接口地址</span><input id="model-base" type="text" value="${UI.esc(cfg.baseUrl || '')}" placeholder="https://api.openai.com/v1" autocomplete="off"></label>
+        <label class="field"><span class="field-label">密钥</span><input id="model-key" type="password" value="${UI.esc(cfg.key || '')}" autocomplete="off"></label>
+        <div class="row"><button type="button" class="btn btn-primary" id="model-connect">连接</button></div>
+      </div>
+      <div class="model-side">
+        <label class="field"><span class="field-label">选用模型</span><select id="model-pick"${known.length ? '' : ' disabled'}><option value="">${known.length ? '选择模型' : '先点连接'}</option>${known.map((id) => `<option value="${UI.esc(id)}"${id === cfg.model ? ' selected' : ''}>${UI.esc(id)}</option>`).join('')}</select></label>
+        <label class="field"><span class="field-label">测试一句</span><input id="model-ping" type="text" value="请只回复：收到"></label>
+        <div class="row"><button type="button" class="btn" id="model-test">发送测试</button></div>
+        <div id="model-reply" class="help">还没有发送。</div>
+      </div>
+    </section>
+    <section class="hero paper">
       <p class="eyebrow">听雨楼书案</p>
       <h2>稿子先在这里写完，再送去酒馆。</h2>
       <p class="lede">霓笺不代替 SillyTavern。角色、世界书、正则和一场聊天都留在这台浏览器里，导出的是酒馆认得的文件。</p>
@@ -235,6 +253,38 @@
     });
     stage.querySelector('#home-demo').onclick = UI.confirmLoadDemo;
     stage.querySelector('#home-clear').onclick = UI.confirmClear;
+    const reply = stage.querySelector('#model-reply');
+    const paintPick = (names, selected) => {
+      const pick = stage.querySelector('#model-pick');
+      pick.disabled = !names.length;
+      pick.innerHTML = `<option value="">${names.length ? '选择模型' : '先点连接'}</option>${names.map((id) => `<option value="${UI.esc(id)}"${id === selected ? ' selected' : ''}>${UI.esc(id)}</option>`).join('')}`;
+    };
+    stage.querySelector('#model-base').oninput = (event) => { if (root.NIJANModel) root.NIJANModel.save({ baseUrl: event.target.value.trim() }); };
+    stage.querySelector('#model-key').oninput = (event) => { if (root.NIJANModel) root.NIJANModel.save({ key: event.target.value }); };
+    stage.querySelector('#model-pick').onchange = (event) => { if (root.NIJANModel) root.NIJANModel.save({ model: event.target.value }); };
+    stage.querySelector('#model-connect').onclick = async () => {
+      if (!root.NIJANModel) return;
+      root.NIJANModel.save({ baseUrl: stage.querySelector('#model-base').value.trim(), key: stage.querySelector('#model-key').value });
+      reply.textContent = '正在读取模型列表…';
+      try {
+        const names = await root.NIJANModel.listModels();
+        paintPick(names, root.NIJANModel.load().model);
+        reply.textContent = names.length ? `已连接，共 ${names.length} 个模型。选一个再用。` : '连上了，但接口没有返回模型。';
+      } catch (error) {
+        reply.textContent = error.message || '连接失败';
+      }
+    };
+    stage.querySelector('#model-test').onclick = async () => {
+      if (!root.NIJANModel) return;
+      if (!root.NIJANModel.load().model) { reply.textContent = '先选择一个模型。'; return; }
+      reply.textContent = '正在发送…';
+      try {
+        const text = await root.NIJANModel.testMessage(stage.querySelector('#model-ping').value);
+        reply.textContent = text.trim() ? `收到回复：\n${text}` : '没有收到回复。';
+      } catch (error) {
+        reply.textContent = error.message || '没有收到回复。';
+      }
+    };
   }
 
   function characters(stage) {

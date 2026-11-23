@@ -99,6 +99,14 @@ try {
   })`);
   check('demo loaded', counts.characters >= 4 && counts.lore >= 6 && counts.messages >= 6, JSON.stringify(counts));
   check('home title', counts.title === '总览');
+  const connect = await evaluate(`({
+    button: document.querySelector('#model-connect')?.textContent || '',
+    pick: document.querySelector('#model-pick')?.tagName || '',
+    typed: !!document.querySelector('#model-panel input:not(#model-base):not(#model-key):not(#model-ping)'),
+    test: !!document.querySelector('#model-test'),
+    reply: !!document.querySelector('#model-reply'),
+  })`);
+  check('home model connect', connect.button.includes('连接') && connect.pick === 'SELECT' && !connect.typed && connect.test && connect.reply, JSON.stringify(connect));
   check('saved', counts.save.includes('已保存'));
 
   const routes = await evaluate(`[...document.querySelectorAll('[data-nav]')].map((b) => b.dataset.nav)`);
@@ -243,14 +251,11 @@ try {
   const settings = await evaluate(`(() => {
     document.querySelector('[data-shell="settings"]').click();
     const base = document.querySelector('#set-base');
-    const model = document.querySelector('#set-model');
     const key = document.querySelector('#set-key');
     const profile = document.querySelector('#set-profile');
     const json = document.querySelector('#set-json');
     base.value = 'https://example.test/v1';
     base.dispatchEvent(new Event('input', { bubbles: true }));
-    model.value = 'demo-model';
-    model.dispatchEvent(new Event('input', { bubbles: true }));
     key.value = 'not-logged';
     key.dispatchEvent(new Event('input', { bubbles: true }));
     profile.value = 'strict';
@@ -259,7 +264,7 @@ try {
     json.dispatchEvent(new Event('change', { bubbles: true }));
     const whileOpen = {
       base: NIJANModel.load().baseUrl === 'https://example.test/v1',
-      model: NIJANModel.load().model === 'demo-model',
+      noTypedModel: !document.querySelector('#set-model'),
       key: NIJANModel.load().key === 'not-logged',
       profile: NIJANModel.load().profile === 'strict',
       json: TAI18n.prefs.jsonMode === true,
@@ -270,7 +275,7 @@ try {
     document.querySelector('[data-shell="settings"]').click();
     const reopened = {
       base: document.querySelector('#set-base').value === 'https://example.test/v1',
-      model: document.querySelector('#set-model').value === 'demo-model',
+      noTypedModel: !document.querySelector('#set-model'),
       key: document.querySelector('#set-key').value === 'still-not-logged',
       profile: document.querySelector('#set-profile').value === 'strict',
       json: document.querySelector('#set-json').checked === true,
@@ -279,11 +284,10 @@ try {
     document.querySelector('#set-json').checked = false;
     document.querySelector('#set-profile').value = 'default';
     document.querySelector('#set-base').value = '';
-    document.querySelector('#set-model').value = '';
     document.querySelector('#set-close').click();
     return { whileOpen, afterClose, reopened };
   })()`);
-  check('settings keep model fields', settings.whileOpen.base && settings.whileOpen.model && settings.whileOpen.key && settings.whileOpen.profile && settings.whileOpen.json && settings.afterClose && settings.reopened.base && settings.reopened.model && settings.reopened.key && settings.reopened.profile && settings.reopened.json, JSON.stringify(settings));
+  check('settings keep model fields', settings.whileOpen.base && settings.whileOpen.noTypedModel && settings.whileOpen.key && settings.whileOpen.profile && settings.whileOpen.json && settings.afterClose && settings.reopened.base && settings.reopened.noTypedModel && settings.reopened.key && settings.reopened.profile && settings.reopened.json, JSON.stringify(settings));
 } catch (error) {
   console.error(error);
   fails.push(error.message);
