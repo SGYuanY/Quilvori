@@ -105,6 +105,11 @@
       en: 'The model asks first, then offers inspirations. Edits import into the matching workshop page.',
       ja: 'モデルが先に尋ね、灵感を出す。直した内容は対応するページへ入る。',
     },
+    'blurb.memory': {
+      zh: '写一块 HTML 记忆面板，导出文件，再按页面上的步骤放进 SillyTavern。',
+      en: 'Write an HTML memory panel, export the file, then follow the steps on this page into SillyTavern.',
+      ja: 'HTML の記憶パネルを書き、ファイルを書き出して、このページの手順で SillyTavern に入れます。',
+    },
     'blurb.tutorial': {
       zh: '从打开、导入、书写、检查到导出进酒馆。每一步写在页面上，并标明文件该放哪。',
       en: 'Open, import, write, check, and export into SillyTavern. Each step says where the file goes.',
@@ -368,7 +373,7 @@
   };
 
   function load() {
-    const base = { lang: 'zh', teach: true, scale: 1, density: 'comfortable', jsonMode: false, adult: false, liveImport: true };
+    const base = { lang: 'zh', teach: true, scale: 1, density: 'comfortable', jsonMode: false, adult: false, liveImport: true, replyLength: 'medium', replyChars: 600 };
     try {
       return Object.assign(base, JSON.parse(localStorage.getItem(KEY) || '{}'));
     } catch (error) {

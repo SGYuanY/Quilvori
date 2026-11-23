@@ -15,6 +15,7 @@
 - 正则 JSON：正则扩展里导入。
 - 快捷回复 JSON：Quick Reply 扩展里导入。
 - 聊天阅览导出的是工坊自己的阅读稿，不写回酒馆的 `chats`。
+- HTML 记忆：在「HTML 记忆」页导出 `.html`。放进 SillyTavern 的步骤写在那一页：启用 JS-Slash-Runner（酒馆助手），新建 HTML 脚本并导入该文件。
 
 数据在 `localStorage`。第一次打开会载入「听雨楼」示例。侧栏和总览、整库备份里都有「载入示例」和「清空库」，都会先确认。
 

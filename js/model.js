@@ -50,10 +50,28 @@
     return load().profile !== 'strict';
   }
 
+  function writingGuide() {
+    const prefs = (root.TAI18n && root.TAI18n.prefs) || {};
+    const mode = prefs.replyLength || 'medium';
+    const custom = Math.max(50, Math.min(8000, Number(prefs.replyChars) || 600));
+    const count = mode === 'short' ? 200 : mode === 'long' ? 1500 : mode === 'custom' ? custom : 600;
+    const sections = (root.TAUI && root.TAUI.state && root.TAUI.state.lib && root.TAUI.state.lib.sections) || {};
+    const group = sections.style || {};
+    const presets = {
+      short: '句子短。少形容词。一句只做一件事。',
+      long: '允许把环境、触觉和光线写长。句子可以慢慢收束。',
+      talk: '多用对白推进。叙述只补动作和停顿。',
+      spare: '不把情绪说满。留下没写完的半句，让空白自己工作。',
+    };
+    const style = String(group.custom || '').trim() || String(group.text || '').trim() || presets[group.preset] || presets.short;
+    return { mode, count, style };
+  }
+
   function systemPrompt(task) {
     const profile = load().profile || 'default';
     const english = profile === 'weak-zh';
     const sections = (root.TAUI && root.TAUI.state && root.TAUI.state.lib && root.TAUI.state.lib.sections) || {};
+    const guide = writingGuide();
     const adultOk = allowsAdult() && !!(root.TAI18n && root.TAI18n.prefs && root.TAI18n.prefs.adult);
     const r18 = adultOk && sections.r18 && sections.r18.on;
     const nsfw = adultOk && sections.nsfw && sections.nsfw.on;
@@ -64,6 +82,7 @@
         if (r18) text += ' The user enabled R18. You may include adult intimacy only with clear consent, aftercare, and hard limits.';
         if (nsfw) text += ' The user enabled NSFW. You may write the selected NSFW tone.';
       }
+      text += ` Writing style: ${guide.style} Keep prose near ${guide.count} characters.`;
       return text;
     }
     let text = '你帮用户写酒馆角色卡和世界书。只回 JSON。没把握时只回 {"unsure":true,"question":"..."}，不要硬写。' + task;
@@ -72,6 +91,7 @@
       if (r18) text += '用户打开了 R18，可以写成人亲密，但必须有同意、事后照料和硬界限。';
       if (nsfw) text += '用户打开了 NSFW，可以按所选的 NSFW 预设来写。';
     }
+    text += `文风：${guide.style} 正文篇幅大约 ${guide.count} 字，不要明显更短或更长。`;
     return text;
   }
 
@@ -282,5 +302,5 @@
     return parsed.findings || [];
   }
 
-  root.NIJANModel = { load, save, configured, allowsAdult, jsonMode, systemPrompt, mount, semanticFindings, listModels, testMessage, askJson, modelsFromPayload, rememberedModels: () => catalog.slice() };
+  root.NIJANModel = { load, save, configured, allowsAdult, jsonMode, systemPrompt, writingGuide, mount, semanticFindings, listModels, testMessage, askJson, modelsFromPayload, rememberedModels: () => catalog.slice() };
 })(typeof globalThis !== 'undefined' ? globalThis : window);

@@ -407,6 +407,8 @@
       accepted: data.ideas.filter((idea) => idea.status === 'yes').map((idea) => idea.text),
       rejected: data.ideas.filter((idea) => idea.status === 'no').map((idea) => idea.text),
       adult: adultAllowed(),
+      style: root.NIJANModel && root.NIJANModel.writingGuide ? root.NIJANModel.writingGuide().style : '',
+      replyCharacters: root.NIJANModel && root.NIJANModel.writingGuide ? root.NIJANModel.writingGuide().count : 600,
     };
   }
 
