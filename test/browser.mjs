@@ -239,6 +239,51 @@ try {
   await evaluate(`document.querySelector('[data-nav="home"]').click()`);
   await sleep(40);
   await shot('tavern-narrow-home');
+
+  const settings = await evaluate(`(() => {
+    document.querySelector('[data-shell="settings"]').click();
+    const base = document.querySelector('#set-base');
+    const model = document.querySelector('#set-model');
+    const key = document.querySelector('#set-key');
+    const profile = document.querySelector('#set-profile');
+    const json = document.querySelector('#set-json');
+    base.value = 'https://example.test/v1';
+    base.dispatchEvent(new Event('input', { bubbles: true }));
+    model.value = 'demo-model';
+    model.dispatchEvent(new Event('input', { bubbles: true }));
+    key.value = 'not-logged';
+    key.dispatchEvent(new Event('input', { bubbles: true }));
+    profile.value = 'strict';
+    profile.dispatchEvent(new Event('change', { bubbles: true }));
+    json.checked = true;
+    json.dispatchEvent(new Event('change', { bubbles: true }));
+    const whileOpen = {
+      base: NIJANModel.load().baseUrl === 'https://example.test/v1',
+      model: NIJANModel.load().model === 'demo-model',
+      key: NIJANModel.load().key === 'not-logged',
+      profile: NIJANModel.load().profile === 'strict',
+      json: TAI18n.prefs.jsonMode === true,
+    };
+    key.value = 'still-not-logged';
+    document.querySelector('#set-close').click();
+    const afterClose = NIJANModel.load().key === 'still-not-logged' && !document.querySelector('#set-base');
+    document.querySelector('[data-shell="settings"]').click();
+    const reopened = {
+      base: document.querySelector('#set-base').value === 'https://example.test/v1',
+      model: document.querySelector('#set-model').value === 'demo-model',
+      key: document.querySelector('#set-key').value === 'still-not-logged',
+      profile: document.querySelector('#set-profile').value === 'strict',
+      json: document.querySelector('#set-json').checked === true,
+    };
+    document.querySelector('#set-key').value = '';
+    document.querySelector('#set-json').checked = false;
+    document.querySelector('#set-profile').value = 'default';
+    document.querySelector('#set-base').value = '';
+    document.querySelector('#set-model').value = '';
+    document.querySelector('#set-close').click();
+    return { whileOpen, afterClose, reopened };
+  })()`);
+  check('settings keep model fields', settings.whileOpen.base && settings.whileOpen.model && settings.whileOpen.key && settings.whileOpen.profile && settings.whileOpen.json && settings.afterClose && settings.reopened.base && settings.reopened.model && settings.reopened.key && settings.reopened.profile && settings.reopened.json, JSON.stringify(settings));
 } catch (error) {
   console.error(error);
   fails.push(error.message);

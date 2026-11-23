@@ -534,9 +534,18 @@
     };
     host.querySelector('#set-lang').onchange = commit;
     host.querySelector('#set-teach').onchange = commit;
+    host.querySelector('#set-json').onchange = commit;
+    host.querySelector('#set-base').oninput = commit;
+    host.querySelector('#set-model').oninput = commit;
+    host.querySelector('#set-key').oninput = commit;
+    host.querySelector('#set-profile').onchange = commit;
     host.querySelector('#set-scale').oninput = commit;
     host.querySelector('#set-density').onchange = commit;
-    const close = () => { host.classList.remove('show'); host.innerHTML = ''; };
+    const close = () => {
+      commit();
+      host.classList.remove('show');
+      host.innerHTML = '';
+    };
     host.querySelector('#set-close').onclick = close;
     host.onclick = (event) => { if (event.target === host) close(); };
   }
