@@ -45,7 +45,7 @@ img { max-width: 100%; display: block; }
 
 .shell {
   display: grid;
-  grid-template-columns: 216px minmax(0, 1fr);
+  grid-template-columns: 248px minmax(0, 1fr);
   height: 100vh;
   min-height: 0;
 }
@@ -61,7 +61,7 @@ img { max-width: 100%; display: block; }
   display: flex;
   gap: 12px;
   align-items: center;
-  padding: 16px 14px 10px;
+  padding: 22px 18px 16px;
 }
 .seal {
   width: 34px;
@@ -77,27 +77,30 @@ img { max-width: 100%; display: block; }
 }
 .brand strong { display: block; font-family: var(--serif); font-size: 16px; letter-spacing: 0.08em; font-weight: 600; }
 .brand em { display: block; margin-top: 1px; font-style: normal; font-size: 10px; letter-spacing: 0.14em; color: var(--brass); }
-.nav-import { display: flex; flex-direction: column; gap: 6px; padding: 0 12px 10px; }
-.nav-import .btn { width: 100%; min-height: 34px; padding: 6px 10px; font-size: 13px; }
-.nav-list { display: flex; flex-direction: column; gap: 1px; padding: 0 8px; overflow: auto; }
+.nav-import { display: flex; flex-direction: column; gap: 8px; padding: 0 16px 14px; }
+.nav-import .btn { width: 100%; min-height: 40px; padding: 8px 14px; font-size: 14px; }
+.nav-list { display: flex; flex-direction: column; gap: 6px; padding: 4px 14px 12px; overflow: auto; }
 .nav-btn {
   display: flex;
-  gap: 8px;
   align-items: center;
   width: 100%;
   text-align: left;
   background: transparent;
-  border: 0;
+  border: 1px solid transparent;
   color: var(--muted);
-  padding: 4px 8px;
-  border-radius: 8px;
+  padding: 11px 14px;
+  border-radius: 12px;
   white-space: nowrap;
-  font-size: 13px;
-  letter-spacing: 0;
+  font-size: 15px;
+  letter-spacing: 0.02em;
 }
-.nav-btn .mark { width: 1.7em; flex: 0 0 auto; color: var(--brass-2); font-family: var(--sans); font-size: 10px; letter-spacing: 0.06em; font-variant-numeric: tabular-nums; opacity: 0.8; }
-.nav-btn.on { background: rgba(61, 255, 232, 0.14); color: var(--foam); }
-.nav-btn.on .mark { color: var(--brass-2); }
+.nav-btn.on {
+  background: rgba(61, 255, 232, 0.16);
+  color: var(--foam);
+  border-color: rgba(214, 255, 63, 0.7);
+  box-shadow: inset 3px 0 0 var(--brass);
+  font-weight: 650;
+}
 .nav-foot { margin-top: auto; display: flex; flex-direction: column; gap: 8px; padding: 14px; }
 .nav-foot button { width: 100%; }
 
@@ -118,15 +121,24 @@ img { max-width: 100%; display: block; }
 .top h1, .hero h2, .paper h3, .paper h2 { font-family: var(--serif); font-weight: 600; letter-spacing: 0.06em; }
 .top h1 { margin: 0; font-size: 28px; line-height: 1.15; letter-spacing: 0.02em; }
 .top-actions { display: flex; gap: 10px; align-items: center; }
-.search input, .paper input[type="text"], .paper input[type="number"], .paper textarea, .paper select,
-.drawer input[type="text"], .drawer input[type="number"], .drawer textarea, .drawer select {
+.search input, .paper input[type="text"], .paper input[type="password"], .paper input[type="number"], .paper textarea, .paper select,
+.drawer input[type="text"], .drawer input[type="password"], .drawer input[type="number"], .drawer textarea, .drawer select,
+select {
   width: 100%;
-  background: transparent;
-  border: 0;
-  border-bottom: 1px solid rgba(61, 255, 232, 0.35);
-  border-radius: 0;
-  padding: 8px 2px;
-  color: var(--ink);
+  background: #0c1218;
+  border: 1px solid rgba(61, 255, 232, 0.38);
+  border-radius: 12px;
+  padding: 10px 12px;
+  color: #e9fff8;
+  color-scheme: dark;
+}
+select, select option, select optgroup {
+  background-color: #101820;
+  color: #e9fff8;
+}
+select option:checked {
+  background-color: #16352f;
+  color: #d6ff3f;
 }
 .search input {
   width: 220px;
@@ -156,22 +168,24 @@ img { max-width: 100%; display: block; }
 .stage { flex: 1; overflow: auto; padding: 6px 28px 32px; min-height: 0; }
 .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 14px; }
 .toolbar select, .toolbar input[type="text"], .toolbar input[type="search"] {
-  background: transparent;
-  color: var(--foam);
-  border: 0;
-  border-bottom: 1px solid var(--line);
-  padding: 6px 2px;
-  max-width: 240px;
+  background: #0c1218;
+  color: #e9fff8;
+  color-scheme: dark;
+  border: 1px solid rgba(61, 255, 232, 0.38);
+  border-radius: 12px;
+  padding: 8px 12px;
+  max-width: 260px;
 }
 .row textarea { flex: 1; min-width: 0; }
 .toolbar .spacer { flex: 1; }
 .btn {
   border-radius: 999px;
-  padding: 8px 14px;
+  padding: 10px 18px;
   border: 1px solid var(--line);
-  background: transparent;
+  background: rgba(12, 18, 24, 0.7);
   color: var(--foam);
-  min-height: 40px;
+  min-height: 42px;
+  letter-spacing: 0.03em;
 }
 .btn-primary { background: var(--brass); color: #07140c; border-color: transparent; font-weight: 650; }
 .btn-danger { color: #ff9ec4; border-color: rgba(255, 43, 214, 0.7); }
@@ -187,7 +201,7 @@ img { max-width: 100%; display: block; }
   color: var(--ink);
   border-radius: var(--radius);
   box-shadow: var(--shadow), inset 0 0 0 1px rgba(61, 255, 232, 0.32);
-  padding: 18px;
+  padding: 22px;
 }
 .muted { color: var(--ink-soft); }
 .dark-muted { color: var(--muted); }
@@ -230,7 +244,7 @@ img { max-width: 100%; display: block; }
 
 .work { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 18px; align-items: start; }
 .stack { display: flex; flex-direction: column; gap: 12px; }
-.field { display: flex; flex-direction: column; gap: 4px; }
+.field { display: flex; flex-direction: column; gap: 8px; }
 .field-label { font-family: var(--serif); letter-spacing: 0.08em; font-size: 14px; }
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
@@ -518,7 +532,7 @@ html[data-teach="off"] #lore-lesson { display: none; }
 html[data-density="compact"] .paper { padding: 12px; }
 html[data-density="compact"] .top { padding: 10px 16px 4px; }
 html[data-density="compact"] .top h1 { font-size: 24px; }
-html[data-density="compact"] .nav-btn { padding: 2px 8px; }
+html[data-density="compact"] .nav-btn { padding: 8px 12px; }
 html[data-density="compact"] .stage { padding-bottom: 16px; }
 html[data-density="compact"] .dropwell { padding: 8px 12px; }
 @media (max-width: 1100px) {

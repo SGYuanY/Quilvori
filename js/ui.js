@@ -608,7 +608,7 @@
           <button type="button" class="btn" data-shell="import-book">导入世界书</button>
           <button type="button" class="btn" data-shell="settings">设置</button>
         </div>
-        <nav class="nav-list">${ROUTES.map((route) => `<button type="button" class="nav-btn" data-nav="${route.id}"><span class="mark">${route.mark}</span><span data-label>${route.label}</span></button>`).join('')}</nav>
+        <nav class="nav-list">${ROUTES.map((route) => `<button type="button" class="nav-btn" data-nav="${route.id}"><span data-label>${route.label}</span></button>`).join('')}</nav>
         <div class="nav-foot">
           <p class="note">示例会替换当前库。清空只删这台浏览器里的稿。</p>
           <button type="button" class="btn" data-shell="demo">载入示例</button>

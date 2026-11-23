@@ -107,6 +107,13 @@ try {
     reply: !!document.querySelector('#model-reply'),
   })`);
   check('home model connect', connect.button.includes('连接') && connect.pick === 'SELECT' && !connect.typed && connect.test && connect.reply, JSON.stringify(connect));
+  const chromeLook = await evaluate(`(() => {
+    const nav = document.querySelector('.nav-btn.on')?.innerText || '';
+    const select = document.querySelector('#model-pick');
+    const style = getComputedStyle(select);
+    return { nav, bg: style.backgroundColor, scheme: style.colorScheme, numbered: /^\\s*\\d\\d/.test(nav) };
+  })()`);
+  check('nav and model menu', !chromeLook.numbered && chromeLook.scheme === 'dark' && chromeLook.bg !== 'rgb(255, 255, 255)', JSON.stringify(chromeLook));
   check('saved', counts.save.includes('已保存'));
 
   const routes = await evaluate(`[...document.querySelectorAll('[data-nav]')].map((b) => b.dataset.nav)`);
