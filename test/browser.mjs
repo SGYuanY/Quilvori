@@ -102,7 +102,7 @@ try {
   check('saved', counts.save.includes('已保存'));
 
   const routes = await evaluate(`[...document.querySelectorAll('[data-nav]')].map((b) => b.dataset.nav)`);
-  check('16 routes', routes.length === 16, String(routes.length));
+  check('17 routes', routes.length === 17, String(routes.length));
   for (const id of routes) {
     const broken = await evaluate(`new Promise((resolve) => {
       document.querySelector('[data-nav="${id}"]').click();

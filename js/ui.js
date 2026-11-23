@@ -17,6 +17,7 @@
     { id: 'script', mark: '14', label: '群聊剧本', eyebrow: 'SCRIPT', title: '群聊剧本', search: true, placeholder: '搜剧本、台词', blurb: 'blurb.script' },
     { id: 'theme', mark: '15', label: '主题预设', eyebrow: 'THEME', title: '主题预设', search: false, blurb: 'blurb.theme' },
     { id: 'backup', mark: '16', label: '整库备份', eyebrow: 'BACKUP', title: '整库备份', search: false, blurb: 'blurb.backup' },
+    { id: 'tutorial', mark: '17', label: '使用教学', eyebrow: 'GUIDE', title: '使用教学', search: false, blurb: 'blurb.tutorial' },
   ];
 
   const state = {
@@ -266,10 +267,10 @@
     const blurb = document.getElementById('blurb');
     if (blurb) blurb.textContent = tr(meta.blurb || '');
     const search = document.getElementById('search');
-    search.parentElement.hidden = !meta.search;
-    search.placeholder = tr(meta.placeholder || '搜索');
+    search.parentElement.hidden = false;
+    search.placeholder = tr('搜索角色、世界书、正则');
     const searchNote = document.getElementById('search-note');
-    if (searchNote) searchNote.textContent = meta.search ? tr('只过滤这一页，不改库。') : '';
+    if (searchNote) searchNote.textContent = tr('跨页搜索，不改库。');
     document.querySelectorAll('[data-nav]').forEach((button) => {
       const route = ROUTES.find((item) => item.id === button.dataset.nav);
       if (!route) return;
@@ -312,8 +313,81 @@
     }
   }
 
+  function pageHref(id) {
+    return id === 'home' ? 'index.html' : `${id}.html`;
+  }
+
+  function paintGlobalSearch(query) {
+    const host = document.getElementById('search-results');
+    if (!host) return;
+    const text = String(query || '').trim().toLowerCase();
+    if (!text || !state.lib) { host.innerHTML = ''; return; }
+    const hits = [];
+    (state.lib.characters || []).forEach((item) => {
+      const blob = [item.name, item.tags && item.tags.join(' '), item.description].join('\n').toLowerCase();
+      if (blob.includes(text)) hits.push({ href: `characters.html#${item.id}`, label: `角色卡 ${item.name || '未命名'}` });
+    });
+    (state.lib.worldBooks || []).forEach((book) => {
+      const blob = [book.name, ...(book.entries || []).map((entry) => [entry.comment, (entry.keys || []).join(' '), entry.content].join('\n'))].join('\n').toLowerCase();
+      if (blob.includes(text)) hits.push({ href: `lore.html#${book.id}`, label: `世界书 ${book.name || '未命名'}` });
+    });
+    (state.lib.regexScripts || []).forEach((script) => {
+      const blob = [script.scriptName, script.findRegex].join('\n').toLowerCase();
+      if (blob.includes(text)) hits.push({ href: `regex.html#${script.id}`, label: `正则 ${script.scriptName || '未命名'}` });
+    });
+    host.innerHTML = hits.slice(0, 12).map((hit) => `<a href="${esc(hit.href)}">${esc(hit.label)}</a>`).join('') || '<span>没有同时命中角色卡、世界书或正则。</span>';
+  }
+
+  function paintFolders() {
+    const host = document.getElementById('folders');
+    if (!host) return;
+    const saved = JSON.parse(localStorage.getItem('nijan-folders') || '{}');
+    const draw = (paths) => {
+      host.innerHTML = `<span>人物卡文件夹：${esc(paths.cards || '尚未设置')}</span><span>世界书文件夹：${esc(paths.worlds || '尚未设置')}</span><button type="button" class="btn btn-small" id="pick-cards">选人物卡文件夹</button><button type="button" class="btn btn-small" id="pick-worlds">选世界书文件夹</button><button type="button" class="btn btn-small" id="read-folders">读取已有文件</button>`;
+      host.querySelector('#pick-cards').onclick = () => pickFolder('cards');
+      host.querySelector('#pick-worlds').onclick = () => pickFolder('worlds');
+      host.querySelector('#read-folders').onclick = () => readFolders(paths);
+    };
+    if (root.nijanDesktop) root.nijanDesktop.getPaths().then(draw);
+    else draw(saved);
+  }
+
+  async function pickFolder(kind) {
+    if (root.nijanDesktop) {
+      const paths = await root.nijanDesktop.pick(kind);
+      localStorage.setItem('nijan-folders', JSON.stringify(paths));
+      paintFolders();
+      return;
+    }
+    toast('文件夹读写在桌面版里。运行 npm start。');
+  }
+
+  async function readFolders(paths) {
+    if (!root.nijanDesktop) { toast('请用 npm start 打开桌面版，才能读取这两个文件夹。'); return; }
+    const cards = await root.nijanDesktop.list(paths.cards);
+    const worlds = await root.nijanDesktop.list(paths.worlds);
+    for (const file of worlds) {
+      if (!/\.json$/i.test(file.name)) continue;
+      const bytes = await root.nijanDesktop.read(file.full);
+      const text = new TextDecoder().decode(bytes);
+      try {
+        const entries = root.TAFormats.worldInfoToEntries(JSON.parse(text));
+        state.lib.worldBooks.unshift({ id: `book_${file.name}`, name: file.name.replace(/\.json$/i, ''), description: '', entries: entries.map((entry) => Object.assign({ id: `lore_${Math.random().toString(16).slice(2)}`, secondaryKeys: [], constant: false, selective: true, order: 100, position: 'before_char', enabled: true, depth: 4, outletName: '' }, entry)) });
+      } catch (error) { /* 跳过不是世界书的文件 */ }
+    }
+    markDirty();
+    toast(`读到人物卡文件 ${cards.length} 个，世界书 ${worlds.length} 个。`);
+    renderStage();
+  }
+
   function go(id) {
     const next = ROUTES.some((route) => route.id === id) ? id : 'home';
+    const here = document.body.dataset.page;
+    if (here) {
+      if (here !== next) location.href = pageHref(next);
+      else show(next);
+      return;
+    }
     if (location.hash !== `#${next}`) location.hash = next;
     else show(next);
   }
@@ -417,6 +491,12 @@
         <select id="set-lang"><option value="zh">中文</option><option value="en">English</option><option value="ja">日本語</option></select>
       </label>
       <label class="check"><input id="set-teach" type="checkbox"> ${tr('显示逐步说明和导入解读')}</label>
+      <label class="check"><input id="set-json" type="checkbox"> 书写时用 JSON 互转（默认关闭）</label>
+      <p class="field-label">模型接口（密钥只留在这台浏览器）</p>
+      <label class="field"><span class="field-label">地址</span><input id="set-base" type="text" placeholder="https://api.openai.com/v1"></label>
+      <label class="field"><span class="field-label">模型名</span><input id="set-model" type="text" placeholder="gpt-4o-mini"></label>
+      <label class="field"><span class="field-label">密钥</span><input id="set-key" type="password" autocomplete="off"></label>
+      <label class="field"><span class="field-label">模型倾向</span><select id="set-profile"><option value="default">默认中文</option><option value="weak-zh">中文弱，用英文提示</option><option value="weak-en">英文弱，用中文提示</option><option value="strict">审核严，不含 18+</option></select></label>
       <label class="field"><span class="field-label">${tr('界面字号')}</span><input id="set-scale" type="range" min="0.9" max="1.2" step="0.05"></label>
       <label class="field"><span class="field-label">${tr('间距')}</span>
         <select id="set-density"><option value="comfortable">${tr('舒适')}</option><option value="compact">${tr('紧凑')}</option></select>
@@ -425,6 +505,12 @@
     </div>`;
     host.querySelector('#set-lang').value = prefs.lang || 'zh';
     host.querySelector('#set-teach').checked = prefs.teach !== false;
+    host.querySelector('#set-json').checked = !!prefs.jsonMode;
+    const model = root.NIJANModel ? root.NIJANModel.load() : { baseUrl: '', model: '', key: '', profile: 'default' };
+    host.querySelector('#set-base').value = model.baseUrl || '';
+    host.querySelector('#set-model').value = model.model || '';
+    host.querySelector('#set-key').value = model.key || '';
+    host.querySelector('#set-profile').value = model.profile || 'default';
     host.querySelector('#set-scale').value = String(prefs.scale || 1);
     host.querySelector('#set-density').value = prefs.density === 'compact' ? 'compact' : 'comfortable';
     const commit = () => {
@@ -434,7 +520,16 @@
         teach: host.querySelector('#set-teach').checked,
         scale: Number(host.querySelector('#set-scale').value),
         density: host.querySelector('#set-density').value,
+        jsonMode: host.querySelector('#set-json').checked,
       });
+      if (root.NIJANModel) {
+        root.NIJANModel.save({
+          baseUrl: host.querySelector('#set-base').value.trim(),
+          model: host.querySelector('#set-model').value.trim(),
+          key: host.querySelector('#set-key').value,
+          profile: host.querySelector('#set-profile').value,
+        });
+      }
       renderStage();
     };
     host.querySelector('#set-lang').onchange = commit;
@@ -472,10 +567,11 @@
         <header class="top">
           <div><p class="eyebrow" id="eyebrow">ATELIER</p><h1 id="title">工坊总览</h1><p class="note" id="blurb"></p></div>
           <div class="top-actions">
-            <label class="search"><input id="search" type="search" placeholder="搜索" autocomplete="off"><span class="note" id="search-note"></span></label>
+            <label class="search"><input id="search" type="search" placeholder="搜索角色、世界书、正则" autocomplete="off"><span class="note" id="search-note">跨页搜索，不改库。</span><div id="search-results"></div></label>
             <span class="save-wrap"><span id="save-pill" class="pill"><i></i>已保存</span><span class="note">改动自动写入这台浏览器。</span></span>
           </div>
         </header>
+        <div id="folders" class="folders"></div>
         <div id="storage-banner"></div>
         <div id="export-slip"></div>
         <div class="stage" id="stage"></div>
@@ -494,7 +590,10 @@
     if (root.TAI18n) root.TAI18n.apply();
     document.getElementById('search').addEventListener('input', (event) => {
       state.query = event.target.value;
+      paintGlobalSearch(event.target.value);
       renderStage();
+      const box = document.getElementById('search');
+      if (box) box.value = state.query;
     });
     if (!state.persistent) {
       document.getElementById('storage-banner').innerHTML = '<div class="banner">这台浏览器没有把本地存储开放给当前页面。改动只留在这次打开里，离开前请导出整库备份。</div>';
@@ -510,6 +609,16 @@
     if (state.fresh) {
       try { TAStore.save(state.lib); state.save = 'saved'; } catch (error) { state.save = 'error'; }
       toast(loaded.corrupt ? '原来的库读不出来，已改用示例。' : '已载入听雨楼示例。不需要的话可以清空库。');
+    }
+    paintFolders();
+    const forced = document.body.dataset.page;
+    if (forced) {
+      const hashId = (location.hash || '').slice(1);
+      if (forced === 'characters' && hashId) state.sel.character = hashId;
+      if (forced === 'lore' && hashId) state.sel.book = hashId;
+      if (forced === 'regex' && hashId) state.sel.regex = hashId;
+      show(forced);
+      return;
     }
     const initial = (location.hash || '#home').slice(1);
     if (!location.hash) history.replaceState(null, '', '#home');

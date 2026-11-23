@@ -197,27 +197,65 @@
     };
   }
 
+  function parseMaybeJson(value) {
+    if (value && typeof value === 'object') return value;
+    if (typeof value !== 'string') return null;
+    const trimmed = value.trim();
+    if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return null;
+    try { return JSON.parse(trimmed); } catch (error) { return null; }
+  }
+
+  function looksLikeEntry(obj) {
+    return !!(obj && typeof obj === 'object' && !Array.isArray(obj) && (
+      obj['条目名'] || obj['触发关键词'] || obj['正文'] || obj.body || obj.comment || obj.content || obj.key || obj.keys
+    ));
+  }
+
+  function unwrapEntry(entry) {
+    const blob = parseMaybeJson(entry.content ?? entry.body ?? entry['正文']);
+    if (!blob || typeof blob !== 'object' || Array.isArray(blob) || !looksLikeEntry(blob)) return entry;
+    const keys = entry['触发关键词'] || entry.key || entry.keys;
+    const hasKeys = Array.isArray(keys) ? keys.length : !!keys;
+    return Object.assign({}, entry, {
+      comment: entry.comment || entry['条目名'] || blob['条目名'] || blob.comment || blob.name || '',
+      content: blob['正文'] ?? blob.body ?? blob.content ?? '',
+      key: hasKeys ? keys : (blob['触发关键词'] || blob.key || blob.keys || []),
+      keys: hasKeys ? keys : (blob['触发关键词'] || blob.keys || blob.key || []),
+    });
+  }
+
   function worldInfoToEntries(json) {
     if (!json || typeof json !== 'object') throw new Error('世界书不是 JSON 对象');
-    const source = json.entries || (json.data && json.data.entries) || json.character_book?.entries;
+    let source = null;
+    if (Array.isArray(json)) source = json;
+    else if (json['条目名'] || json['触发关键词'] || ((json['正文'] || json.body) && !json.entries)) source = [json];
+    else source = json.entries || (json.data && json.data.entries) || json.character_book?.entries;
+    if (!source) {
+      const values = Object.values(json).filter(looksLikeEntry);
+      if (values.length) source = values;
+    }
     if (!source) throw new Error('找不到 entries');
     const list = Array.isArray(source) ? source : Object.values(source);
-    return list.filter(Boolean).map((entry) => ({
-      comment: entry.comment || entry.name || '',
-      content: entry.content || '',
-      keys: asArray(entry.key || entry.keys || []),
-      secondaryKeys: asArray(entry.keysecondary || entry.secondary_keys || entry.secondaryKeys || []),
-      constant: !!entry.constant,
-      selective: !!entry.selective,
-      order: Number(entry.order ?? entry.insertion_order ?? 100),
-      position: positionFromSt(entry.extensions?.position ?? entry.position),
-      enabled: entry.disable !== undefined ? !entry.disable : entry.enabled !== false,
-      depth: Number(entry.depth ?? entry.extensions?.depth ?? 4),
-      outletName: entry.outletName || entry.extensions?.outlet_name || '',
-      selectiveLogic: Number(entry.selectiveLogic ?? entry.extensions?.selectiveLogic ?? 0),
-      caseSensitive: entry.caseSensitive ?? null,
-      matchWholeWords: entry.matchWholeWords ?? null,
-    }));
+    return list.filter(Boolean).map((raw) => {
+      const entry = unwrapEntry(raw);
+      const content = entry['正文'] ?? entry.body ?? entry.content ?? '';
+      return {
+        comment: entry['条目名'] || entry.comment || entry.name || '',
+        content: typeof content === 'string' ? content : (content == null ? '' : JSON.stringify(content)),
+        keys: asArray(entry['触发关键词'] || entry.key || entry.keys || []),
+        secondaryKeys: asArray(entry.keysecondary || entry.secondary_keys || entry.secondaryKeys || []),
+        constant: !!entry.constant,
+        selective: !!entry.selective,
+        order: Number(entry.order ?? entry.insertion_order ?? 100),
+        position: positionFromSt(entry.extensions?.position ?? entry.position),
+        enabled: entry.disable !== undefined ? !entry.disable : entry.enabled !== false,
+        depth: Number(entry.depth ?? entry.extensions?.depth ?? 4),
+        outletName: entry.outletName || entry.extensions?.outlet_name || '',
+        selectiveLogic: Number(entry.selectiveLogic ?? entry.extensions?.selectiveLogic ?? 0),
+        caseSensitive: entry.caseSensitive ?? null,
+        matchWholeWords: entry.matchWholeWords ?? null,
+      };
+    });
   }
 
   function blankRegex(partial) {

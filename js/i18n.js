@@ -4,6 +4,7 @@
   const PHRASE = {
     '总览': { en: 'Overview', ja: '概要' },
     '段落预设': { en: 'Section presets', ja: '段落プリセット' },
+    '使用教学': { en: 'Tutorial', ja: '使い方' },
     '角色卡工坊': { en: 'Character cards', ja: 'キャラカード' },
     '世界书看板': { en: 'World book', ja: 'ワールドブック' },
     '提示词拼装': { en: 'Prompt blocks', ja: 'プロンプト' },
@@ -98,6 +99,11 @@
   };
 
   const TEMPLATES = {
+    'blurb.tutorial': {
+      zh: '从打开、导入、书写、检查到导出进酒馆。每一步写在页面上，并标明文件该放哪。',
+      en: 'Open, import, write, check, and export into SillyTavern. Each step says where the file goes.',
+      ja: '開く、読み込む、書く、チェック、SillyTavern へ書き出す。各手順にファイルの置き場所を書いてあります。',
+    },
     'blurb.sections': {
       zh: '打开一组，选一个预设。它会写成作者注；注明的组还会写成世界书、正则或快捷回复。自定义框有字时，以自定义为准。',
       en: 'Turn a group on and pick a preset. It becomes an author note; some groups also write a world-book entry, a regex, or a quick reply. If the custom box has text, that text wins.',
@@ -356,7 +362,7 @@
   };
 
   function load() {
-    const base = { lang: 'zh', teach: true, scale: 1, density: 'comfortable' };
+    const base = { lang: 'zh', teach: true, scale: 1, density: 'comfortable', jsonMode: false };
     try {
       return Object.assign(base, JSON.parse(localStorage.getItem(KEY) || '{}'));
     } catch (error) {
