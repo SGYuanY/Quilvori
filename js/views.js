@@ -233,7 +233,7 @@
     <section class="hero paper">
       <p class="eyebrow">听雨楼书案</p>
       <h2>稿子先在这里写完，再送去酒馆。</h2>
-      <p class="lede">霓笺不代替 SillyTavern。角色、世界书、正则和一场聊天都留在这台浏览器里，导出的是酒馆认得的文件。</p>
+      <p class="lede">织境不代替 SillyTavern。角色、世界书、正则和一场聊天都留在这台浏览器里，导出的是酒馆认得的文件。</p>
       <div class="row">
         <button type="button" class="btn btn-primary" data-go="characters">去写角色</button>
         <button type="button" class="btn" data-go="backup">整库备份</button>
@@ -1793,7 +1793,7 @@
     }
     stage.querySelector('#save-backup').onclick = () => {
       const date = new Date().toISOString().slice(0, 10);
-      const filename = `霓笺-备份-${date}.json`;
+      const filename = `织境-备份-${date}.json`;
       UI.downloadJson(filename, F.backupOf(lib));
       UI.toast('整库已导出');
       UI.showExport(filename, '整库 JSON。回到「整库备份」，拖进来再选替换或合并。');
@@ -1869,7 +1869,7 @@
 
     let preset = lib.promptPresets.find((item) => item.id === SECTION_PRESET);
     if (!preset) {
-      preset = { id: SECTION_PRESET, name: '霓笺段落', blocks: [] };
+      preset = { id: SECTION_PRESET, name: '织境段落', blocks: [] };
       lib.promptPresets.unshift(preset);
     }
     [
@@ -1883,7 +1883,7 @@
 
     let book = lib.worldBooks.find((item) => item.id === SECTION_BOOK);
     if (!book) {
-      book = { id: SECTION_BOOK, name: '霓笺段落', description: '段落预设写入的条目', entries: [] };
+      book = { id: SECTION_BOOK, name: '织境段落', description: '段落预设写入的条目', entries: [] };
       lib.worldBooks.push(book);
     }
     const nsfwLore = NSFW_LORE[sections.nsfw.preset] || NSFW_LORE.tease;

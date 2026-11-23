@@ -60,20 +60,11 @@ img { max-width: 100%; display: block; }
   align-items: center;
   padding: 22px 18px 16px;
 }
-.seal {
-  width: 34px;
-  height: 34px;
-  flex: 0 0 auto;
-  display: grid;
-  place-items: center;
-  border: 1px solid var(--line);
-  color: var(--foam);
-  font-family: var(--sans);
-  font-size: 15px;
-  background: #2a2a2a;
-}
+.brand .mark, .top-title .mark { width: 36px; height: 36px; flex: 0 0 auto; display: block; border-radius: 8px; }
+.top-title { display: flex; gap: 10px; align-items: center; }
+.top-title .mark { width: 28px; height: 28px; }
 .brand strong { display: block; font-family: var(--sans); font-size: 16px; letter-spacing: 0.04em; font-weight: 650; }
-.brand em { display: block; margin-top: 1px; font-style: normal; font-size: 11px; letter-spacing: 0.08em; color: var(--muted); }
+.brand em { display: block; margin-top: 2px; font-style: normal; font-size: 11px; letter-spacing: 0; line-height: 1.35; color: var(--muted); max-width: 200px; }
 .nav-import { display: flex; flex-direction: column; gap: 6px; padding: 0 12px 8px; }
 .nav-import .btn { width: 100%; min-height: 30px; padding: 4px 8px; font-size: 13px; }
 .nav-list { display: flex; flex-direction: column; gap: 2px; padding: 0 8px 8px; overflow: auto; }
