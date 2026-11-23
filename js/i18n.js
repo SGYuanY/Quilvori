@@ -82,8 +82,8 @@
     '新建一本，或导入酒馆导出的世界信息 JSON。': { en: 'Create a book, or import SillyTavern world-info JSON.', ja: '新しい本を作るか、SillyTavern のワールド情報 JSON を読み込みます。' },
     '先选书。新建或导入条目，点卡片编辑。每一栏是一个注入位置。': { en: 'Pick a book. Create or import entries, then click a card to edit. Each column is an injection position.', ja: '本を選び、項目を作るか読み込み、カードを押して編集します。列は注入位置です。' },
     '看这句话会触发当前书里哪些启用条目。恒定条目总会算上；选择性条目通常还要命中一个次关键词。': { en: 'See which enabled entries this line triggers. Constant entries always count. Selective entries usually also need a secondary keyword.', ja: 'この文がどの有効項目を起こすか。恒常項目は常に含まれ、選択項目はたいてい副キーワードも要ります。' },
-    '添加一块后，拖左侧「序」排列。关掉的块仍会导出，只是未启用。': { en: 'After adding a block, drag 序 to reorder. Disabled blocks are still exported, marked off.', ja: 'ブロックを足したあと、「序」を拖って並べます。切ったブロックも書き出されますが無効です。' },
-    '从下面选角色加入。取消「上场」则先不让这个角色开口。导出只是名单，回酒馆后按名单建群。': { en: 'Add characters below. Uncheck 上场 to keep someone silent. The export is only a roster.', ja: '下からキャラを加えます。「上场」を外すとその人は話しません。書き出すのは名簿だけです。' },
+    '添加一块后，拖左侧「序」排列。关掉的块仍会导出，只是未启用。': { en: 'After adding a block, drag Order to reorder. Disabled blocks are still exported, marked off.', ja: 'ブロックを足したあと、「順」を拖って並べます。切ったブロックも書き出されますが無効です。' },
+    '从下面选角色加入。取消「上场」则先不让这个角色开口。导出只是名单，回酒馆后按名单建群。': { en: 'Add characters below. Uncheck On stage to keep someone silent. The export is only a roster.', ja: '下からキャラを加えます。「登場」を外すとその人は話しません。書き出すのは名簿だけです。' },
     '导入 jsonl 或消息数组，也可拖进来。背景只影响这页。导出的阅读稿不会写回酒馆。': { en: 'Import jsonl or a message array, or drop it here. The background only affects this page. The reading export is not written back.', ja: 'jsonl かメッセージ配列を読むか、ドロップします。背景はこのページだけ。閲覧用の書き出しは戻しません。' },
     '涂选正文后再复制或做成书签。上一处、下一处在搜索命中之间跳。': { en: 'Select text, then copy it or make a bookmark. Previous and next jump between search hits.', ja: '本文を選んでからコピーするか、しおりにします。前へ・次へは検索の一致を移動します。' },
     '按种类上传。超过约 400KB 会先问你，超过 1.6MB 不收。拖进来的图先当头像。': { en: 'Upload by kind. Over about 400KB asks first. Over 1.6MB is refused. Dropped images start as avatars.', ja: '種類ごとに上げます。約 400KB 超は確認、1.6MB 超は受けません。ドロップした画像はまずアイコンです。' },
@@ -94,9 +94,9 @@
     '先从角色同步人物，再拖圆点。右侧选起点终点并写上关系。': { en: 'Sync people from characters, then drag the dots. On the right, pick both ends and name the relation.', ja: 'まずキャラから人物を同期し、点を拖ります。右で起点と終点を選び、関係を書きます。' },
     '选定角色，可选一本世界书对照。重新检查会刷新结果，导出报告不改卡。': { en: 'Pick a character and optionally a world book. Run check refreshes the result. Exporting the report does not edit the card.', ja: 'キャラを選び、必要ならワールドブックも。再チェックで結果が更新されます。報告の書き出しはカードを変えません。' },
     '选说话的人再写句子。触发词可留空。上移、下移改顺序，右侧是预览。': { en: 'Pick who speaks, then write the line. The trigger can stay empty. Move up or down to reorder. The right side is the preview.', ja: '話す人を選んで文を書きます。きっかけ語は空でもよい。上へ下へで順を変え、右がプレビューです。' },
-    '改色会马上作用在霓笺上。点「使用此主题」才记住这套。CSS 需自己贴进酒馆。': { en: 'Color changes apply to 霓笺 immediately. Use this theme to keep the set. Paste the CSS into SillyTavern yourself.', ja: '色はすぐ霓笺に効きます。「使用此主题」でこのセットを覚えます。CSS は自分で SillyTavern に貼ります。' },
+    '改色会马上作用在织境上。点「使用此主题」才记住这套。CSS 需自己贴进酒馆。': { en: 'Color changes apply to Realmweave immediately. Use this theme to keep the set. Paste the CSS into SillyTavern yourself.', ja: '色はすぐ织境に効きます。「このテーマを使う」でこのセットを覚えます。CSS は自分で SillyTavern に貼ります。' },
     '导出一份带日期的 JSON。恢复时可把文件拖进来，再选替换或合并。': { en: 'Export a dated JSON file. To restore, drop the file here, then replace or merge.', ja: '日付入り JSON を書き出します。戻すときはファイルをドロップし、置き換えか統合を選びます。' },
-    '霓笺不代替 SillyTavern。角色、世界书、正则和一场聊天都留在这台浏览器里，导出的是酒馆认得的文件。': { en: '霓笺 does not replace SillyTavern. Characters, world books, regex, and a chat stay in this browser. Exports are files SillyTavern can import.', ja: '霓笺は SillyTavern の代わりではありません。キャラ、ワールドブック、正規表現、チャットはこのブラウザに残り、書き出すのは SillyTavern が読めるファイルです。' },
+    '织境不代替 SillyTavern。角色、世界书、正则和一场聊天都留在这台浏览器里，导出的是酒馆认得的文件。': { en: 'Realmweave does not replace SillyTavern. Characters, world books, regex, and a chat stay in this browser. Exports are files SillyTavern can import.', ja: '织境は SillyTavern の代わりではありません。キャラ、ワールドブック、正規表現、チャットはこのブラウザに残り、書き出すのは SillyTavern が読めるファイルです。' },
   };
 
   const TEMPLATES = {
@@ -181,9 +181,9 @@
       ja: 'ナレーションやキャラの文を順に書き、任意できっかけ語を付けます。独自 JSON で書き出します。',
     },
     'blurb.theme': {
-      zh: '改的是霓笺自己的纸色和字号。酒馆要另贴 CSS，选择器不会自动对上。',
-      en: 'This changes 霓笺’s own colors and type size. SillyTavern needs its own CSS. Selectors will not match.',
-      ja: '変えるのは霓笺自身の色と文字サイズです。SillyTavern には別の CSS が要り、セレクタは一致しません。',
+      zh: '改的是织境自己的纸色和字号。酒馆要另贴 CSS，选择器不会自动对上。',
+      en: 'This changes Realmweave’s own colors and type size. SillyTavern needs its own CSS. Selectors will not match.',
+      ja: '変えるのは织境自身の色と文字サイズです。SillyTavern には別の CSS が要り、セレクタは一致しません。',
     },
     'blurb.backup': {
       zh: '一份 JSON 带走整库。恢复时可替换，或按编号合并。',
@@ -398,7 +398,15 @@
     document.documentElement.dataset.teach = prefs.teach === false ? 'off' : 'on';
     document.documentElement.dataset.density = prefs.density === 'compact' ? 'compact' : 'comfortable';
     document.documentElement.style.setProperty('--ui-scale', String(Number(prefs.scale) || 1));
-    document.title = '霓笺';
+    const product = lang === 'en' ? 'Realmweave' : '织境';
+    const tagline = lang === 'en'
+      ? 'From a single thought, write the people and the world.'
+      : lang === 'ja'
+        ? 'ひとつの想いから、人物と世界を書く。'
+        : '从一个念头，写出人物与世界。';
+    document.title = product;
+    document.querySelectorAll('[data-product]').forEach((node) => { node.textContent = product; });
+    document.querySelectorAll('[data-tagline]').forEach((node) => { node.textContent = tagline; });
   }
 
   function save(next) {
@@ -407,20 +415,60 @@
     apply();
   }
 
+  let phraseKeys = null;
+
+  function phraseOf(text) {
+    const lang = prefs.lang || 'zh';
+    if (!text || lang === 'zh') return '';
+    if (PHRASE[text] && PHRASE[text][lang]) return PHRASE[text][lang];
+    return '';
+  }
+
+  function phraseKeyList() {
+    if (!phraseKeys) phraseKeys = Object.keys(PHRASE).filter((key) => key.length >= 4).sort((a, b) => b.length - a.length);
+    return phraseKeys;
+  }
+
   function localize(node) {
     if (!node || (prefs.lang || 'zh') === 'zh') return;
-    const skip = node.matches && node.matches('input, textarea, script, style');
-    if (skip) return;
-    node.childNodes.forEach((child) => {
+    if (node.nodeType === 1) {
+      ['placeholder', 'title', 'aria-label'].forEach((attr) => {
+        if (!node.getAttribute) return;
+        const value = node.getAttribute(attr);
+        if (!value) return;
+        const trimmed = value.trim();
+        const mapped = phraseOf(trimmed);
+        if (mapped) node.setAttribute(attr, value.replace(trimmed, mapped));
+      });
+      if (node.matches && node.matches('textarea, script, style')) return;
+    }
+    const kids = node.childNodes ? [...node.childNodes] : [];
+    kids.forEach((child) => {
       if (child.nodeType === 3) {
         const raw = child.nodeValue;
         const trimmed = raw.trim();
-        const mapped = PHRASE[trimmed] && PHRASE[trimmed][prefs.lang];
-        if (mapped && trimmed) child.nodeValue = raw.replace(trimmed, mapped);
+        if (!trimmed) return;
+        const skipContent = child.parentElement && child.parentElement.closest && child.parentElement.closest('textarea, .msg .body, #char-preview, .rail-char, .cast, .gallery, figcaption, .snippet, .entry > b, .entry > p');
+        if (skipContent) return;
+        let mapped = phraseOf(trimmed);
+        const numbered = !mapped && trimmed.match(/^(\d+\.\s*)(.+)$/);
+        if (!mapped && numbered && phraseOf(numbered[2])) mapped = numbered[1] + phraseOf(numbered[2]);
+        if (!mapped) {
+          const lang = prefs.lang;
+          let next = raw;
+          phraseKeyList().forEach((key) => {
+            if (!next.includes(key) || !(PHRASE[key] && PHRASE[key][lang])) return;
+            next = next.split(key).join(PHRASE[key][lang]);
+          });
+          if (next !== raw) child.nodeValue = next;
+          return;
+        }
+        child.nodeValue = raw.replace(trimmed, mapped);
       } else if (child.nodeType === 1) localize(child);
     });
   }
 
   apply();
-  root.TAI18n = { t, load, save, apply, localize, get prefs() { return prefs; } };
+  function add(extra) { Object.assign(PHRASE, extra || {}); phraseKeys = null; }
+  root.TAI18n = { t, load, save, apply, localize, add, get prefs() { return prefs; } };
 })(typeof globalThis !== 'undefined' ? globalThis : window);

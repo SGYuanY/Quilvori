@@ -116,7 +116,10 @@
       const paint = () => {
         const stat = estimateLength(node.value);
         const pct = Math.min(100, Math.round((stat.chars / 800) * 100));
-        meter.innerHTML = `<i><b style="width:${pct}%"></b></i><span>${stat.chars} 字 · 约 ${stat.tokens} token</span>`;
+        const lang = root.TAI18n && root.TAI18n.prefs.lang;
+        const unit = lang === 'en' ? 'characters' : lang === 'ja' ? '字' : '字';
+        const about = lang === 'en' ? 'about' : lang === 'ja' ? '約' : '约';
+        meter.innerHTML = `<i><b style="width:${pct}%"></b></i><span>${stat.chars} ${unit} · ${about} ${stat.tokens} token</span>`;
       };
       paint();
       node.addEventListener('input', paint);
@@ -319,7 +322,7 @@
     if (clearButton) clearButton.textContent = tr('清空库');
     if (footNote) footNote.textContent = tr('示例会替换当前库。清空只删这台浏览器里的稿。');
     if (saveNote) saveNote.textContent = tr('改动自动写入这台浏览器。');
-    document.title = '霓笺';
+    if (root.TAI18n) root.TAI18n.apply();
   }
 
   function renderStage() {
@@ -332,7 +335,10 @@
     stage.ondrop = null;
     try {
       view(stage);
-      if (root.TAI18n) root.TAI18n.localize(stage);
+      if (root.TAI18n) {
+        root.TAI18n.localize(document.getElementById('app'));
+        root.TAI18n.localize(document.getElementById('modal-root'));
+      }
     } catch (error) {
       console.error(error);
       stage.innerHTML = `<div class="paper empty"><h3>这一页没有画出来</h3><p>${esc(error.message)}</p></div>`;
@@ -369,7 +375,7 @@
     if (!host) return;
     const saved = JSON.parse(localStorage.getItem('nijan-folders') || '{}');
     const draw = (paths) => {
-      host.innerHTML = `<span>人物卡文件夹：${esc(paths.cards || '尚未设置')}</span><span>世界书文件夹：${esc(paths.worlds || '尚未设置')}</span><button type="button" class="btn btn-small" id="pick-cards">选人物卡文件夹</button><button type="button" class="btn btn-small" id="pick-worlds">选世界书文件夹</button><button type="button" class="btn btn-small" id="read-folders">读取已有文件</button>`;
+      host.innerHTML = `<span><span>人物卡文件夹</span>：${esc(paths.cards || '尚未设置')}</span><span><span>世界书文件夹</span>：${esc(paths.worlds || '尚未设置')}</span><button type="button" class="btn btn-small" id="pick-cards">选人物卡文件夹</button><button type="button" class="btn btn-small" id="pick-worlds">选世界书文件夹</button><button type="button" class="btn btn-small" id="read-folders">读取已有文件</button>`;
       host.querySelector('#pick-cards').onclick = () => pickFolder('cards');
       host.querySelector('#pick-worlds').onclick = () => pickFolder('worlds');
       host.querySelector('#read-folders').onclick = () => readFolders(paths);
@@ -606,6 +612,7 @@
     };
     host.querySelector('#set-close').onclick = close;
     host.onclick = (event) => { if (event.target === host) close(); };
+    if (root.TAI18n) root.TAI18n.localize(host);
   }
 
   function mount(registered) {
@@ -617,7 +624,7 @@
     const app = document.getElementById('app');
     app.innerHTML = `<div class="shell">
       <aside class="nav">
-        <div class="brand"><span class="seal">笺</span><span><strong>霓笺</strong><em>本地稿</em></span></div>
+        <div class="brand"><img class="mark" src="img/mark.svg" alt=""><span><strong data-product>织境</strong><em data-tagline>从一个念头，写出人物与世界。</em></span></div>
         <div class="nav-import">
           <button type="button" class="btn btn-primary" data-shell="import-card">导入角色卡</button>
           <button type="button" class="btn" data-shell="import-book">导入世界书</button>
@@ -634,7 +641,7 @@
       </aside>
       <div class="main">
         <header class="top">
-          <div><p class="eyebrow" id="eyebrow">ATELIER</p><h1 id="title">工坊总览</h1><p class="note" id="blurb"></p></div>
+          <div class="top-title"><img class="mark" src="img/mark.svg" alt=""><div><p class="eyebrow" id="eyebrow">HOME</p><h1 id="title">总览</h1><p class="note" id="blurb"></p></div></div>
           <div class="top-actions">
             <label class="search"><input id="search" type="search" placeholder="搜索角色、世界书、正则" autocomplete="off"><span class="note" id="search-note">跨页搜索，不改库。</span><div id="search-results"></div></label>
             <span class="save-wrap"><span id="save-pill" class="pill"><i></i>已保存</span><span class="note">改动自动写入这台浏览器。</span></span>

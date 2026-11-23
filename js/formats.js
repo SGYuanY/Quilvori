@@ -563,7 +563,7 @@
   function themeToCss(theme) {
     const vars = theme.vars || {};
     return [
-      `/* 霓笺主题「${theme.name || '未命名'}」`,
+      `/* 织境主题「${theme.name || '未命名'}」`,
       '   SillyTavern 的自定义 CSS 选择器不同，把变量抄进你的主题后再改选择器。 */',
       ':root {',
       `  --bg: ${vars.bg || '#07090d'};`,
@@ -588,7 +588,7 @@
 
   function backupLibrary(json) {
     if (!json || json.atelier !== 'tavern-atelier' || !json.library) {
-      throw new Error('这不是霓笺的整库备份');
+      throw new Error('这不是织境的整库备份');
     }
     return json.library;
   }
