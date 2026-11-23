@@ -771,7 +771,7 @@
     });
     const needModel = () => {
       if (root.NIJANModel && root.NIJANModel.configured()) return true;
-      ui.toast('先在总览连接模型，并选一个。');
+      ui.toast('先在设置里连接模型，并选一个。');
       return false;
     };
     stage.querySelector('#studio-ask').onclick = async () => {

@@ -533,7 +533,8 @@ label.stretch input:checked::after { transform: translateX(32px); }
 
 .modal-root { position: fixed; inset: 0; display: none; place-items: center; background: rgba(12, 8, 6, 0.62); z-index: 50; padding: 18px; }
 .modal-root.show { display: grid; }
-.modal { width: min(460px, 100%); }
+.modal { width: min(460px, 100%); max-height: calc(100vh - 36px); overflow: auto; }
+#set-reply { white-space: pre-wrap; min-height: 2.4em; }
 .modal h3 { font-family: var(--serif); margin: 0 0 8px; }
 .modal p { margin: 0 0 16px; white-space: pre-wrap; }
 input[type="range"] { width: 100%; accent-color: var(--brass); }
