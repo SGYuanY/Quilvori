@@ -1739,95 +1739,6 @@
     paint();
   }
 
-  function theme(stage) {
-    const lib = UI.state.lib;
-    if (!lib.themes.length) {
-      lib.themes.push({ id: Store.uid('theme'), name: '夜漆', vars: { bg: '#07090d', lacquer: '#0c1118', paper: '#101820', ink: '#e9fff8', accent: '#d6ff3f', fontScale: 1, radius: 18 } });
-      lib.activeThemeId = lib.themes[0].id;
-    }
-    const current = UI.selected(lib.themes, UI.state.sel.theme || lib.activeThemeId);
-    UI.state.sel.theme = current.id;
-    const vars = current.vars;
-    stage.innerHTML = `<div class="toolbar">
-      <button type="button" class="btn" id="new-theme">另存为新主题</button>
-      <button type="button" class="btn btn-primary" id="use-theme">使用此主题</button>
-      <button type="button" class="btn btn-primary" id="export-theme">导出 JSON</button>
-      <button type="button" class="btn" id="export-css">下载 CSS</button>
-      <button type="button" class="btn" id="copy-css">复制 CSS</button>
-      <button type="button" class="btn btn-danger" id="del-theme">删除</button>
-      ${hint('改色会马上作用在霓笺上。点「使用此主题」才记住这套。CSS 需自己贴进酒馆。')}
-    </div>${UI.picker(lib.themes, current.id, (item) => item.id === lib.activeThemeId ? '使用中' : '')}
-    <div class="work"><div class="paper stack">
-      ${UI.field('名称', UI.text('name', current.name))}
-      ${colorField('背景', 'bg')}${colorField('漆面', 'lacquer')}${colorField('纸色', 'paper')}${colorField('墨色', 'ink')}${colorField('铜饰', 'accent')}
-      ${UI.field('字号', `<input id="font-scale" type="range" min="0.9" max="1.25" step="0.01" value="${Number(vars.fontScale) || 1}">`)}
-      ${UI.field('圆角', `<input id="radius" type="range" min="0" max="28" step="1" value="${Number(vars.radius) || 18}">`)}
-    </div><aside class="paper"><p class="eyebrow">活的预览</p><h2>纸上的句子</h2><p>主题改的是工坊自己。酒馆里要另外贴 CSS，选择器不会自动对上。</p><div class="bubble">杯沿对着你。</div><div class="swatches">${['bg', 'lacquer', 'paper', 'ink', 'accent'].map((key) => `<span class="swatch" style="background:${UI.esc(vars[key])}"></span>`).join('')}</div><div id="theme-lesson"></div></aside></div>`;
-    function colorField(label, key) {
-      return UI.field(label, `<input type="color" data-color="${key}" value="${UI.esc(vars[key] || '#000000')}">`);
-    }
-    UI.bindPicker(stage, (id) => {
-      UI.state.sel.theme = id;
-      lib.activeThemeId = id;
-      UI.applyTheme();
-      UI.markDirty();
-      UI.renderStage();
-    });
-    const paintThemeLesson = () => {
-      const live = current.vars;
-      UI.fillLesson(stage.querySelector('#theme-lesson'), [
-        `背景 --bg 现在是 ${live.bg}。它铺在工坊最底下。`,
-        `漆面 --lacquer 现在是 ${live.lacquer}。侧栏用这个颜色。`,
-        `纸色 --paper 现在是 ${live.paper}。卡片的底是它。`,
-        `墨色 --ink 现在是 ${live.ink}。卡片上的字用它。`,
-        `强调色 --accent 现在是 ${live.accent}。主按钮和强调跟着它。`,
-        `字号倍率现在是 ${live.fontScale}。圆角 ${live.radius}px，下载的 CSS 把它写成 --bubble-radius。`,
-        `主题名叫「${current.name || '未命名'}」。CSS 注释里会带上这个名字。酒馆的选择器对不上这些变量，贴进去只是起点。`,
-      ]);
-    };
-    UI.bindFields(stage, current, paintThemeLesson);
-    stage.querySelectorAll('[data-color]').forEach((input) => {
-      input.addEventListener('input', () => { vars[input.dataset.color] = input.value; UI.applyTheme(); UI.markDirty(); paintThemeLesson(); });
-    });
-    stage.querySelector('#font-scale').oninput = (event) => { vars.fontScale = Number(event.target.value); UI.applyTheme(); UI.markDirty(); paintThemeLesson(); };
-    stage.querySelector('#radius').oninput = (event) => { vars.radius = Number(event.target.value); UI.applyTheme(); UI.markDirty(); paintThemeLesson(); };
-    paintThemeLesson();
-    stage.querySelector('#use-theme').onclick = () => { lib.activeThemeId = current.id; UI.applyTheme(); UI.markDirty(); UI.toast(`正在使用「${current.name}」`); UI.renderStage(); };
-    stage.querySelector('#new-theme').onclick = () => {
-      const copy = structuredClone(current);
-      copy.id = Store.uid('theme');
-      copy.name = `${current.name} 副本`;
-      lib.themes.push(copy);
-      UI.state.sel.theme = copy.id;
-      lib.activeThemeId = copy.id;
-      UI.markDirty();
-      UI.renderStage();
-    };
-    stage.querySelector('#export-theme').onclick = () => {
-      const filename = `${UI.safeName(current.name)}.json`;
-      UI.downloadJson(filename, F.themeToExport(current));
-      UI.showExport(filename, '主题 JSON。只给工坊自己恢复用，酒馆不读这份。');
-    };
-    stage.querySelector('#export-css').onclick = () => {
-      const filename = `${UI.safeName(current.name)}.css`;
-      UI.downloadText(filename, F.themeToCss(current), 'text/css');
-      UI.showExport(filename, 'CSS 变量。酒馆的选择器不同，贴进去只是起点。');
-    };
-    stage.querySelector('#copy-css').onclick = () => {
-      UI.copyText(F.themeToCss(current));
-      UI.showExport('CSS', '已复制。贴进酒馆自定义 CSS 时，选择器要自己改。');
-    };
-    stage.querySelector('#del-theme').onclick = () => {
-      if (lib.themes.length <= 1) { UI.toast('至少留一个主题'); return; }
-      lib.themes = lib.themes.filter((item) => item.id !== current.id);
-      lib.activeThemeId = lib.themes[0].id;
-      UI.state.sel.theme = lib.themes[0].id;
-      UI.applyTheme();
-      UI.markDirty();
-      UI.renderStage();
-    };
-  }
-
   function backup(stage) {
     const lib = UI.state.lib;
     const rows = [
@@ -2215,6 +2126,6 @@
   }
 
   UI.mount({
-    home, characters, lore, prompts, groups, chat, assets, regex, quick, timeline, graph, check, script, theme, backup, sections, tutorial,
+    home, characters, lore, prompts, groups, chat, assets, regex, quick, timeline, graph, check, script, backup, sections, tutorial,
   });
 })(typeof globalThis !== 'undefined' ? globalThis : window);

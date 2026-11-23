@@ -15,9 +15,8 @@
     { id: 'graph', mark: '12', label: '角色关系图', eyebrow: 'GRAPH', title: '角色关系图', search: false, blurb: 'blurb.graph' },
     { id: 'check', mark: '13', label: '人设一致性检查', eyebrow: 'CHECK', title: '人设一致性检查', search: false, blurb: 'blurb.check' },
     { id: 'script', mark: '14', label: '群聊剧本', eyebrow: 'SCRIPT', title: '群聊剧本', search: true, placeholder: '搜剧本、台词', blurb: 'blurb.script' },
-    { id: 'theme', mark: '15', label: '主题预设', eyebrow: 'THEME', title: '主题预设', search: false, blurb: 'blurb.theme' },
-    { id: 'backup', mark: '16', label: '整库备份', eyebrow: 'BACKUP', title: '整库备份', search: false, blurb: 'blurb.backup' },
-    { id: 'tutorial', mark: '17', label: '使用教学', eyebrow: 'GUIDE', title: '使用教学', search: false, blurb: 'blurb.tutorial' },
+    { id: 'backup', mark: '15', label: '整库备份', eyebrow: 'BACKUP', title: '整库备份', search: false, blurb: 'blurb.backup' },
+    { id: 'tutorial', mark: '16', label: '使用教学', eyebrow: 'GUIDE', title: '使用教学', search: false, blurb: 'blurb.tutorial' },
   ];
 
   const state = {
@@ -233,6 +232,17 @@
       toast(error.message);
     }
     paintSave();
+  }
+
+  function ensureTheme() {
+    const lib = state.lib;
+    if (!lib.themes.length) {
+      lib.themes.push({ id: 'theme_live', name: '夜漆', vars: { bg: '#07090d', lacquer: '#0c1118', paper: '#101820', ink: '#e9fff8', accent: '#d6ff3f', fontScale: 1, radius: 18 } });
+    }
+    const theme = lib.themes.find((item) => item.id === lib.activeThemeId) || lib.themes[0];
+    lib.activeThemeId = theme.id;
+    if (!theme.vars) theme.vars = {};
+    return theme;
   }
 
   function applyTheme() {
@@ -497,6 +507,12 @@
       <label class="field"><span class="field-label">密钥</span><input id="set-key" type="password" autocomplete="off"></label>
       <p class="help">模型在总览里连接后选择，不用手填名称。</p>
       <label class="field"><span class="field-label">模型倾向</span><select id="set-profile"><option value="default">默认中文</option><option value="weak-zh">中文弱，用英文提示</option><option value="weak-en">英文弱，用中文提示</option><option value="strict">审核严，不含 18+</option></select></label>
+      <p class="field-label">主题</p>
+      <label class="field"><span class="field-label">背景</span><input id="set-bg" type="color"></label>
+      <label class="field"><span class="field-label">纸色</span><input id="set-paper" type="color"></label>
+      <label class="field"><span class="field-label">墨色</span><input id="set-ink" type="color"></label>
+      <label class="field"><span class="field-label">强调色</span><input id="set-accent" type="color"></label>
+      <label class="field"><span class="field-label">圆角</span><input id="set-radius" type="range" min="0" max="28" step="1"></label>
       <label class="field"><span class="field-label">${tr('界面字号')}</span><input id="set-scale" type="range" min="0.9" max="1.2" step="0.05"></label>
       <label class="field"><span class="field-label">${tr('间距')}</span>
         <select id="set-density"><option value="comfortable">${tr('舒适')}</option><option value="compact">${tr('紧凑')}</option></select>
@@ -510,6 +526,23 @@
     host.querySelector('#set-base').value = model.baseUrl || '';
     host.querySelector('#set-key').value = model.key || '';
     host.querySelector('#set-profile').value = model.profile || 'default';
+    const theme = ensureTheme();
+    const vars = theme.vars;
+    host.querySelector('#set-bg').value = vars.bg || '#07090d';
+    host.querySelector('#set-paper').value = vars.paper || '#101820';
+    host.querySelector('#set-ink').value = vars.ink || '#e9fff8';
+    host.querySelector('#set-accent').value = vars.accent || '#d6ff3f';
+    host.querySelector('#set-radius').value = String(Number(vars.radius ?? 18));
+    const paintTheme = (key, value) => {
+      vars[key] = key === 'radius' ? Number(value) : value;
+      applyTheme();
+      markDirty();
+    };
+    host.querySelector('#set-bg').oninput = (event) => paintTheme('bg', event.target.value);
+    host.querySelector('#set-paper').oninput = (event) => paintTheme('paper', event.target.value);
+    host.querySelector('#set-ink').oninput = (event) => paintTheme('ink', event.target.value);
+    host.querySelector('#set-accent').oninput = (event) => paintTheme('accent', event.target.value);
+    host.querySelector('#set-radius').oninput = (event) => paintTheme('radius', event.target.value);
     host.querySelector('#set-scale').value = String(prefs.scale || 1);
     host.querySelector('#set-density').value = prefs.density === 'compact' ? 'compact' : 'comfortable';
     const commit = () => {
@@ -633,7 +666,7 @@
 
   root.TAUI = {
     ROUTES, state, esc, toast, ask, downloadBlob, downloadText, downloadJson, pickFile, readText, readDataUrl, copyText,
-    safeName, assetById, charById, selected, matchQuery, markDirty, flush, applyTheme, go, renderStage, show,
+    safeName, assetById, charById, selected, matchQuery, markDirty, flush, applyTheme, ensureTheme, go, renderStage, show,
     field, area, text, bindFields, picker, bindPicker, empty, confirmLoadDemo, confirmClear, mount,
     t: (key, vars) => (root.TAI18n ? root.TAI18n.t(key, vars) : key),
     estimateLength, mountLengths, showExport, fillLesson,
