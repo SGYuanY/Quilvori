@@ -1613,11 +1613,14 @@
       <button type="button" class="btn btn-primary" id="run-check">重新检查</button>
       <button type="button" class="btn" id="export-check">导出报告</button>
       ${hint('选定角色，可选一本世界书对照。重新检查会刷新结果，导出报告不改卡。')}
-    </div><div id="check-lesson"></div><div id="findings"></div>`;
+    </div><div id="check-lesson"></div><div id="imported-check"></div><div id="findings"></div>`;
     const paint = () => {
       const current = UI.charById(stage.querySelector('#check-char').value);
       const bookId = stage.querySelector('#check-book').value;
       if (!current) { stage.querySelector('#findings').innerHTML = '<div class="paper empty"><h3>没有角色可查</h3></div>'; return; }
+      const imported = lib.settings && lib.settings.modelCheck;
+      const importedHost = stage.querySelector('#imported-check');
+      if (importedHost) importedHost.innerHTML = imported ? `<article class="paper"><h3>模型看过的逻辑</h3><p>${UI.esc(imported)}</p></article>` : '';
       const findings = F.checkConsistency(lib, current.id, bookId || null);
       UI.state.lastFindings = { character: current.name, findings };
       const bookName = bookId ? (lib.worldBooks.find((item) => item.id === bookId)?.name || '选中的书') : '库里每一本';
@@ -2123,7 +2126,11 @@
     if (Object.values(s).some((group) => group.on)) syncSections(lib);
   }
 
+  function studio(stage) {
+    if (root.NIJANStudio) root.NIJANStudio.render(stage);
+  }
+
   UI.mount({
-    home, characters, lore, prompts, groups, chat, assets, regex, quick, timeline, graph, check, script, backup, sections, tutorial,
+    home, studio, characters, lore, prompts, groups, chat, assets, regex, quick, timeline, graph, check, script, backup, sections, tutorial,
   });
 })(typeof globalThis !== 'undefined' ? globalThis : window);

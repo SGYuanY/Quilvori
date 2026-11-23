@@ -253,6 +253,14 @@
     return catalog.slice();
   }
 
+  async function askJson(task, user) {
+    const raw = await complete([
+      { role: 'system', content: systemPrompt(task) },
+      { role: 'user', content: typeof user === 'string' ? user : JSON.stringify(user) },
+    ]);
+    return parseJson(raw);
+  }
+
   async function testMessage(text) {
     return String(await complete([{ role: 'user', content: text || '请只回复：收到' }]) || '');
   }
@@ -267,5 +275,5 @@
     return parsed.findings || [];
   }
 
-  root.NIJANModel = { load, save, configured, allowsAdult, jsonMode, systemPrompt, mount, semanticFindings, listModels, testMessage, modelsFromPayload, rememberedModels: () => catalog.slice() };
+  root.NIJANModel = { load, save, configured, allowsAdult, jsonMode, systemPrompt, mount, semanticFindings, listModels, testMessage, askJson, modelsFromPayload, rememberedModels: () => catalog.slice() };
 })(typeof globalThis !== 'undefined' ? globalThis : window);
