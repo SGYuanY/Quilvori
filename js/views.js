@@ -2348,7 +2348,7 @@
       graph: '写人物和关系。只回 JSON：{"nodes":["甲","乙"],"edges":[{"from":"甲","to":"乙","label":"旧识"}]}。',
       script: '写一出短剧本。只回 JSON：{"name":"...","beats":[{"speaker":"旁白","line":"...","trigger":""}]}。',
       backup: '读库的规模，写一段备份说明，不要改库。只回 JSON：{"note":"..."}。',
-      memory: '写一块给 SillyTavern 酒馆助手用的 HTML 记忆面板。只回 JSON：{"html":"<section>...</section>"}。',
+      memory: '写一块给 SillyTavern 酒馆助手用的 HTML 记忆面板。必须沿用这个结构，把空的地方填实，至少要有人物、规矩、现在三个小节，不要只回一行纯文字。只回 JSON：{"html":"<section class=\\"rw-memory\\"><header><h1>记忆</h1><p class=\\"place\\">地点与时间</p></header><section><h2>人物</h2><ul><li><strong>名字</strong> 身份与外貌</li></ul></section><section><h2>规矩</h2><ul><li>一条规矩</li></ul></section><section><h2>现在</h2><p>当前局面</p></section></section>"}。',
     };
     return tasks[kind] || tasks.memory;
   }

@@ -12,6 +12,7 @@
       ideas: [],
       sections: { style: '', pov: '', bond: '', safe: '', format: '', r18: '', nsfw: '' },
       card: { name: '', description: '', personality: '', scenario: '', first_mes: '', mes_example: '', system_prompt: '' },
+      greetings: '',
       bookName: '',
       bookText: '',
       promptName: '',
@@ -129,29 +130,64 @@
     return cleaned.length > 18 ? `${cleaned.slice(0, 18)}…` : cleaned;
   }
 
+  function wordList(value) {
+    if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean);
+    return String(value || '').split(/[,，、]/).map((item) => item.trim()).filter((item) => item && item !== '无' && item !== '没有');
+  }
+
   function parseEntries(text) {
     return String(text || '').split(/\n\s*\n/).map((block) => block.trim()).filter(Boolean).map((block) => {
       const rows = block.split('\n');
-      const keysRow = rows.find((row) => /^关键词|^触发/.test(row)) || '';
-      const keys = keysRow.replace(/^(关键词|触发关键词)[:：]\s*/, '').split(/[,，]/).map((item) => item.trim()).filter(Boolean);
+      const secondaryRow = rows.find((row) => /^次关键词/.test(row)) || '';
+      const keysRow = rows.find((row) => /^(主关键词|触发关键词|关键词)/.test(row)) || '';
+      const keys = wordList(keysRow.replace(/^(主关键词|触发关键词|关键词)[:：]\s*/, ''));
+      const secondaryKeys = wordList(secondaryRow.replace(/^次关键词[:：]\s*/, ''));
       const bodyIndex = rows.findIndex((row) => /^正文|^body/.test(row));
       const content = bodyIndex >= 0
         ? rows.slice(bodyIndex).join('\n').replace(/^(正文|body)[:：]\s*/, '').trim()
-        : rows.filter((row) => !/^条目名|^关键词|^触发/.test(row)).slice(1).join('\n').trim();
+        : rows.filter((row) => !/^条目名|^主关键词|^次关键词|^关键词|^触发/.test(row)).slice(1).join('\n').trim();
       const comment = entryTitle({
         条目名: (rows.find((row) => /^条目名/.test(row)) || '').replace(/^条目名[:：]\s*/, ''),
         正文: content,
       });
-      return { comment, keys, content };
+      return { comment, keys, secondaryKeys, content };
     }).filter((entry) => entry.comment || entry.content);
   }
 
   function entriesToText(entries) {
     return (entries || []).map((entry) => {
-      const keys = entry.keys || entry['触发关键词'] || [];
+      const keys = entry.keys || entry['主关键词'] || entry['触发关键词'] || [];
+      const secondary = entry.secondaryKeys || entry['次关键词'] || [];
       const body = entry.content || entry['正文'] || entry.body || '';
-      return `条目名：${entryTitle(entry)}\n关键词：${[].concat(keys).join('，')}\n正文：${body}`;
+      return `条目名：${entryTitle(entry)}\n主关键词：${[].concat(keys).join('，')}\n次关键词：${[].concat(secondary).join('，')}\n正文：${body}`;
     }).join('\n\n');
+  }
+
+  function contentBits(text, comment) {
+    const bits = [];
+    String(text || '').split(/[，。！？、；\s]/).forEach((part) => {
+      const word = part.replace(/[{}（）()「」]/g, '').trim();
+      if (word.length < 2 || word.length > 8 || word === comment || bits.includes(word)) return;
+      bits.push(word);
+    });
+    return bits.slice(0, 3);
+  }
+
+  function withKeywords(entry) {
+    const next = Object.assign({ keys: [], secondaryKeys: [], content: '', comment: '' }, entry);
+    next.keys = wordList(next.keys);
+    next.secondaryKeys = wordList(next.secondaryKeys);
+    if (!next.keys.length && next.comment) next.keys = [next.comment];
+    if (!next.secondaryKeys.length) next.secondaryKeys = contentBits(next.content, next.comment);
+    if (!next.secondaryKeys.length && next.comment) next.secondaryKeys = [`${next.comment}相关`];
+    return next;
+  }
+
+  const MEMORY_TEMPLATE = `<section class="rw-memory"><header><h1>记忆</h1><p class="place">地点与时间</p></header><section><h2>人物</h2><ul><li><strong>名字</strong> 身份、外貌、和用户的关系</li></ul></section><section><h2>规矩</h2><ul><li>一条不能写反的规矩</li></ul></section><section><h2>现在</h2><p>当前局面。</p></section></section>`;
+
+  function memoryUsable(html) {
+    const text = String(html || '');
+    return /<section\b/i.test(text) && /<h2\b/i.test(text);
   }
 
   function sampleText() {
@@ -332,13 +368,15 @@
       createdAt: now,
     }));
     Object.assign(card, data.card, { updatedAt: now });
+    const greetings = linesOf(data.greetings).filter((line) => line && line !== card.first_mes);
+    if (greetings.length) card.alternate_greetings = greetings;
     ui.state.sel.character = card.id;
 
     const book = ensure(lib.worldBooks, bookId, () => ({ name: 'AI 世界书', description: '', entries: [] }));
     book.name = data.bookName || 'AI 世界书';
     book.entries = parseEntries(data.bookText).map((entry, index) => ({
-      id: `ai_lore_${index}`, comment: entryTitle(entry) || '未命名', content: entry.content, keys: entry.keys,
-      secondaryKeys: [], constant: false, selective: true, order: 100 - index, position: 'before_char',
+      id: `ai_lore_${index}`, comment: entryTitle(entry) || '未命名', content: entry.content, keys: entry.keys || [],
+      secondaryKeys: entry.secondaryKeys || [], constant: false, selective: (entry.secondaryKeys || []).length > 0, order: 100 - index, position: 'before_char',
       enabled: true, depth: 4, outletName: '',
     }));
     ui.state.sel.book = book.id;
@@ -432,7 +470,7 @@
     ui.state.sel.script = script.id;
 
     lib.settings.modelCheck = data.check || '';
-    if (String(data.memoryHtml || '').trim()) lib.memoryHtml = data.memoryHtml;
+    if (memoryUsable(data.memoryHtml)) lib.memoryHtml = data.memoryHtml;
     if (String(data.backupNote || '').trim()) lib.settings.backupNote = data.backupNote;
     ui.state.sel.checkChar = card.id;
     ui.state.sel.checkBook = book.id;
@@ -453,58 +491,175 @@
     };
   }
 
-  function applyModel(payload) {
-    const data = draft();
-    const sections = payload.sections || {};
-    Object.keys(data.sections).forEach((key) => { if (sections[key]) data.sections[key] = String(sections[key]); });
-    const card = payload.character || {};
-    Object.keys(data.card).forEach((key) => { if (card[key]) data.card[key] = String(card[key]); });
-    const world = payload.world || {};
-    if (world.name) data.bookName = world.name;
-    if (Array.isArray(world.entries)) {
-      data.bookText = world.entries.map((entry) => {
-        const keys = entry['触发关键词'] || entry.keys || [];
-        const body = entry['正文'] || entry.content || entry.body || '';
-        return `条目名：${entryTitle(entry)}\n关键词：${[].concat(keys).join('，')}\n正文：${body}`;
-      }).join('\n\n');
-    }
-    const prompt = payload.prompt || {};
-    if (prompt.name) data.promptName = prompt.name;
-    if (Array.isArray(prompt.blocks)) data.promptText = prompt.blocks.map((block) => `${block.name || '块'}：${block.content || ''}`).join('\n');
-    const group = payload.group || {};
-    if (group.name) data.groupName = group.name;
-    if (group.scenario) data.groupScenario = group.scenario;
-    const chat = payload.chat || {};
-    if (chat.name) data.chatName = chat.name;
-    if (Array.isArray(chat.lines)) data.chatText = chat.lines.join('\n');
-    const asset = payload.asset || {};
-    if (asset.name) data.assetName = asset.name;
-    if (asset.kind) data.assetKind = asset.kind;
-    if (asset.note) data.assetNote = asset.note;
-    const regex = payload.regex || {};
-    if (regex.scriptName) data.regexName = regex.scriptName;
-    if (regex.findRegex) data.regexFind = regex.findRegex;
-    if (regex.replaceString) data.regexReplace = regex.replaceString;
-    const quick = payload.quick || {};
-    if (quick.name) data.quickName = quick.name;
-    if (Array.isArray(quick.replies)) data.quickText = quick.replies.join('\n');
-    const timeline = payload.timeline || {};
-    if (Array.isArray(timeline.notes)) data.noteText = timeline.notes.join('\n');
-    if (Array.isArray(timeline.beats)) data.beatText = timeline.beats.join('\n');
-    const graph = payload.graph || {};
-    if (Array.isArray(graph.nodes)) data.graphNodes = graph.nodes.join('\n');
-    if (Array.isArray(graph.edges)) data.graphEdges = graph.edges.join('\n');
-    const script = payload.script || {};
-    if (script.name) data.scriptName = script.name;
-    if (Array.isArray(script.lines)) data.scriptText = script.lines.join('\n');
-    if (payload.check) data.check = String(payload.check);
-    const memory = payload.memory || {};
-    if (memory.html) data.memoryHtml = String(memory.html);
-    const backup = payload.backup || {};
-    if (backup.note) data.backupNote = String(backup.note);
+  function modelEntry(entry) {
+    return withKeywords({
+      comment: entryTitle(entry),
+      keys: wordList(entry['主关键词'] || entry['触发关键词'] || entry.keys),
+      secondaryKeys: wordList(entry['次关键词'] || entry.secondaryKeys),
+      content: entry['正文'] || entry.content || entry.body || '',
+    });
   }
 
-  const WRITE_TASK = '根据用户的要求、回答和已接受的灵感，写出可导入酒馆工坊各栏的 JSON。键为 sections, character, world, prompt, group, chat, asset, regex, quick, timeline, graph, script, check, memory, backup。world.entries 用条目名、触发关键词、正文。memory 用 {"html":"..."}，backup 用 {"note":"..."}。没把握时只回 {"unsure":true,"question":"..."}。不要先写固定问卷。';
+  function mergeEntries(currentText, incoming) {
+    const current = parseEntries(currentText);
+    const byName = {};
+    current.forEach((entry) => { byName[entry.comment] = entry; });
+    incoming.forEach((entry) => {
+      const next = modelEntry(entry);
+      if (!next.comment && !next.content) return;
+      const prev = byName[next.comment];
+      if (!prev) current.push(next);
+      else {
+        if (next.content) prev.content = next.content;
+        if (wordList(entry['主关键词'] || entry['触发关键词'] || entry.keys).length) prev.keys = next.keys;
+        else prev.keys = withKeywords(prev).keys;
+        if (wordList(entry['次关键词'] || entry.secondaryKeys).length) prev.secondaryKeys = next.secondaryKeys;
+        else prev.secondaryKeys = withKeywords(prev).secondaryKeys;
+      }
+    });
+    return current.map((entry) => withKeywords(entry));
+  }
+
+  function appendGreeting(data, line) {
+    const text = String(line || '').trim();
+    if (!text || text === data.card.first_mes) return false;
+    const have = linesOf(data.greetings);
+    if (have.includes(text)) return false;
+    data.greetings = have.concat(text).join('\n');
+    return true;
+  }
+
+  function applyModel(payload) {
+    const data = draft();
+    const before = JSON.stringify({
+      card: data.card, greetings: data.greetings, book: data.bookText, memory: data.memoryHtml,
+      regex: `${data.regexName}\n${data.regexFind}\n${data.regexReplace}`, quick: data.quickText,
+      notes: data.noteText, beats: data.beatText, graph: `${data.graphNodes}\n${data.graphEdges}`,
+      script: data.scriptText, backup: data.backupNote, sections: data.sections,
+    });
+    const changed = [];
+    const missed = [];
+    const known = new Set(['sections', 'character', 'world', 'prompt', 'group', 'chat', 'asset', 'regex', 'quick', 'timeline', 'graph', 'script', 'check', 'memory', 'backup', 'unsure', 'question']);
+    Object.keys(payload || {}).forEach((key) => {
+      if (!known.has(key) && payload[key]) missed.push(key);
+    });
+    const sections = payload.sections || {};
+    Object.keys(data.sections).forEach((key) => {
+      if (sections[key] && String(sections[key]) !== data.sections[key]) { data.sections[key] = String(sections[key]); changed.push(`段落预设·${key}`); }
+    });
+    const card = payload.character || {};
+    const lookNote = /外貌|身材|长相|五官|身高/.test(`${draft().supplement || ''}\n${draft().brief || ''}`);
+    if (card.first_mes && data.card.first_mes && String(card.first_mes).trim() !== data.card.first_mes) {
+      if (appendGreeting(data, card.first_mes)) changed.push('备用开场');
+    } else if (card.first_mes && !data.card.first_mes) {
+      data.card.first_mes = String(card.first_mes);
+      changed.push('开场白');
+    }
+    [].concat(card.alternate_greetings || card.greetings || []).forEach((line) => {
+      if (appendGreeting(data, line)) changed.push('备用开场');
+    });
+    Object.keys(data.card).forEach((key) => {
+      if (key === 'first_mes') return;
+      if (card[key] && String(card[key]) !== String(data.card[key] || '')) {
+        data.card[key] = String(card[key]);
+        changed.push(key === 'description' ? '角色描述' : key);
+      }
+    });
+    const world = payload.world || {};
+    if (world.name && world.name !== data.bookName) { data.bookName = world.name; changed.push('世界书名'); }
+    if (Array.isArray(world.entries) && world.entries.length) {
+      const merged = mergeEntries(data.bookText, world.entries);
+      const nextText = entriesToText(merged);
+      if (nextText !== data.bookText) { data.bookText = nextText; changed.push('世界书条目'); }
+    }
+    if (lookNote) {
+      const entries = parseEntries(data.bookText);
+      const heroine = entries.find((entry) => /女主|设定/.test(entry.comment));
+      const described = String(data.card.description || '').trim();
+      if (heroine && described && !String(heroine.content || '').includes(described.slice(0, 12))) {
+        heroine.content = described;
+        data.bookText = entriesToText(entries);
+        if (!changed.includes('世界书条目') && !changed.includes('女主设定')) changed.push('女主设定');
+      }
+    }
+    const prompt = payload.prompt || {};
+    if (prompt.name && prompt.name !== data.promptName) { data.promptName = prompt.name; changed.push('提示词'); }
+    if (Array.isArray(prompt.blocks) && prompt.blocks.length) {
+      const text = prompt.blocks.map((block) => `${block.name || '块'}：${block.content || ''}`).join('\n');
+      if (text !== data.promptText) { data.promptText = text; changed.push('提示词'); }
+    }
+    const group = payload.group || {};
+    if (group.name && group.name !== data.groupName) { data.groupName = group.name; changed.push('群聊'); }
+    if (group.scenario && group.scenario !== data.groupScenario) { data.groupScenario = group.scenario; changed.push('群聊'); }
+    const chat = payload.chat || {};
+    if (chat.name && chat.name !== data.chatName) { data.chatName = chat.name; changed.push('聊天'); }
+    if (Array.isArray(chat.lines) && chat.lines.length) {
+      const text = chat.lines.join('\n');
+      if (text !== data.chatText) { data.chatText = text; changed.push('聊天'); }
+    }
+    const asset = payload.asset || {};
+    if (asset.name && asset.name !== data.assetName) { data.assetName = asset.name; changed.push('素材'); }
+    if (asset.kind && asset.kind !== data.assetKind) { data.assetKind = asset.kind; changed.push('素材'); }
+    if (asset.note && asset.note !== data.assetNote) { data.assetNote = asset.note; changed.push('素材'); }
+    const regex = payload.regex || {};
+    if (regex.scriptName && regex.scriptName !== data.regexName) { data.regexName = regex.scriptName; changed.push('正则'); }
+    if (regex.findRegex && regex.findRegex !== data.regexFind) { data.regexFind = regex.findRegex; changed.push('正则'); }
+    if (regex.replaceString && regex.replaceString !== data.regexReplace) { data.regexReplace = regex.replaceString; changed.push('正则'); }
+    const quick = payload.quick || {};
+    if (quick.name && quick.name !== data.quickName) { data.quickName = quick.name; changed.push('快捷回复'); }
+    if (Array.isArray(quick.replies) && quick.replies.length) {
+      const text = quick.replies.map((reply) => (typeof reply === 'string' ? reply : `${reply.label || '回复'}：${reply.message || ''}`)).join('\n');
+      if (text !== data.quickText) { data.quickText = text; changed.push('快捷回复'); }
+    }
+    const timeline = payload.timeline || {};
+    if (Array.isArray(timeline.notes) && timeline.notes.length) {
+      const text = timeline.notes.map((note) => (typeof note === 'string' ? note : `${note.title || '注记'}：${note.body || ''}`)).join('\n');
+      if (text !== data.noteText) { data.noteText = text; changed.push('时间线'); }
+    }
+    if (Array.isArray(timeline.beats) && timeline.beats.length) {
+      const text = timeline.beats.map((beat) => (typeof beat === 'string' ? beat : `${beat.title || '情节'}：${beat.summary || ''}`)).join('\n');
+      if (text !== data.beatText) { data.beatText = text; changed.push('时间线'); }
+    }
+    const graph = payload.graph || {};
+    if (Array.isArray(graph.nodes) && graph.nodes.length) {
+      const text = graph.nodes.map((node) => (typeof node === 'string' ? node : node.label || '')).filter(Boolean).join('\n');
+      if (text && text !== data.graphNodes) { data.graphNodes = text; changed.push('关系图'); }
+    }
+    if (Array.isArray(graph.edges) && graph.edges.length) {
+      const text = graph.edges.map((edge) => (typeof edge === 'string' ? edge : `${edge.from || ''} -> ${edge.to || ''}：${edge.label || ''}`)).join('\n');
+      if (text !== data.graphEdges) { data.graphEdges = text; changed.push('关系图'); }
+    }
+    const script = payload.script || {};
+    if (script.name && script.name !== data.scriptName) { data.scriptName = script.name; changed.push('剧本'); }
+    if (Array.isArray(script.lines) && script.lines.length) {
+      const text = script.lines.join('\n');
+      if (text !== data.scriptText) { data.scriptText = text; changed.push('剧本'); }
+    }
+    if (Array.isArray(script.beats) && script.beats.length) {
+      const text = script.beats.map((beat) => `${beat.speaker || '旁白'}：${beat.line || ''}`).join('\n');
+      if (text !== data.scriptText) { data.scriptText = text; changed.push('剧本'); }
+    }
+    if (payload.check && String(payload.check) !== data.check) { data.check = String(payload.check); changed.push('逻辑检查'); }
+    const memory = payload.memory || {};
+    const html = memory.html || payload.html || '';
+    if (html) {
+      if (memoryUsable(html) && html !== data.memoryHtml) { data.memoryHtml = String(html); changed.push('HTML 记忆'); }
+      else if (!memoryUsable(html)) missed.push('HTML 记忆不是按模板写的面板');
+    }
+    const backup = payload.backup || {};
+    if (backup.note && String(backup.note) !== data.backupNote) { data.backupNote = String(backup.note); changed.push('备份说明'); }
+    const after = JSON.stringify({
+      card: data.card, greetings: data.greetings, book: data.bookText, memory: data.memoryHtml,
+      regex: `${data.regexName}\n${data.regexFind}\n${data.regexReplace}`, quick: data.quickText,
+      notes: data.noteText, beats: data.beatText, graph: `${data.graphNodes}\n${data.graphEdges}`,
+      script: data.scriptText, backup: data.backupNote, sections: data.sections,
+    });
+    const unique = [...new Set(changed)];
+    if (after === before) return { changed: [], missed: missed.length ? missed : ['没有栏位变化'] };
+    return { changed: unique, missed };
+  }
+
+  const WRITE_TASK = `根据用户的要求、回答和已接受的灵感，写出可导入酒馆工坊的 JSON。键只能是 sections, character, world, prompt, group, chat, asset, regex, quick, timeline, graph, script, check, memory, backup。世界书每条必须自带主关键词和次关键词，格式 {"条目名":"","主关键词":["名字","地点"],"次关键词":["一个配角或物件"],"正文":""}，不能留空。已有主开场白时，新的开场白放进 character.alternate_greetings，不要覆盖 first_mes。外貌和身材写进 character.description，并写进条目名包含「女主」或「设定」的正文。HTML 记忆必须按这个模板填实，不要只回一行纯文字：${MEMORY_TEMPLATE}。没把握时只回 {"unsure":true,"question":"..."}。不要先写固定问卷。`;
 
   function render(stage) {
     const ui = root.TAUI;
@@ -553,7 +708,7 @@
       <div id="studio-scan"></div>
       <section class="studio-results"${data.writing ? '' : ' hidden'}>
       <article class="studio-col paper"><h3>段落预设</h3>${area('文风', 'sections.style', data.sections.style, 3)}${area('人称和视角', 'sections.pov', data.sections.pov, 3)}${area('关系边界', 'sections.bond', data.sections.bond, 3)}${area('安全词', 'sections.safe', data.sections.safe, 2)}${area('输出格式', 'sections.format', data.sections.format, 2)}</article>
-      <article class="studio-col paper"><h3>角色卡</h3>${text('名字', 'card.name', data.card.name)}${area('描述', 'card.description', data.card.description, 3)}${area('性格', 'card.personality', data.card.personality, 3)}${area('情景', 'card.scenario', data.card.scenario, 3)}${area('开场', 'card.first_mes', data.card.first_mes, 3)}${area('示例', 'card.mes_example', data.card.mes_example, 3)}${area('系统提示', 'card.system_prompt', data.card.system_prompt, 2)}</article>
+      <article class="studio-col paper"><h3>角色卡</h3>${text('名字', 'card.name', data.card.name)}${area('描述', 'card.description', data.card.description, 3)}${area('性格', 'card.personality', data.card.personality, 3)}${area('情景', 'card.scenario', data.card.scenario, 3)}${area('开场', 'card.first_mes', data.card.first_mes, 3)}${area('备用开场', 'greetings', data.greetings, 4)}<p class="help">多出来的开场白写在备用开场，一行一条，不替换主开场白。</p>${area('示例', 'card.mes_example', data.card.mes_example, 3)}${area('系统提示', 'card.system_prompt', data.card.system_prompt, 2)}</article>
       <article class="studio-col paper"><h3>世界书</h3>${text('书名', 'bookName', data.bookName)}${area('条目', 'bookText', data.bookText, 8)}<p class="help">一条一块。条目名、关键词、正文各占一行，条目之间空一行。</p></article>
       <article class="studio-col paper"><h3>提示词拼装</h3>${text('名称', 'promptName', data.promptName)}${area('块', 'promptText', data.promptText, 5)}<p class="help">一行一块：名称：内容</p></article>
       <article class="studio-col paper"><h3>群聊卡司</h3>${text('群名', 'groupName', data.groupName)}${area('情景', 'groupScenario', data.groupScenario, 4)}</article>
@@ -655,11 +810,27 @@
       return String(draft().supplement || '').trim();
     };
     const reviseFromSupplement = async (job) => {
-      const revision = await root.NIJANModel.askJson('用户补充了内容。停下正在做的事，按这条补充重写已有稿子，角色卡、世界书和其余工坊都要跟上。只回需要改的 JSON。', Object.assign(contextForModel(), { supplement: readSupplement() }), job.signal);
-      if (jobGone(job)) return false;
-      applyModel(revision || {});
-      importLive();
-      return true;
+      const note = readSupplement();
+      const before = {
+        desc: draft().card.description,
+        look: (parseEntries(draft().bookText).find((entry) => /女主|设定/.test(entry.comment)) || {}).content || '',
+        greetings: draft().greetings,
+        first: draft().card.first_mes,
+        book: draft().bookText,
+      };
+      const revision = await root.NIJANModel.askJson(`用户补充了：「${note}」。只改对应栏位。外貌、身材、五官写进 character.description，并写进条目名含「女主」或「设定」的正文。再要一个开场白时追加到 character.alternate_greetings，不要改已经有的 first_mes。世界书条目必须带主关键词和次关键词。HTML 记忆按模板写：${MEMORY_TEMPLATE}。只回需要改的 JSON。`, Object.assign(contextForModel(), { supplement: note }), job.signal);
+      if (jobGone(job)) return null;
+      const report = applyModel(revision || {});
+      if (report.changed.length) importLive();
+      const afterLook = (parseEntries(draft().bookText).find((entry) => /女主|设定/.test(entry.comment)) || {}).content || '';
+      if (/外貌|身材|长相|五官|身高/.test(note) && before.desc === draft().card.description && before.look === afterLook) {
+        return { ok: false, text: '没写进去：女主设定和外貌没有变' };
+      }
+      if (/开场/.test(note) && before.greetings === draft().greetings && before.first === draft().card.first_mes) {
+        return { ok: false, text: '没写进去：备用开场没有变' };
+      }
+      if (!report.changed.length) return { ok: false, text: `没写进去：${report.missed.join('、') || '没有栏位变化'}` };
+      return { ok: true, text: `已按补充整理：${report.changed.join('、')}` };
     };
     stage.querySelector('#studio-write').onclick = async () => {
       if (!needModel()) return;
@@ -694,13 +865,21 @@
             result = await root.NIJANModel.askJson(`${task} ${WRITE_TASK}`, Object.assign(contextForModel(), { supplement: readSupplement() }), job.signal);
             if (jobGone(job)) return;
           }
-          applyModel(result || {});
-          importLive();
+          const report = applyModel(result || {});
+          const hardMiss = report.missed.filter((item) => item !== '没有栏位变化');
+          if (!report.changed.length && hardMiss.length) {
+            showProgress(`没写进去：${hardMiss.join('、')}`, false, 0);
+            ui.toast(`没写进去：${hardMiss.join('、')}`);
+            return;
+          }
+          if (report.changed.length) importLive();
         }
         const latest = readSupplement();
         if (latest && latest !== sent) {
           showProgress('正在按补充整理…', true, 0.9);
-          if (!(await reviseFromSupplement(job))) return;
+          const outcome = await reviseFromSupplement(job);
+          if (!outcome) return;
+          if (!outcome.ok) { showProgress(outcome.text, false, 0); ui.toast(outcome.text); return; }
         }
         if (jobGone(job)) return;
         showProgress('写完了，并送进对应页面', false, 1);
@@ -719,9 +898,11 @@
       showProgress('正在按补充整理…', true, Math.max(0.4, Number(draft().progressRatio) || 0.4));
       const job = startJob();
       try {
-        if (!(await reviseFromSupplement(job))) return;
-        showProgress('已按补充整理', false, 1);
-        ui.toast('已按补充整理，并送进对应页面');
+        const outcome = await reviseFromSupplement(job);
+        if (!outcome) return;
+        if (!outcome.ok) { showProgress(outcome.text, false, 0); ui.toast(outcome.text); return; }
+        showProgress(outcome.text, false, 1);
+        ui.toast(outcome.text);
         render(stage);
       } catch (error) {
         if (stopped(error, job)) return;
