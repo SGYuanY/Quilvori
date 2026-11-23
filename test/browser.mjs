@@ -353,6 +353,33 @@ try {
   })`);
   check('studio columns import', studio.cols >= 13 && studio.workshops && studio.imported && !studio.formula, JSON.stringify(studio));
 
+  const writing = await evaluate(`new Promise((resolve) => {
+    const seen = [];
+    NIJANModel.configured = () => true;
+    NIJANModel.askJson = (task, user) => new Promise((done) => {
+      seen.push(user && user.supplement);
+      setTimeout(() => done({ character: { name: '甲' }, world: { name: '书', entries: [] } }), 50);
+    });
+    const data = NIJANStudio.draft();
+    data.brief = '写一个人';
+    data.ideas = [{ text: '安静', status: 'yes' }];
+    NIJANStudio.render(document.querySelector('#stage'));
+    const more = document.querySelector('#studio-more');
+    document.querySelector('#studio-write').click();
+    setTimeout(() => {
+      more.value = '女主外貌';
+      more.dispatchEvent(new Event('input', { bubbles: true }));
+    }, 30);
+    setTimeout(() => {
+      resolve({
+        obvious: more.closest('.studio-live') != null,
+        seen,
+        progress: document.querySelector('#studio-progress')?.textContent || '',
+      });
+    }, 500);
+  })`);
+  check('supplement reaches model', writing.obvious && writing.seen.includes('女主外貌') && writing.progress.includes('写完'), JSON.stringify(writing));
+
   const writerSettings = await evaluate(`(() => {
     document.querySelector('[data-shell="settings"]').click();
     const adult = document.querySelector('#set-adult');
