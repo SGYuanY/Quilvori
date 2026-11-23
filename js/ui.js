@@ -52,13 +52,14 @@
     setTimeout(() => node.remove(), 3200);
   }
 
-  function ask({ title, body, actions }) {
+  function ask({ title, body, actions, swipe }) {
     return new Promise((resolve) => {
       const host = document.getElementById('modal-root');
       host.classList.add('show');
       host.innerHTML = `<div class="modal paper" role="dialog" aria-modal="true">
         <h3>${esc(title)}</h3>
         <p>${esc(body)}</p>
+        ${swipe ? `<div class="swipe" data-swipe="${esc(swipe)}"><i class="swipe-knob"></i><span>${esc(swipe)}</span></div>` : ''}
         <div class="row">${actions.map((action) => `<button type="button" class="btn ${action.kind || ''}" data-act="${esc(action.id)}">${esc(action.label)}</button>`).join('')}</div>
       </div>`;
       const finish = (value) => {
@@ -70,8 +71,47 @@
       host.querySelectorAll('[data-act]').forEach((button) => {
         button.onclick = () => finish(button.dataset.act);
       });
+      const track = host.querySelector('.swipe');
+      if (track) {
+        const knob = track.querySelector('.swipe-knob');
+        let dragging = false;
+        let origin = 0;
+        const limit = () => Math.max(24, track.clientWidth - knob.offsetWidth - 6);
+        knob.onpointerdown = (event) => {
+          dragging = true;
+          origin = event.clientX - knob.offsetLeft;
+          try { knob.setPointerCapture(event.pointerId); } catch (error) { /* synthetic events have no pointer */ }
+        };
+        knob.onpointermove = (event) => {
+          if (!dragging) return;
+          const x = Math.max(3, Math.min(limit(), event.clientX - origin));
+          knob.style.left = `${x}px`;
+          track.classList.toggle('ready', x > limit() * 0.82);
+        };
+        knob.onpointerup = () => {
+          if (!dragging) return;
+          dragging = false;
+          const x = parseFloat(knob.style.left) || 0;
+          if (x > limit() * 0.82) finish('yes');
+          else { knob.style.left = '3px'; track.classList.remove('ready'); }
+        };
+      }
+      if (root.TAI18n) root.TAI18n.localize(host);
       host.querySelector('[data-act]')?.focus();
     });
+  }
+
+  function flyPlane(from) {
+    if (!from) return;
+    const plane = document.createElement('span');
+    plane.className = 'plane';
+    plane.innerHTML = '<svg viewBox="0 0 32 32" aria-hidden="true"><path d="M3 17 L29 6 L18 28 L14 18 Z" fill="#7aa2ff"/><path d="M14 18 L29 6 L16 16 Z" fill="#ff4f9a"/></svg>';
+    const rect = from.getBoundingClientRect();
+    plane.style.left = `${rect.left + rect.width / 2}px`;
+    plane.style.top = `${rect.top}px`;
+    document.body.appendChild(plane);
+    requestAnimationFrame(() => plane.classList.add('gone'));
+    setTimeout(() => plane.remove(), 800);
   }
 
   function downloadBlob(filename, blob) {
@@ -120,7 +160,9 @@
         const lang = root.TAI18n && root.TAI18n.prefs.lang;
         const unit = lang === 'en' ? 'characters' : lang === 'ja' ? '字' : '字';
         const about = lang === 'en' ? 'about' : lang === 'ja' ? '約' : '约';
-        meter.innerHTML = `<i><b style="width:${pct}%"></b></i><span>${stat.chars} ${unit} · ${about} ${stat.tokens} token</span>`;
+        const previous = meter.querySelector('.odo');
+        const same = previous && previous.dataset.n === String(stat.chars);
+        meter.innerHTML = `<i><b style="width:${pct}%"></b></i><span><b class="odo${same ? '' : ' tick'}" data-n="${stat.chars}">${stat.chars}</b> ${unit} · ${about} ${stat.tokens} token</span>`;
       };
       paint();
       node.addEventListener('input', paint);
@@ -323,6 +365,7 @@
     if (clearButton) clearButton.textContent = tr('清空库');
     if (footNote) footNote.textContent = tr('示例会替换当前库。清空只删这台浏览器里的稿。');
     if (saveNote) saveNote.textContent = tr('改动自动写入这台浏览器。');
+    paintFolders();
     if (root.TAI18n) root.TAI18n.apply();
   }
 
@@ -371,16 +414,21 @@
     host.innerHTML = hits.slice(0, 12).map((hit) => `<a href="${esc(hit.href)}">${esc(hit.label)}</a>`).join('') || '<span>没有同时命中角色卡、世界书或正则。</span>';
   }
 
+  let folderPaths = null;
+
   function paintFolders() {
     const host = document.getElementById('folders');
     if (!host) return;
+    const tr = (text) => (root.TAI18n ? root.TAI18n.t(text) : text);
     const saved = JSON.parse(localStorage.getItem('nijan-folders') || '{}');
     const draw = (paths) => {
-      host.innerHTML = `<span><span>人物卡文件夹</span>：${esc(paths.cards || '尚未设置')}</span><span><span>世界书文件夹</span>：${esc(paths.worlds || '尚未设置')}</span><button type="button" class="btn btn-small" id="pick-cards">选人物卡文件夹</button><button type="button" class="btn btn-small" id="pick-worlds">选世界书文件夹</button><button type="button" class="btn btn-small" id="read-folders">读取已有文件</button>`;
+      folderPaths = paths || {};
+      host.innerHTML = `<span><span data-zh="人物卡文件夹">${tr('人物卡文件夹')}</span>：${esc(paths.cards || tr('尚未设置'))}</span><span><span data-zh="世界书文件夹">${tr('世界书文件夹')}</span>：${esc(paths.worlds || tr('尚未设置'))}</span><button type="button" class="btn btn-small" id="pick-cards">${tr('选人物卡文件夹')}</button><button type="button" class="btn btn-small" id="pick-worlds">${tr('选世界书文件夹')}</button><button type="button" class="btn btn-small" id="read-folders">${tr('读取已有文件')}</button>`;
       host.querySelector('#pick-cards').onclick = () => pickFolder('cards');
       host.querySelector('#pick-worlds').onclick = () => pickFolder('worlds');
       host.querySelector('#read-folders').onclick = () => readFolders(paths);
     };
+    if (folderPaths) { draw(folderPaths); return; }
     if (root.nijanDesktop) root.nijanDesktop.getPaths().then(draw);
     else draw(saved);
   }
@@ -389,6 +437,7 @@
     if (root.nijanDesktop) {
       const paths = await root.nijanDesktop.pick(kind);
       localStorage.setItem('nijan-folders', JSON.stringify(paths));
+      folderPaths = paths;
       paintFolders();
       return;
     }
@@ -534,8 +583,8 @@
       <label class="field"><span class="field-label">回复篇幅</span><select id="set-length"><option value="short">短，约 200 字</option><option value="medium">中，约 600 字</option><option value="long">长，约 1500 字</option><option value="custom">自定义字数</option></select></label>
       <label class="field"><span class="field-label">自定义字数</span><input id="set-chars" type="number" min="50" max="8000" step="50"></label>
       <p class="help">篇幅会写进模型请求。文风仍在段落预设里选，选中的文风也会一并送出。</p>
-      <label class="check"><input id="set-adult" type="checkbox"> 允许成人内容。模型倾向为审核严时，打开也不会写进提示。</label>
-      <label class="check"><input id="set-live" type="checkbox"> 创作页的修改实时送进角色卡、世界书和其余工坊</label>
+      <label class="check stretch"><input id="set-adult" type="checkbox"> 允许成人内容。模型倾向为审核严时，打开也不会写进提示。</label>
+      <label class="check stretch"><input id="set-live" type="checkbox"> 创作页的修改实时送进角色卡、世界书和其余工坊</label>
       <p class="field-label">主题</p>
       <label class="field"><span class="field-label">背景</span><input id="set-bg" type="color"></label>
       <label class="field"><span class="field-label">纸色</span><input id="set-paper" type="color"></label>
@@ -543,6 +592,7 @@
       <label class="field"><span class="field-label">强调色</span><input id="set-accent" type="color"></label>
       <label class="field"><span class="field-label">圆角</span><input id="set-radius" type="range" min="0" max="28" step="1"></label>
       <label class="field"><span class="field-label">${tr('界面字号')}</span><input id="set-scale" type="range" min="0.9" max="1.2" step="0.05"></label>
+      <label class="field"><span class="field-label">${tr('光标大小')} <b id="set-cursor-n"></b></span><input id="set-cursor" type="range" min="16" max="48" step="2"></label>
       <label class="field"><span class="field-label">${tr('间距')}</span>
         <select id="set-density"><option value="comfortable">${tr('舒适')}</option><option value="compact">${tr('紧凑')}</option></select>
       </label>
@@ -579,6 +629,8 @@
     host.querySelector('#set-radius').oninput = (event) => paintTheme('radius', event.target.value);
     host.querySelector('#set-scale').value = String(prefs.scale || 1);
     host.querySelector('#set-density').value = prefs.density === 'compact' ? 'compact' : 'comfortable';
+    host.querySelector('#set-cursor').value = String(prefs.cursorSize || 32);
+    host.querySelector('#set-cursor-n').textContent = String(prefs.cursorSize || 32);
     const commit = () => {
       if (!root.TAI18n) return;
       root.TAI18n.save({
@@ -586,6 +638,7 @@
         teach: host.querySelector('#set-teach').checked,
         scale: Number(host.querySelector('#set-scale').value),
         density: host.querySelector('#set-density').value,
+        cursorSize: Number(host.querySelector('#set-cursor').value) || 32,
         jsonMode: host.querySelector('#set-json').checked,
         adult: host.querySelector('#set-adult').checked,
         liveImport: host.querySelector('#set-live').checked,
@@ -615,6 +668,10 @@
     host.querySelector('#set-live').onchange = commit;
     host.querySelector('#set-scale').oninput = commit;
     host.querySelector('#set-density').onchange = commit;
+    host.querySelector('#set-cursor').oninput = () => {
+      host.querySelector('#set-cursor-n').textContent = host.querySelector('#set-cursor').value;
+      commit();
+    };
     const close = () => {
       commit();
       host.classList.remove('show');
@@ -674,7 +731,17 @@
     document.querySelector('[data-shell="import-book"]').onclick = () => { go('lore'); setTimeout(() => document.querySelector('#import-book')?.click(), 0); };
     document.querySelector('[data-shell="settings"]').onclick = openSettings;
     if (root.TAI18n) root.TAI18n.apply();
-    document.getElementById('search').addEventListener('input', (event) => {
+    const searchBox = document.getElementById('search');
+    searchBox.addEventListener('pointerdown', () => searchBox.classList.add('held'));
+    const releaseSearch = () => {
+      if (!searchBox.classList.contains('held')) return;
+      searchBox.classList.remove('held');
+      searchBox.classList.add('settle');
+      setTimeout(() => searchBox.classList.remove('settle'), 320);
+    };
+    searchBox.addEventListener('pointerup', releaseSearch);
+    searchBox.addEventListener('pointercancel', releaseSearch);
+    searchBox.addEventListener('input', (event) => {
       state.query = event.target.value;
       paintGlobalSearch(event.target.value);
       renderStage();
@@ -713,7 +780,7 @@
 
   root.TAUI = {
     ROUTES, state, esc, toast, ask, downloadBlob, downloadText, downloadJson, pickFile, readText, readDataUrl, copyText,
-    safeName, assetById, charById, selected, matchQuery, markDirty, flush, applyTheme, ensureTheme, go, renderStage, show,
+    safeName, assetById, charById, selected, matchQuery, markDirty, flush, applyTheme, ensureTheme, go, renderStage, show, flyPlane,
     field, area, text, bindFields, picker, bindPicker, empty, confirmLoadDemo, confirmClear, mount,
     t: (key, vars) => (root.TAI18n ? root.TAI18n.t(key, vars) : key),
     estimateLength, mountLengths, showExport, fillLesson,
