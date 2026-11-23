@@ -5,6 +5,7 @@
     '总览': { en: 'Overview', ja: '概要' },
     '段落预设': { en: 'Section presets', ja: '段落プリセット' },
     '使用教学': { en: 'Tutorial', ja: '使い方' },
+    'AI 创作': { en: 'AI studio', ja: 'AI創作' },
     '角色卡工坊': { en: 'Character cards', ja: 'キャラカード' },
     '世界书看板': { en: 'World book', ja: 'ワールドブック' },
     '提示词拼装': { en: 'Prompt blocks', ja: 'プロンプト' },
@@ -99,6 +100,11 @@
   };
 
   const TEMPLATES = {
+    'blurb.studio': {
+      zh: '模型先问，再给灵感。接受或拒绝之后才写。改一栏，就送进对应的工坊页。',
+      en: 'The model asks first, then offers inspirations. Edits import into the matching workshop page.',
+      ja: 'モデルが先に尋ね、灵感を出す。直した内容は対応するページへ入る。',
+    },
     'blurb.tutorial': {
       zh: '从打开、导入、书写、检查到导出进酒馆。每一步写在页面上，并标明文件该放哪。',
       en: 'Open, import, write, check, and export into SillyTavern. Each step says where the file goes.',

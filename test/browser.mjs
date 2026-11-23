@@ -110,7 +110,7 @@ try {
   check('saved', counts.save.includes('已保存'));
 
   const routes = await evaluate(`[...document.querySelectorAll('[data-nav]')].map((b) => b.dataset.nav)`);
-  check('16 routes', routes.length === 16, String(routes.length));
+  check('17 routes', routes.length === 17, String(routes.length));
   for (const id of routes) {
     const broken = await evaluate(`new Promise((resolve) => {
       document.querySelector('[data-nav="${id}"]').click();
@@ -310,6 +310,24 @@ try {
     return { whileOpen, afterClose, reopened };
   })()`);
   check('settings keep model fields', settings.whileOpen.base && settings.whileOpen.noTypedModel && settings.whileOpen.key && settings.whileOpen.profile && settings.whileOpen.json && settings.afterClose && settings.reopened.base && settings.reopened.noTypedModel && settings.reopened.key && settings.reopened.profile && settings.reopened.json, JSON.stringify(settings));
+
+  const studio = await evaluate(`new Promise((resolve) => {
+    document.querySelector('[data-nav="studio"]').click();
+    setTimeout(() => {
+      const text = document.querySelector('#stage').innerText;
+      const input = document.querySelector('[data-path="card.name"]');
+      input.value = '测试角色';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      const card = TAUI.state.lib.characters.find((item) => item.id === 'ai_card');
+      resolve({
+        cols: document.querySelectorAll('.studio-col').length,
+        formula: /这是谁|和用户是什么关系|最不该被写反|这本书主要约束/.test(text),
+        imported: !!(card && card.name === '测试角色'),
+        workshops: ['段落预设', '角色卡', '世界书', '提示词拼装', '群聊卡司', '聊天阅览', '素材库', '正则', '快捷回复', '作者注与情景时间线', '角色关系图', '群聊剧本', '人设一致性检查'].every((name) => text.includes(name)),
+      });
+    }, 60);
+  })`);
+  check('studio columns import', studio.cols >= 13 && studio.workshops && studio.imported && !studio.formula, JSON.stringify(studio));
 } catch (error) {
   console.error(error);
   fails.push(error.message);
