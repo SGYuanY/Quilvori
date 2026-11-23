@@ -34,8 +34,23 @@
       scriptName: '',
       scriptText: '',
       check: '',
+      classes: null,
+      classNote: '',
+      entryEdit: '',
     };
   }
+
+  const CARD_PARTS = [
+    { id: 'name', label: '名字', field: 'name' },
+    { id: 'appearance', label: '外貌', field: 'description' },
+    { id: 'personality', label: '性格', field: 'personality' },
+    { id: 'scenario', label: '情景', field: 'scenario' },
+    { id: 'first_mes', label: '开场白', field: 'first_mes' },
+    { id: 'mes_example', label: '示例对话', field: 'mes_example' },
+    { id: 'system_prompt', label: '系统提示', field: 'system_prompt' },
+    { id: 'creator_notes', label: '作者注', field: 'creator_notes' },
+    { id: 'book', label: '角色书' },
+  ];
 
   function draft() {
     const ui = root.TAUI;
@@ -94,6 +109,147 @@
       });
       return { comment, keys, content };
     }).filter((entry) => entry.comment || entry.content);
+  }
+
+  function entriesToText(entries) {
+    return (entries || []).map((entry) => {
+      const keys = entry.keys || entry['触发关键词'] || [];
+      const body = entry.content || entry['正文'] || entry.body || '';
+      return `条目名：${entryTitle(entry)}\n关键词：${[].concat(keys).join('，')}\n正文：${body}`;
+    }).join('\n\n');
+  }
+
+  function sampleText() {
+    const data = draft();
+    return `${data.brief || ''}\n${data.supplement || ''}`;
+  }
+
+  function keywordTriggered(entry, sample) {
+    if (entry.enabled === false) return false;
+    if (entry.constant) return true;
+    const text = String(sample || '').toLowerCase();
+    return (entry.keys || []).some((key) => {
+      const needle = String(key || '').trim().toLowerCase();
+      return needle && text.includes(needle);
+    });
+  }
+
+  function listedEntries() {
+    const books = (root.TAUI.state.lib && root.TAUI.state.lib.worldBooks) || [];
+    const working = books.find((book) => book.id === 'ai_book' && (book.entries || []).length);
+    const source = working ? [working] : books;
+    const rows = [];
+    source.forEach((book) => {
+      (book.entries || []).forEach((entry) => rows.push({
+        comment: entryTitle(entry),
+        keys: entry.keys || [],
+        content: entry.content || '',
+        constant: !!entry.constant,
+        enabled: entry.enabled !== false,
+        bookName: book.name || '',
+      }));
+    });
+    return rows;
+  }
+
+  function splitEntries() {
+    const data = draft();
+    const sample = sampleText();
+    const triggered = [];
+    const idle = [];
+    listedEntries().forEach((entry) => {
+      const klass = data.classes && data.classes[entry.comment];
+      const on = klass ? !!klass.triggered : keywordTriggered(entry, sample);
+      const row = Object.assign({}, entry, { reason: klass ? klass.reason : '' });
+      (on ? triggered : idle).push(row);
+    });
+    return { triggered, idle };
+  }
+
+  function applyCardParts(source, partIds, options) {
+    const fresh = !options || options.fresh !== false;
+    const data = fresh ? (root.TAUI.state.studio = emptyDraft()) : draft();
+    const ids = !partIds || partIds.indexOf('all') !== -1 ? CARD_PARTS.map((part) => part.id) : partIds;
+    ids.forEach((id) => {
+      const part = CARD_PARTS.find((item) => item.id === id);
+      if (!part || !part.field || !source) return;
+      data.card[part.field] = source[part.field] != null ? String(source[part.field]) : '';
+    });
+    if (ids.indexOf('book') !== -1 && source && source.book) {
+      let parsed = [];
+      try {
+        parsed = root.TAFormats.worldInfoToEntries(source.book.entries ? source.book : { entries: source.book });
+      } catch (error) { parsed = []; }
+      data.bookName = source.book.name || '';
+      data.bookText = entriesToText(parsed);
+    }
+    importLive();
+    return data;
+  }
+
+  async function classifyEntries(entries) {
+    const data = draft();
+    const normalized = (entries || []).map((entry) => ({
+      comment: entryTitle(entry),
+      keys: [...(entry.keys || entry['触发关键词'] || [])],
+      content: entry.content || entry['正文'] || entry.body || '',
+      constant: !!entry.constant,
+      enabled: entry.enabled !== false,
+    })).filter((entry) => entry.comment || entry.content);
+    if (!(root.NIJANModel && root.NIJANModel.configured())) {
+      data.classes = null;
+      data.classNote = '还没连接模型。下面先按关键词分成触发和未触发。';
+      return data;
+    }
+    const result = await root.NIJANModel.askJson(
+      '把每一条世界书分成触发或未触发。不要改条目名。只回 JSON：{"entries":[{"条目名":"","触发":true,"理由":""}]}。',
+      { request: sampleText(), entries: normalized.map((entry) => ({ 条目名: entry.comment, 触发关键词: entry.keys, 正文: entry.content, 恒定: entry.constant })) }
+    );
+    const classes = {};
+    (result.entries || []).forEach((item) => {
+      const name = entryTitle(item);
+      if (!name) return;
+      classes[name] = { triggered: item['触发'] === true || item.triggered === true, reason: String(item['理由'] || item.reason || '') };
+    });
+    normalized.forEach((entry) => {
+      if (!classes[entry.comment]) classes[entry.comment] = { triggered: keywordTriggered(entry, sampleText()), reason: '' };
+    });
+    data.classes = classes;
+    data.classNote = '模型已把条目分成触发的和未触发的。';
+    return data;
+  }
+
+  async function importWorldEntries(entries, bookName) {
+    const data = draft();
+    const normalized = (entries || []).map((entry) => ({
+      comment: entryTitle(entry),
+      keys: [...(entry.keys || entry['触发关键词'] || [])],
+      content: entry.content || entry['正文'] || entry.body || '',
+      constant: !!entry.constant,
+      enabled: entry.enabled !== false,
+    })).filter((entry) => entry.comment || entry.content);
+    data.bookName = bookName || data.bookName || '导入的世界书';
+    data.bookText = entriesToText(normalized);
+    importLive();
+    await classifyEntries(normalized);
+    return data;
+  }
+
+  async function rewriteEntries(instruction) {
+    const entries = parseEntries(draft().bookText);
+    const result = await root.NIJANModel.askJson(
+      '按用户的要求修改这些条目。每条都要保留能看见的条目名，触发关键词和正文分开。只回 JSON：{"entries":[{"条目名":"","触发关键词":[],"正文":""}]}。',
+      { instruction, entries: entries.map((entry) => ({ 条目名: entry.comment, 触发关键词: entry.keys, 正文: entry.content })) }
+    );
+    const next = (result.entries || []).map((entry) => ({
+      comment: entryTitle(entry),
+      keys: [].concat(entry['触发关键词'] || entry.keys || []),
+      content: entry['正文'] || entry.content || '',
+      constant: false,
+      enabled: true,
+    })).filter((entry) => entry.comment || entry.content);
+    await importWorldEntries(next, draft().bookName);
+    return draft();
   }
 
   function seal(name) {
@@ -317,15 +473,36 @@
       : '<p class="help">模型还没提问。点「先问再写」之后，这里只放它这次问出来的问题。</p>';
     stage.innerHTML = `<div class="studio">
       <section class="studio-compose">
-        <article class="studio-col paper studio-request"><h3>要写的事</h3>${area('要求', 'brief', data.brief, 8)}<div class="row"><button type="button" class="btn" id="studio-ask">先问再写</button><button type="button" class="btn" id="studio-ideas">给我灵感</button><button type="button" class="btn btn-primary" id="studio-write">开始写</button></div><p class="help">接受或拒绝每一条灵感之后才写。改下面任一栏，会送进对应的页面。</p></article>
+        <article class="studio-col paper studio-request"><h3>要写的事</h3>${area('要求', 'brief', data.brief, 8)}<div class="row"><button type="button" class="btn" id="studio-ask">先问再写</button><button type="button" class="btn" id="studio-ideas">给我灵感</button><button type="button" class="btn btn-primary" id="studio-write">开始写</button></div><p class="help">接受或拒绝每一条灵感之后才写。填写栏只在模型写的时候展开。</p></article>
         <article class="studio-col paper"><h3>追问</h3>${questions}</article>
         <article class="studio-col paper"><h3>灵感</h3>${ideas}</article>
+      </section>
+      <section class="studio-start">
+        <article class="paper" id="import-card">
+          <h3>新开一稿</h3>
+          <p class="help">带入已有角色卡的整张，或只勾选要留下的部分。没勾的留空，外貌只是其中一项。</p>
+          <label class="field"><span class="field-label">库里的卡</span><select id="import-card-pick"><option value="">不从库里选</option>${(ui.state.lib.characters || []).map((item) => `<option value="${esc(item.id)}">${esc(item.name || '未命名')}</option>`).join('')}</select></label>
+          <div class="row"><button type="button" class="btn" id="import-card-file">选择角色卡文件</button><span id="import-card-file-name" class="muted"></span></div>
+          <label class="check"><input id="part-all" type="checkbox">整张卡</label>
+          <div class="part-grid">${CARD_PARTS.map((part) => `<label class="check"><input data-part="${part.id}" type="checkbox">${part.label}</label>`).join('')}</div>
+          <button type="button" class="btn btn-primary" id="import-card-go">用所选部分新开一稿</button>
+        </article>
+        <article class="paper" id="import-book">
+          <h3>导入世界书</h3>
+          <p class="help">导入后，模型给每条分类。条目名留在列表里。然后可以让模型改这些条目。</p>
+          <label class="field"><span class="field-label">库里的书</span><select id="import-book-pick"><option value="">不从库里选</option>${(ui.state.lib.worldBooks || []).map((item) => `<option value="${esc(item.id)}">${esc(item.name || '未命名')}</option>`).join('')}</select></label>
+          <div class="row"><button type="button" class="btn" id="import-book-file">选择世界书文件</button></div>
+          <button type="button" class="btn btn-primary" id="import-book-go">导入并让模型分类</button>
+          <label class="field"><span class="field-label">让模型改这些条目</span><textarea id="entry-edit" rows="3">${esc(data.entryEdit || '')}</textarea></label>
+          <button type="button" class="btn" id="entry-rewrite">按这句话改条目</button>
+        </article>
       </section>
       <section class="studio-live paper">
         <label class="field"><span class="field-label">写的时候补充</span><input id="studio-more" data-path="supplement" type="text" value="${esc(data.supplement || '')}" placeholder="例如：女主外貌"></label>
         <p id="studio-progress" class="studio-progress${data.writing ? '' : ' done'}">${esc(data.progress || '还没开始写。')}</p>
       </section>
-      <section class="studio-results">
+      <div id="studio-scan"></div>
+      <section class="studio-results"${data.writing ? '' : ' hidden'}>
       <article class="studio-col paper"><h3>段落预设</h3>${area('文风', 'sections.style', data.sections.style, 3)}${area('人称和视角', 'sections.pov', data.sections.pov, 3)}${area('关系边界', 'sections.bond', data.sections.bond, 3)}${area('安全词', 'sections.safe', data.sections.safe, 2)}${area('输出格式', 'sections.format', data.sections.format, 2)}</article>
       <article class="studio-col paper"><h3>角色卡</h3>${text('名字', 'card.name', data.card.name)}${area('描述', 'card.description', data.card.description, 3)}${area('性格', 'card.personality', data.card.personality, 3)}${area('情景', 'card.scenario', data.card.scenario, 3)}${area('开场', 'card.first_mes', data.card.first_mes, 3)}${area('示例', 'card.mes_example', data.card.mes_example, 3)}${area('系统提示', 'card.system_prompt', data.card.system_prompt, 2)}</article>
       <article class="studio-col paper"><h3>世界书</h3>${text('书名', 'bookName', data.bookName)}${area('条目', 'bookText', data.bookText, 8)}<p class="help">一条一块。条目名、关键词、正文各占一行，条目之间空一行。</p></article>
@@ -341,11 +518,21 @@
       <article class="studio-col paper"><h3>人设一致性检查</h3>${area('判断', 'check', data.check, 6)}<button type="button" class="btn" id="studio-judge">让模型看逻辑</button><p class="help">空字段和关键词仍在一致性页里查。这里是模型读完全稿后的判断。</p></article>
       </section>
     </div>`;
+    const paintScan = () => {
+      const host = stage.querySelector('#studio-scan');
+      if (!host) return;
+      const split = splitEntries();
+      const card = (entry) => `<article class="scan-entry"><strong>${esc(entry.comment || '未命名')}</strong><p class="muted">${esc(entry.bookName || '')}${(entry.keys || []).length ? ` · 关键词 ${esc(entry.keys.join('、'))}` : ''}</p><p>${esc(String(entry.content || '').replace(/\s+/g, ' ').slice(0, 80))}</p>${entry.reason ? `<p class="help">${esc(entry.reason)}</p>` : ''}</article>`;
+      const column = (title, rows) => `<article class="paper scan-col"><h3>${title}</h3>${rows.map(card).join('') || '<p class="help">这里还没有。</p>'}</article>`;
+      host.innerHTML = `${draft().classNote ? `<p class="help">${esc(draft().classNote)}</p>` : ''}<div class="studio-scan">${column('触发的', split.triggered)}${column('未触发的', split.idle)}</div>`;
+    };
+    paintScan();
     stage.querySelectorAll('[data-path]').forEach((node) => {
       const eventName = node.tagName === 'SELECT' ? 'change' : 'input';
       node.addEventListener(eventName, () => {
         setPath(draft(), node.dataset.path, node.value);
         importLive();
+        if (node.dataset.path === 'brief' || node.dataset.path === 'supplement') paintScan();
       });
     });
     stage.querySelectorAll('[data-yes]').forEach((button) => {
@@ -381,9 +568,12 @@
       draft().progress = text;
       draft().writing = writing;
       const node = stage.querySelector('#studio-progress');
-      if (!node) return;
-      node.textContent = text;
-      node.classList.toggle('done', !writing);
+      if (node) {
+        node.textContent = text;
+        node.classList.toggle('done', !writing);
+      }
+      const results = stage.querySelector('.studio-results');
+      if (results) results.hidden = !writing;
     };
     const readSupplement = () => {
       const input = stage.querySelector('#studio-more');
@@ -431,6 +621,73 @@
         ui.toast(error.message);
       }
     };
+    let pendingCard = null;
+    let pendingBook = null;
+    stage.querySelector('#part-all').onchange = (event) => {
+      stage.querySelectorAll('[data-part]').forEach((box) => { box.checked = event.target.checked; });
+    };
+    stage.querySelector('#import-card-pick').onchange = (event) => {
+      pendingCard = (ui.state.lib.characters || []).find((item) => item.id === event.target.value) || null;
+    };
+    stage.querySelector('#import-card-file').onclick = async () => {
+      const file = await ui.pickFile('.json,.png,application/json,image/png');
+      if (!file) return;
+      try {
+        const png = /png$/i.test(file.type) || /\.png$/i.test(file.name);
+        if (png) {
+          const raw = root.TAPng.readChara(new Uint8Array(await file.arrayBuffer()));
+          if (!raw) throw new Error('这张 PNG 里没有角色卡');
+          pendingCard = root.TAFormats.cardToCharacter(JSON.parse(raw));
+        } else {
+          pendingCard = root.TAFormats.cardToCharacter(JSON.parse(await file.text()));
+        }
+        stage.querySelector('#import-card-file-name').textContent = file.name;
+      } catch (error) { ui.toast(error.message || '这张卡读不了'); }
+    };
+    stage.querySelector('#import-card-go').onclick = async () => {
+      const picked = [...stage.querySelectorAll('[data-part]:checked')].map((box) => box.dataset.part);
+      if (!pendingCard) { ui.toast('先选一张已有角色卡'); return; }
+      if (!picked.length) { ui.toast('勾选整张卡，或勾选要留下的部分'); return; }
+      applyCardParts(pendingCard, picked, { fresh: true });
+      if (picked.includes('book') && pendingCard.book) await importWorldEntries(parseEntries(draft().bookText), draft().bookName);
+      ui.toast('已按勾选的部分新开一稿');
+      render(stage);
+    };
+    stage.querySelector('#import-book-pick').onchange = (event) => {
+      pendingBook = (ui.state.lib.worldBooks || []).find((item) => item.id === event.target.value) || null;
+    };
+    stage.querySelector('#import-book-file').onclick = async () => {
+      const file = await ui.pickFile('.json,application/json');
+      if (!file) return;
+      try {
+        pendingBook = { name: file.name.replace(/\.json$/i, ''), entries: root.TAFormats.worldInfoToEntries(JSON.parse(await file.text())) };
+        ui.toast(`已读到「${pendingBook.name}」`);
+      } catch (error) { ui.toast(error.message || '这本世界书读不了'); }
+    };
+    stage.querySelector('#import-book-go').onclick = async () => {
+      if (!pendingBook) { ui.toast('先选一本已有世界书'); return; }
+      try {
+        await importWorldEntries(pendingBook.entries || [], pendingBook.name);
+        ui.toast('条目已导入，并按模型分成触发和未触发');
+        render(stage);
+      } catch (error) { ui.toast(error.message || '分类没有完成'); }
+    };
+    stage.querySelector('#entry-edit').oninput = (event) => { draft().entryEdit = event.target.value; };
+    stage.querySelector('#entry-rewrite').onclick = async () => {
+      if (!needModel()) return;
+      const instruction = stage.querySelector('#entry-edit').value.trim();
+      if (!instruction) { ui.toast('先写下要怎么改这些条目'); return; }
+      if (!parseEntries(draft().bookText).length) { ui.toast('先导入一本世界书'); return; }
+      try {
+        showProgress('正在改条目…', true);
+        await rewriteEntries(instruction);
+        showProgress('条目改完了', false);
+        render(stage);
+      } catch (error) {
+        showProgress(`没改完：${error.message || '模型没有返回'}`, false);
+        ui.toast(error.message);
+      }
+    };
     stage.querySelector('#studio-judge').onclick = async () => {
       if (!needModel()) return;
       try {
@@ -442,5 +699,5 @@
     };
   }
 
-  root.NIJANStudio = { render, importLive, draft, entryTitle };
+  root.NIJANStudio = { render, importLive, draft, entryTitle, applyCardParts, importWorldEntries, CARD_PARTS };
 })(typeof globalThis !== 'undefined' ? globalThis : window);

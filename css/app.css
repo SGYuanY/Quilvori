@@ -290,6 +290,11 @@ select option:checked {
 .studio { display: flex; flex-direction: column; gap: 16px; }
 .studio-compose { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(220px, 0.8fr) minmax(220px, 0.8fr); gap: 14px; align-items: stretch; }
 .studio-results { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-items: start; }
+.studio-results[hidden] { display: none; }
+.studio-start, .studio-scan { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }
+.part-grid { display: flex; flex-wrap: wrap; gap: 8px 14px; margin: 8px 0 12px; }
+.scan-entry { padding: 10px 0; border-top: 1px solid rgba(61, 255, 232, 0.28); }
+.scan-entry strong { font-family: var(--serif); letter-spacing: 0.04em; }
 .studio-request textarea { min-height: 200px; font-size: 17px; }
 .studio-live { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
 .studio-live input { font-size: 18px; min-height: 52px; }
@@ -568,7 +573,7 @@ html[data-density="compact"] .dropwell { padding: 8px 12px; }
   .stage { padding: 6px 14px 28px; }
   .export-slip { margin: 0 14px 10px; }
   .hero h2 { font-size: 30px; }
-  .connect, .studio-compose, .studio-results { grid-template-columns: 1fr; }
+  .connect, .studio-compose, .studio-results, .studio-start, .studio-scan { grid-template-columns: 1fr; }
   .connect h2 { font-size: 28px; }
   .grid-2 { grid-template-columns: 1fr; }
   .stats, .cast { grid-template-columns: 1fr 1fr; }
