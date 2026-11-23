@@ -271,6 +271,33 @@ button:disabled, .btn:disabled, button:disabled:active, .btn:disabled:active {
 .stack { display: flex; flex-direction: column; gap: 12px; }
 .field { display: flex; flex-direction: column; gap: 10px; }
 .model-progress { min-height: 1.4em; margin: 8px 0 0; color: var(--brass-2); font-weight: 650; }
+.dark-select { position: relative; flex: 1 1 14rem; min-width: 14rem; max-width: 100%; }
+.dark-select select { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.dark-select-value, .dark-select-opt {
+  width: 100%;
+  text-align: left;
+  background: #1c1c1c;
+  color: #f2f2f2;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 8px;
+  padding: 8px 12px;
+}
+.dark-select-menu {
+  position: absolute;
+  z-index: 30;
+  left: 0;
+  right: 0;
+  top: calc(100% + 4px);
+  max-height: 240px;
+  overflow: auto;
+  background: #1c1c1c;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 8px;
+  padding: 4px;
+}
+.dark-select-opt { border: 0; border-radius: 6px; }
+.dark-select-opt.on, .dark-select-opt:hover { background: #333; color: #fff; }
+select, select option, select optgroup { background-color: #1c1c1c; color: #f2f2f2; }
 .studio-links a { color: var(--foam); }
 .field-label { font-family: var(--serif); letter-spacing: 0.08em; font-size: 14px; }
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }

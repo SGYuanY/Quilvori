@@ -734,6 +734,8 @@
     stage.querySelector('#part-all').onchange = (event) => {
       stage.querySelectorAll('[data-part]').forEach((box) => { box.checked = event.target.checked; });
     };
+    ui.enhanceSelect(stage.querySelector('#import-card-pick'));
+    ui.enhanceSelect(stage.querySelector('#import-book-pick'));
     stage.querySelector('#import-card-pick').onchange = (event) => {
       pendingCard = (ui.state.lib.characters || []).find((item) => item.id === event.target.value) || null;
     };

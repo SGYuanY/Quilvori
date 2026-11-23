@@ -2282,6 +2282,7 @@
     const toolbar = stage.querySelector('.toolbar');
     if (toolbar) toolbar.insertAdjacentElement('afterend', host);
     else stage.prepend(host);
+    host.querySelectorAll('[data-logic-card], [data-logic-book]').forEach((select) => UI.enhanceSelect(select));
     const out = host.querySelector('[data-ai-out]');
     const chosenCard = () => UI.charById(host.querySelector('[data-logic-card]').value);
     const chosenBook = () => (UI.state.lib.worldBooks || []).find((item) => item.id === host.querySelector('[data-logic-book]').value);

@@ -778,11 +778,51 @@
     show(initial);
   }
 
+  function enhanceSelect(select) {
+    if (!select || select.dataset.enhanced) return;
+    select.dataset.enhanced = '1';
+    const wrap = document.createElement('div');
+    wrap.className = 'dark-select';
+    select.parentNode.insertBefore(wrap, select);
+    wrap.appendChild(select);
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'dark-select-value';
+    const menu = document.createElement('div');
+    menu.className = 'dark-select-menu';
+    menu.hidden = true;
+    const paint = () => {
+      const current = select.options[select.selectedIndex];
+      button.textContent = current ? current.text : '';
+      menu.replaceChildren(...[...select.options].map((opt, index) => {
+        const item = document.createElement('button');
+        item.type = 'button';
+        item.className = 'dark-select-opt';
+        if (index === select.selectedIndex) item.classList.add('on');
+        item.textContent = opt.text;
+        item.onclick = () => {
+          select.selectedIndex = index;
+          select.dispatchEvent(new Event('change', { bubbles: true }));
+          paint();
+          menu.hidden = true;
+        };
+        return item;
+      }));
+    };
+    paint();
+    button.onclick = () => { menu.hidden = !menu.hidden; };
+    document.addEventListener('pointerdown', (event) => {
+      if (!wrap.contains(event.target)) menu.hidden = true;
+    });
+    select.addEventListener('change', paint);
+    wrap.append(button, menu);
+  }
+
   root.TAUI = {
     ROUTES, state, esc, toast, ask, downloadBlob, downloadText, downloadJson, pickFile, readText, readDataUrl, copyText,
     safeName, assetById, charById, selected, matchQuery, markDirty, flush, applyTheme, ensureTheme, go, renderStage, show, flyPlane,
     field, area, text, bindFields, picker, bindPicker, empty, confirmLoadDemo, confirmClear, mount,
     t: (key, vars) => (root.TAI18n ? root.TAI18n.t(key, vars) : key),
-    estimateLength, mountLengths, showExport, fillLesson,
+    estimateLength, mountLengths, showExport, fillLesson, enhanceSelect,
   };
 })(typeof globalThis !== 'undefined' ? globalThis : window);
