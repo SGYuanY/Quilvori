@@ -597,7 +597,7 @@
 
   function openSettings() {
     const prefs = root.TAI18n ? root.TAI18n.prefs : { lang: 'zh', teach: true, scale: 1, density: 'comfortable' };
-    const tr = (text) => (root.TAI18n ? root.TAI18n.t(text) : text);
+    const tr = (text, vars) => (root.TAI18n ? root.TAI18n.t(text, vars) : text);
     const host = document.getElementById('modal-root');
     host.classList.add('show');
     host.innerHTML = `<div class="modal paper" role="dialog" aria-modal="true">
@@ -608,9 +608,14 @@
       <label class="check"><input id="set-teach" type="checkbox"> ${tr('显示逐步说明和导入解读')}</label>
       <label class="check"><input id="set-json" type="checkbox"> 书写时用 JSON 互转（默认关闭）</label>
       <p class="field-label">模型接口（密钥只留在这台浏览器）</p>
-      <label class="field"><span class="field-label">地址</span><input id="set-base" type="text" placeholder="https://api.openai.com/v1"></label>
+      <label class="field"><span class="field-label">地址</span><input id="set-base" type="text" placeholder="https://api.openai.com/v1" autocomplete="off"></label>
       <label class="field"><span class="field-label">密钥</span><input id="set-key" type="password" autocomplete="off"></label>
-      <p class="help">模型在总览里连接后选择，不用手填名称。</p>
+      <div class="row"><button type="button" class="btn btn-primary" id="set-connect">连接</button></div>
+      <p class="help">点连接后，从接口列出的模型里选一个。不用手填名称。</p>
+      <label class="field"><span class="field-label">选用模型</span><select id="set-model" disabled><option value="">先点连接</option></select></label>
+      <label class="field"><span class="field-label">测试一句</span><input id="set-ping" type="text" value="请只回复：收到"></label>
+      <div class="row"><button type="button" class="btn" id="set-test">发送测试</button></div>
+      <p id="set-reply" class="help">还没有发送。</p>
       <label class="field"><span class="field-label">模型倾向</span><select id="set-profile"><option value="default">默认中文</option><option value="weak-zh">中文弱，用英文提示</option><option value="weak-en">英文弱，用中文提示</option><option value="strict">审核严，不含 18+</option></select></label>
       <label class="field"><span class="field-label">温度</span><input id="set-temp" type="range" min="0" max="2" step="0.1"></label>
       <label class="field"><span class="field-label">回复篇幅</span><select id="set-length"><option value="short">短，约 200 字</option><option value="medium">中，约 600 字</option><option value="long">长，约 1500 字</option><option value="custom">自定义字数</option></select></label>
@@ -637,6 +642,15 @@
     const model = root.NIJANModel ? root.NIJANModel.load() : { baseUrl: '', model: '', key: '', profile: 'default' };
     host.querySelector('#set-base').value = model.baseUrl || '';
     host.querySelector('#set-key').value = model.key || '';
+    const known = root.NIJANModel ? root.NIJANModel.rememberedModels() : [];
+    const paintModels = (names, selected) => {
+      const pick = host.querySelector('#set-model');
+      pick.disabled = !names.length;
+      pick.innerHTML = `<option value="">${names.length ? '选择模型' : '先点连接'}</option>${names.map((id) => `<option value="${esc(id)}"${id === selected ? ' selected' : ''}>${esc(id)}</option>`).join('')}`;
+      if (selected && names.includes(selected)) pick.value = selected;
+      if (root.TAI18n) root.TAI18n.localize(pick);
+    };
+    paintModels(known, model.model || '');
     host.querySelector('#set-profile').value = model.profile || 'default';
     host.querySelector('#set-temp').value = String(model.temperature ?? 0.7);
     host.querySelector('#set-length').value = prefs.replyLength || 'medium';
@@ -693,6 +707,37 @@
     host.querySelector('#set-json').onchange = commit;
     host.querySelector('#set-base').oninput = commit;
     host.querySelector('#set-key').oninput = commit;
+    const reply = host.querySelector('#set-reply');
+    const say = (text) => { reply.textContent = text; };
+    host.querySelector('#set-model').onchange = (event) => {
+      if (root.NIJANModel) root.NIJANModel.save({ model: event.target.value });
+    };
+    host.querySelector('#set-connect').onclick = async () => {
+      if (!root.NIJANModel) return;
+      root.NIJANModel.save({ baseUrl: host.querySelector('#set-base').value.trim(), key: host.querySelector('#set-key').value });
+      say(tr('正在读取模型列表…'));
+      try {
+        const names = await root.NIJANModel.listModels();
+        const current = root.NIJANModel.load().model;
+        paintModels(names, names.includes(current) ? current : '');
+        if (current && !names.includes(current)) root.NIJANModel.save({ model: '' });
+        say(names.length ? tr('已连接，共 {count} 个模型。选一个再用。', { count: names.length }) : tr('连上了，但接口没有返回模型。'));
+      } catch (error) {
+        say(error.message || tr('连接失败'));
+      }
+    };
+    host.querySelector('#set-test').onclick = async () => {
+      flyPlane(host.querySelector('#set-test'));
+      if (!root.NIJANModel) return;
+      if (!root.NIJANModel.load().model) { say(tr('先选择一个模型。')); return; }
+      say(tr('正在发送…'));
+      try {
+        const text = await root.NIJANModel.testMessage(host.querySelector('#set-ping').value);
+        say(text.trim() ? `${tr('收到回复：')}\n${text}` : tr('没有收到回复。'));
+      } catch (error) {
+        say(error.message || tr('没有收到回复。'));
+      }
+    };
     host.querySelector('#set-profile').onchange = commit;
     host.querySelector('#set-temp').oninput = commit;
     host.querySelector('#set-length').onchange = commit;

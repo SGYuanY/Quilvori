@@ -680,6 +680,11 @@
       en: 'Flag {flag}: {detail}',
       ja: 'フラグ {flag}：{detail}',
     },
+    '已连接，共 {count} 个模型。选一个再用。': {
+      zh: '已连接，共 {count} 个模型。选一个再用。',
+      en: 'Connected. {count} models. Pick one to use.',
+      ja: '接続しました。モデルは {count} 件。使うものを選んでください。',
+    },
   };
 
   function load() {

@@ -153,7 +153,7 @@
   async function complete(messages, signal) {
     const cfg = load();
     if (!cfg.baseUrl || !cfg.model || !cfg.key) {
-      const error = new Error('先在总览连接，并选一个模型。密钥只留在这台浏览器。');
+      const error = new Error('先在设置里连接，并选一个模型。密钥只留在这台浏览器。');
       error.code = 'no-model';
       throw error;
     }
@@ -281,7 +281,7 @@
     };
     host.querySelector('#writer-go').onclick = async () => {
       if (!chosen && !answers.filter(Boolean).length) { ui.toast('先回答问题，或接受一条灵感'); return; }
-      if (!configured()) { ui.toast('还没有配置模型。设置里填写地址、模型名和密钥后再写。'); return; }
+      if (!configured()) { ui.toast('还没有配置模型。先在设置里连接，并从列表里选一个。'); return; }
       try {
         let result = await askModel(kind, answers.concat(chosen ? [`采用灵感：${chosen}`] : []));
         if (result && result.unsure) {
