@@ -89,7 +89,7 @@
     '按种类上传。超过约 400KB 会先问你，超过 1.6MB 不收。拖进来的图先当头像。': { en: 'Upload by kind. Over about 400KB asks first. Over 1.6MB is refused. Dropped images start as avatars.', ja: '種類ごとに上げます。約 400KB 超は確認、1.6MB 超は受けません。ドロップした画像はまずアイコンです。' },
     '新建或导入酒馆的正则 JSON。导出的仍是原来的数组。右侧按顺序讲每一截；试一句会标出匹配、分组、替换和没吃到的字。': { en: 'Create or import SillyTavern regex JSON. The export stays the same array. The side walks each piece; a sample shows the match, groups, replacement, and unmatched text.', ja: '正規表現 JSON を作るか読み込みます。書き出しは元の配列のまま。右は一片ずつ解説し、試す文では一致・グループ・置換・残った文字を示します。' },
     '贴一行字。下面给出匹配、捕获组和替换结果，不写入库。': { en: 'Paste a line. Below: the match, capture groups, and replacement. Nothing is saved.', ja: '一行貼ってください。下に一致、キャプチャ、置換が出ます。ライブラリには書きません。' },
-    '一套里有多条短句。导出为 Quick Reply v2；每条颜色记在 atelierColor。点「复制内容」只复制句子。': { en: 'A set holds several short lines. Export is Quick Reply v2. Each color is stored as atelierColor. Copy content copies only the sentence.', ja: 'セットは複数の短文です。Quick Reply v2 で書き出します。色は atelierColor。 「复制内容」は文だけコピーします。' },
+    '一套里有多条短句。导出为 Quick Reply v2；每条颜色记在 atelierColor。点「复制内容」只复制句子。': { en: 'A set holds several short lines. Export is Quick Reply v2. Each color is stored as atelierColor. Copy content copies only the sentence.', ja: 'セットは複数の短文です。Quick Reply v2 で書き出します。色は atelierColor。「本文をコピー」は文だけコピーします。' },
     '注记钉在某一楼，情节是节拍。点一条再改标题和楼层。': { en: 'Notes pin to a floor. Beats are story steps. Click one to edit its title and floor.', ja: 'メモは階層に留まり、場面は拍です。一つ押して題と階層を変えます。' },
     '先从角色同步人物，再拖圆点。右侧选起点终点并写上关系。': { en: 'Sync people from characters, then drag the dots. On the right, pick both ends and name the relation.', ja: 'まずキャラから人物を同期し、点を拖ります。右で起点と終点を選び、関係を書きます。' },
     '选定角色，可选一本世界书对照。重新检查会刷新结果，导出报告不改卡。': { en: 'Pick a character and optionally a world book. Run check refreshes the result. Exporting the report does not edit the card.', ja: 'キャラを選び、必要ならワールドブックも。再チェックで結果が更新されます。報告の書き出しはカードを変えません。' },
@@ -370,6 +370,316 @@
       en: 'What this world book is doing',
       ja: 'このワールドブックの読み',
     },
+    'card.post': {
+      zh: '历史后指令：「{text}」。它放在对话历史之后，用来收束格式或禁忌。',
+      en: 'Post-history instructions: “{text}”. They sit after the chat and rein in format or limits.',
+      ja: '履歴の後の指示：「{text}」。会話のあとに置き、形式や禁則を締めます。',
+    },
+    'card.notes': {
+      zh: '创作者备注「{text}」给看卡的人，也抄到顶层 creatorcomment。标签：{tags}。',
+      en: 'Creator notes “{text}” are for the person reading the card, and are copied to creatorcomment. Tags: {tags}.',
+      ja: '作者メモ「{text}」はカードを読む人向けで、creatorcomment にも写します。タグ：{tags}。',
+    },
+    'card.talk': {
+      zh: '话多程度 {n}。群聊导出时带上，写在 extensions.talkativeness。',
+      en: 'Talkativeness {n}. Group export keeps it in extensions.talkativeness.',
+      ja: '話し好き度 {n}。グループ書き出しでは extensions.talkativeness に入ります。',
+    },
+    'card.book': {
+      zh: '附带世界书「{name}」，{count} 条会放进 data.character_book。',
+      en: 'Attached world book “{name}”: {count} entries go into data.character_book.',
+      ja: '付属ワールドブック「{name}」。{count} 件が data.character_book に入ります。',
+    },
+    'card.bookNone': {
+      zh: '现在不附带世界书，导出里没有 character_book。',
+      en: 'No world book is attached, so the export has no character_book.',
+      ja: 'ワールドブックは付いていません。書き出しに character_book はありません。',
+    },
+    'card.spec': {
+      zh: '规格固定是 chara_card_v2 / 2.0。PNG 把同一份 JSON 放进图片的 chara 文本块。',
+      en: 'The spec stays chara_card_v2 / 2.0. A PNG stores that same JSON in the image’s chara text chunk.',
+      ja: '仕様は chara_card_v2 / 2.0 のまま。PNG は同じ JSON を画像の chara テキストに入れます。',
+    },
+    'lore.scan': {
+      zh: '比对不区分大小写，看关键词是不是出现在试句里。停用的条目直接跳过。',
+      en: 'The match ignores case and looks for keywords in the sample. Disabled entries are skipped.',
+      ja: '大文字小文字は区別せず、試しの文にキーワードがあるかを見ます。無効な項目は飛ばします。',
+    },
+    'lore.off': {
+      zh: '「{name}」停用：不参加。导出时 disable 为真。位置仍记为{place}，顺序 {order}。',
+      en: '“{name}” is off. It does not take part. Export sets disable. Position stays {place}, order {order}.',
+      ja: '「{name}」は無効。参加しません。書き出しでは disable。位置は{place}、順序 {order}。',
+    },
+    'lore.constant': {
+      zh: '「{name}」恒定：不看试句，始终插到「{place}」，顺序 {order}。内容现在是「{text}」。',
+      en: '“{name}” is constant: the sample is ignored, it always inserts at “{place}”, order {order}. The body is “{text}”.',
+      ja: '「{name}」は常時：試しの文は見ず、常に「{place}」へ、順序 {order}。本文は「{text}」。',
+    },
+    'lore.waiting': {
+      zh: '「{name}」等一句试句。主关键词 {keys}。{selective}位置「{place}」，顺序 {order}。',
+      en: '“{name}” is waiting for a sample. Primary keywords: {keys}. {selective}Position “{place}”, order {order}.',
+      ja: '「{name}」は試しの文待ち。主キーワード {keys}。{selective}位置「{place}」、順序 {order}。',
+    },
+    'lore.selectiveOn': {
+      zh: '选择性开着，次关键词 {keys}。',
+      en: 'Selective is on, secondary keywords {keys}. ',
+      ja: '選択はオン、副キーワード {keys}。',
+    },
+    'lore.selectiveOff': {
+      zh: '不是选择性，中一个主关键词就插入。',
+      en: 'Not selective: one primary keyword is enough. ',
+      ja: '選択式ではない。主キーワードが一つ当たれば入ります。',
+    },
+    'lore.miss': {
+      zh: '「{name}」这句没中：主关键词 {keys} 都不在里面，所以不会插入。',
+      en: '“{name}” missed: none of the primary keywords {keys} are in the sample, so it will not insert.',
+      ja: '「{name}」は不発：主キーワード {keys} が文になく、挿入されません。',
+    },
+    'lore.hitSelect': {
+      zh: '「{name}」会插入到「{place}」（顺序 {order}）：主关键词中了 {keys}，选择性{rule}，次关键词中了 {secondary}。',
+      en: '“{name}” will insert at “{place}” (order {order}): primary keywords hit {keys}; selective rule: {rule}; secondary hits {secondary}.',
+      ja: '「{name}」は「{place}」に入る（順序 {order}）。主キーワード {keys}。選択規則：{rule}。副キーワード {secondary}。',
+    },
+    'lore.hitFail': {
+      zh: '「{name}」主关键词中了 {keys}，但选择性没过（{rule}）。次关键词是 {secondary}，这句里中了 {hit}。',
+      en: '“{name}” hit primary keywords {keys}, but the selective rule failed ({rule}). Secondary keywords are {secondary}; this line hit {hit}.',
+      ja: '「{name}」は主キーワード {keys} が当たったが、選択規則（{rule}）を満たさない。副キーワードは {secondary}、この文では {hit}。',
+    },
+    'lore.hit': {
+      zh: '「{name}」会插入到「{place}」（顺序 {order}）：主关键词中了 {keys}。{tail}',
+      en: '“{name}” will insert at “{place}” (order {order}): primary keywords hit {keys}. {tail}',
+      ja: '「{name}」は「{place}」に入る（順序 {order}）。主キーワード {keys}。{tail}',
+    },
+    'lore.why': {
+      zh: '关键词 {keys}',
+      en: 'Keywords {keys}',
+      ja: 'キーワード {keys}',
+    },
+    'prompt.lead': {
+      zh: '预设「{name}」会导出 {count} 块。prompts 保存正文，prompt_order 保存现在这个顺序。它不含模型和温度。',
+      en: 'Preset “{name}” exports {count} blocks. prompts stores the text, prompt_order stores this order. It does not include the model or temperature.',
+      ja: 'プリセット「{name}」は {count} ブロックを書き出します。prompts が本文、prompt_order がこの順。モデルと温度は含みません。',
+    },
+    'prompt.block': {
+      zh: '第 {n} 块「{name}」角色 {role}，种类 {kind}，{where}。{state}正文现在是「{text}」。',
+      en: 'Block {n} “{name}”, role {role}, kind {kind}, {where}. {state}The text is “{text}”.',
+      ja: '第 {n} ブロック「{name}」役割 {role}、種類 {kind}、{where}。{state}本文は「{text}」。',
+    },
+    'prompt.on': {
+      zh: '启用，会计入 prompt_order。',
+      en: 'On, and included in prompt_order. ',
+      ja: '有効。prompt_order に入ります。',
+    },
+    'prompt.off': {
+      zh: '关掉了：仍留在 prompts 里，prompt_order 里标成未启用。',
+      en: 'Off: it stays in prompts, and prompt_order marks it disabled. ',
+      ja: 'オフ：prompts には残り、prompt_order では無効です。',
+    },
+    'qr.lead': {
+      zh: '套名「{name}」。导出是 Quick Reply v2。集合色取第一条的颜色「{color}」。每条自己的颜色写在 atelierColor，默认不会自动发出。',
+      en: 'Set “{name}”. Export is Quick Reply v2. The set color is the first item’s color “{color}”. Each item’s own color is atelierColor. Nothing is sent automatically.',
+      ja: 'セット名「{name}」。書き出しは Quick Reply v2。セット色は最初の色「{color}」。各色は atelierColor。自動送信はしません。',
+    },
+    'qr.item': {
+      zh: '第 {n} 条按钮「{label}」：点下去复制的是「{text}」。atelierColor 是「{color}」。',
+      en: 'Button {n} “{label}”: clicking copies “{text}”. atelierColor is “{color}”.',
+      ja: '第 {n} ボタン「{label}」：押すと「{text}」をコピー。atelierColor は「{color}」。',
+    },
+    'tl.lead': {
+      zh: '导出分成 notes 和 beats。现在有注记 {notes} 条、情节 {beats} 条。轴上按楼层从小到大排，楼层从 0 数，对上聊天消息序号。',
+      en: 'Export splits into notes and beats. There are {notes} notes and {beats} beats. The axis sorts by floor from 0, matching chat message numbers.',
+      ja: '書き出しは notes と beats。メモ {notes} 件、場面 {beats} 件。階層は 0 から、チャットの番号に対応します。',
+    },
+    'tl.note': {
+      zh: '注记「{title}」钉在楼层 {floor}。正文现在是「{text}」。它不注入酒馆，只留在这份时间线里。',
+      en: 'Note “{title}” is pinned at floor {floor}. The text is “{text}”. It is not injected into SillyTavern. It stays on this timeline.',
+      ja: 'メモ「{title}」は階層 {floor}。本文は「{text}」。SillyTavern には注入せず、このタイムラインに残します。',
+    },
+    'tl.beat': {
+      zh: '情节「{title}」顺序 {order}，楼层 {floor}。摘要现在是「{text}」。',
+      en: 'Beat “{title}”, order {order}, floor {floor}. The summary is “{text}”.',
+      ja: '場面「{title}」順序 {order}、階層 {floor}。要約は「{text}」。',
+    },
+    'tl.mark': {
+      zh: '{kind} · 楼层 {floor}',
+      en: '{kind} · floor {floor}',
+      ja: '{kind} · 階層 {floor}',
+    },
+    'graph.lead': {
+      zh: '导出不改圆点的位置。书名固定是「关系图」。每一条线变成一条不恒定、选择性的世界书条目：关键词是两个人的名字，次关键词是关系，插在角色之前。',
+      en: 'Export does not move the dots. The book title stays Relationship graph. Each line becomes one selective world-book entry: keywords are the two names, the secondary keyword is the relation, inserted before the character.',
+      ja: '書き出しは点の位置を変えません。本の名は「関係図」のままです。各線は選択式のワールドブック項目になります。キーワードは二人の名前、副キーワードは関係、キャラの前に入ります。',
+    },
+    'graph.item': {
+      zh: '第 {n} 条「{title}」。关键词 {keys}，次关键词 {secondary}，顺序 {order}。内容现在是「{text}」。试句里同时碰到人和关系名时才会插入。',
+      en: 'Entry {n} “{title}”. Keywords {keys}, secondary {secondary}, order {order}. The body is “{text}”. It inserts only when the sample has both a person and the relation.',
+      ja: '第 {n} 件「{title}」。キーワード {keys}、副キーワード {secondary}、順序 {order}。本文は「{text}」。試しの文に人と関係名が揃ったときだけ入ります。',
+    },
+    'script.lead': {
+      zh: '剧本「{name}」导出 {count} 拍。order 从 1 顺着排。说话人写成名字；选旁白就写成「旁白」。',
+      en: 'Script “{name}” exports {count} beats. order runs from 1. Speakers are names; the narrator is labeled Narrator.',
+      ja: '台本「{name}」は {count} 拍。order は 1 から。話者は名前、ナレーションは「ナレーション」と書きます。',
+    },
+    'script.beat': {
+      zh: '第 {n} 拍 {who}：句子现在是「{text}」。{tail}',
+      en: 'Beat {n} {who}: the line is “{text}”. {tail}',
+      ja: '第 {n} 拍 {who}：文は「{text}」。{tail}',
+    },
+    'script.tailOn': {
+      zh: '触发词「{word}」只是标记，不会自己执行。',
+      en: 'Trigger “{word}” is only a mark. It does not run by itself.',
+      ja: 'きっかけ語「{word}」は印だけで、自分では動きません。',
+    },
+    'script.tailOff': {
+      zh: '没有触发词。',
+      en: 'No trigger.',
+      ja: 'きっかけ語はありません。',
+    },
+    'script.trigger': {
+      zh: '触发：{word}',
+      en: 'Trigger: {word}',
+      ja: 'きっかけ：{word}',
+    },
+    'check.looking': {
+      zh: '正在查「{name}」，对照{book}里启用的恒定条目。这是本地字面比对，不是模型审查。',
+      en: 'Checking “{name}” against enabled constant entries in {book}. This is a local literal check, not a model review.',
+      ja: '「{name}」を、{book} の有効な恒常項目と照合しています。ローカルの字面チェックで、モデル審査ではありません。',
+    },
+    'check.empty': {
+      zh: '名字、描述、性格、情景、开场白若是空的，记成冲突。',
+      en: 'An empty name, description, personality, scenario, or first message is a clash.',
+      ja: '名前、説明、性格、情景、最初の発言が空なら衝突です。',
+    },
+    'check.names': {
+      zh: '开场、情景和备用开场里，如果出现跟其他角色只差一个字的名字，记成存疑。',
+      en: 'If the opening, scenario, or an alternate greeting has a name one character off from another character, that is a question.',
+      ja: '冒頭、情景、代替挨拶に、他キャラと一字だけ違う名前があれば疑問です。',
+    },
+    'check.colors': {
+      zh: '描述和性格里的发色、瞳色，若和开场或情景对不上，记成存疑。',
+      en: 'If hair or eye color in the description or personality disagrees with the opening or scenario, that is a question.',
+      ja: '説明や性格の髪色・瞳の色が、冒頭や情景と違えば疑問です。',
+    },
+    'check.rules': {
+      zh: '恒定条目里写了楼没烧毁、不许饮酒，或「不许…」，正文却反着说，记成冲突。',
+      en: 'If a constant entry says the building still stands, forbids drink, or says “must not…”, and the text says the opposite, that is a clash.',
+      ja: '恒常項目が、建物は残っている、飲酒禁止、「してはいけない」と書き、本文が逆なら衝突です。',
+    },
+    'check.got': {
+      zh: '这次得到 {count} 条：{list}。',
+      en: 'This pass found {count}: {list}.',
+      ja: '今回は {count} 件：{list}。',
+    },
+    'check.none': {
+      zh: '这次没有查出硬冲突。',
+      en: 'This pass found no hard clash.',
+      ja: '今回、強い衝突はありません。',
+    },
+    'check.typo': {
+      zh: '「{word}」和「{name}」只差一个字，姓氏相同。',
+      en: '“{word}” and “{name}” differ by one character and share a surname.',
+      ja: '「{word}」と「{name}」は一字違いで、姓が同じです。',
+    },
+    'check.hair': {
+      zh: '描述里是{canon}发，正文写成了{spoken}发。',
+      en: 'The description says {canon} hair, but the text says {spoken} hair.',
+      ja: '説明は{canon}髪、本文は{spoken}髪です。',
+    },
+    'check.eyes': {
+      zh: '描述里是{canon}瞳，正文写成了{spoken}。',
+      en: 'The description says {canon} eyes, but the text says {spoken}.',
+      ja: '説明は{canon}の瞳、本文は{spoken}です。',
+    },
+    'check.burn': {
+      zh: '恒定条目「{name}」说没有烧毁。',
+      en: 'Constant entry “{name}” says it was not burned.',
+      ja: '恒常項目「{name}」は焼けていないと書いています。',
+    },
+    'check.drink': {
+      zh: '恒定条目「{name}」禁酒。',
+      en: 'Constant entry “{name}” forbids drink.',
+      ja: '恒常項目「{name}」は飲酒を禁じています。',
+    },
+    'check.contra': {
+      zh: '「{name}」写着「{rule}」，正文却出现了「{phrase}」。',
+      en: '“{name}” says “{rule}”, but the text contains “{phrase}”.',
+      ja: '「{name}」は「{rule}」と書き、本文に「{phrase}」が出ています。',
+    },
+    'backup.about': {
+      zh: '大约 {kb} KB。备份是一份 JSON，里面有角色、世界书、提示词、群、聊天、素材（含图片数据）、正则、快捷回复、时间线、关系图、剧本、主题和书签。',
+      en: 'About {kb} KB. The backup is one JSON file: characters, world books, prompts, groups, chats, assets (including image data), regex, quick replies, timeline, relationship graph, scripts, theme, and bookmarks.',
+      ja: '約 {kb} KB。バックアップは一つの JSON です。キャラ、ワールドブック、プロンプト、グループ、チャット、素材（画像を含む）、正規表現、クイック返信、タイムライン、関係図、台本、テーマ、ブックマークが入ります。',
+    },
+    'rx.class': {
+      zh: '字符类 [{set}]：匹配一个落在这些字里的字符。中间的连字符表示从起点到终点。',
+      en: 'Character class [{set}]: match one character from this set. A hyphen inside means from the start character to the end character.',
+      ja: '文字クラス [{set}]：この中の一文字。途中のハイフンは始点から終点まで。',
+    },
+    'rx.classNot': {
+      zh: '反义字符类 [^{set}]：匹配一个不在这些字里的字符。方括号开头的 ^ 只表示“除外”，不是行首。',
+      en: 'Negated class [^{set}]: match one character that is not in this set. A ^ just after the bracket means “except”, not the start of a line.',
+      ja: '否定クラス [^{set}]：この中にない一文字。角かっこの直後の ^ は「除外」であり、行頭ではない。',
+    },
+    'rx.literal': {
+      zh: '字面「{text}」：按这些字原样匹配。点号、星号这类符号如果没被转义，才有特殊含义；这里没有。',
+      en: 'Literal “{text}”: match these characters as written. A dot or star is special only when it is not escaped. Here it is not special.',
+      ja: '文字どおり「{text}」：これらの文字をそのまま一致。点や星はエスケープされていなければ特別。ここでは特別ではない。',
+    },
+    'rx.group': {
+      zh: '捕获组第 {n} 组：括号里匹配到的文字会记下来。替换时写成 ${n}。',
+      en: 'Capture group {n}: the text matched inside the parentheses is remembered. In the replacement, write ${n}.',
+      ja: 'キャプチャ第 {n} グループ：かっこ内の文字を覚える。置換では ${n}。',
+    },
+    'rx.groupNamed': {
+      zh: '捕获组第 {n} 组，名字「{name}」：括号里匹配到的文字会记下来。替换时可写 ${n}，也能用这个名字。',
+      en: 'Capture group {n}, named “{name}”: the text inside is remembered. The replacement can use ${n} or the name.',
+      ja: 'キャプチャ第 {n}、名前「{name}」：中の文字を覚える。置換は ${n} かこの名前。',
+    },
+    'rx.groupEnd': {
+      zh: '第 {n} 组到这里结束。',
+      en: 'Group {n} ends here.',
+      ja: '第 {n} グループはここで終わる。',
+    },
+    'rx.quant': {
+      zh: '量词 {{{n}}}：紧挨着的上一项恰好重复 {n} 次。',
+      en: 'Quantifier {{{n}}}: the previous item repeats exactly {n} times.',
+      ja: '量詞 {{{n}}}：直前をちょうど {n} 回。',
+    },
+    'rx.quantMin': {
+      zh: '量词 {{{n},}}：上一项至少 {n} 次，默认尽量多。',
+      en: 'Quantifier {{{n},}}: the previous item at least {n} times, as many as possible by default.',
+      ja: '量詞 {{{n},}}：直前は少なくとも {n} 回、既定ではできるだけ多く。',
+    },
+    'rx.quantRange': {
+      zh: '量词 {{{a},{b}}}：上一项重复 {a} 到 {b} 次。',
+      en: 'Quantifier {{{a},{b}}}: the previous item repeats from {a} to {b} times.',
+      ja: '量詞 {{{a},{b}}}：直前を {a} から {b} 回。',
+    },
+    'rx.backref': {
+      zh: '转义 \\{n}：引用前面第 {n} 个捕获组已经抓住的文字。',
+      en: 'Escape \\{n}: the text already captured by group {n}.',
+      ja: 'エスケープ \\{n}：前の第 {n} グループが捕まえた文字。',
+    },
+    'rx.kref': {
+      zh: '转义 \\k<{name}>：引用名字叫「{name}」的捕获组。',
+      en: 'Escape \\k<{name}>: the capture group named “{name}”.',
+      ja: 'エスケープ \\k<{name}>：名前「{name}」のグループ。',
+    },
+    'rx.litEscape': {
+      zh: '转义 \\{name}：这里只按字面匹配「{name}」。反斜杠取消了它本来的特殊含义。',
+      en: 'Escape \\{name}: match “{name}” as written. The backslash removes its special meaning.',
+      ja: 'エスケープ \\{name}：「{name}」を文字どおり一致。バックスラッシュが特別な意味を消します。',
+    },
+    'rx.groups': {
+      zh: '捕获组共 {count} 个：{list}。贴一句之后，会写明每一组抓住了什么。',
+      en: '{count} capture groups: {list}. After you paste a line, each group shows what it caught.',
+      ja: 'キャプチャは {count} 個：{list}。一行貼ると、各グループが何を捕らえたか出ます。',
+    },
+    'rx.flagLine': {
+      zh: '标志 {flag}：{detail}',
+      en: 'Flag {flag}: {detail}',
+      ja: 'フラグ {flag}：{detail}',
+    },
   };
 
   function load() {
@@ -497,6 +807,10 @@
         const next = toChinese(value);
         if (next !== value) node.setAttribute(attr, next);
       });
+      if (node.matches && node.matches('textarea, input') && (node.dataset.live || node.dataset.custom)) {
+        const next = toChinese(node.value || '');
+        if (next !== node.value) node.value = next;
+      }
       if (node.matches && node.matches('textarea, script, style')) return;
     }
     const kids = node.childNodes ? [...node.childNodes] : [];
@@ -555,7 +869,7 @@
           else if (meta && phraseOf('话多')) mapped = `${phraseOf(meta[1]) || meta[1]} · ${phraseOf(meta[2]) || meta[2]} · ${phraseOf('话多')} ${meta[3]}`;
         }
         if (!mapped) {
-          const count = trimmed.match(/^(\d+)\s+(条消息|条|块|处)$/);
+          const count = trimmed.match(/^(\d+)\s+(条消息|条|块|处|拍)$/);
           if (count && phraseOf(count[2])) mapped = `${count[1]} ${phraseOf(count[2])}`;
         }
         const numbered = !mapped && trimmed.match(/^(\d+\.\s*)(.+)$/);

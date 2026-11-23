@@ -686,7 +686,7 @@
     const canon = [character.description, character.personality].filter(Boolean).join('\n');
     (library.characters || []).map((item) => item.name).filter(Boolean).forEach((name) => {
       findNameTypos(spoken, name).forEach((hit) => {
-        add('warn', '可能的名字笔误', `「${hit.word}」和「${name}」只差一个字，姓氏相同。`, snippetAt(spoken, hit.index, hit.word.length), hit.word);
+        add('warn', '可能的名字笔误', t('check.typo', { word: hit.word, name }), snippetAt(spoken, hit.index, hit.word.length), hit.word);
       });
     });
 
@@ -695,12 +695,12 @@
     const canonHair = new Set(collectAttr(canon, hair).map((item) => item.value));
     const spokenHair = collectAttr(spoken, hair);
     if (canonHair.size && spokenHair.length && spokenHair.every((item) => !canonHair.has(item.value))) {
-      add('warn', '发色对不上', `描述里是${[...canonHair].join('、')}发，正文写成了${spokenHair[0].value}发。`, snippetAt(spoken, spokenHair[0].index, spokenHair[0].raw.length), spokenHair[0].raw);
+      add('warn', '发色对不上', t('check.hair', { canon: [...canonHair].join('、'), spoken: spokenHair[0].value }), snippetAt(spoken, spokenHair[0].index, spokenHair[0].raw.length), spokenHair[0].raw);
     }
     const canonEyes = new Set(collectAttr(canon, eyes).map((item) => item.value));
     const spokenEyes = collectAttr(spoken, eyes);
     if (canonEyes.size && spokenEyes.length && spokenEyes.every((item) => !canonEyes.has(item.value))) {
-      add('warn', '瞳色对不上', `描述里是${[...canonEyes].join('、')}瞳，正文写成了${spokenEyes[0].value}。`, snippetAt(spoken, spokenEyes[0].index, spokenEyes[0].raw.length), spokenEyes[0].raw);
+      add('warn', '瞳色对不上', t('check.eyes', { canon: [...canonEyes].join('、'), spoken: spokenEyes[0].value }), snippetAt(spoken, spokenEyes[0].index, spokenEyes[0].raw.length), spokenEyes[0].raw);
     }
 
     const books = bookId ? (library.worldBooks || []).filter((book) => book.id === bookId) : (library.worldBooks || []);
@@ -709,12 +709,12 @@
         const content = entry.content || '';
         sentences(spoken).forEach((sentence) => {
           if (/烧毁|焚毁|烧成/.test(sentence) && /并未烧毁|不曾烧毁|没有烧毁|并未被烧/.test(content)) {
-            add('error', '楼还在，正文却写它毁了', `恒定条目「${entry.comment || '未命名'}」说没有烧毁。`, sentence, '烧毁');
+            add('error', '楼还在，正文却写它毁了', t('check.burn', { name: entry.comment || '未命名' }), sentence, '烧毁');
           }
           const drinkBanned = /不许[^。\n]{0,8}酒|不准[^。\n]{0,8}酒|禁止[^。\n]{0,8}酒|不能[^。\n]{0,8}酒|从不[^。\n]{0,8}酒|不饮酒|禁酒/.test(content);
           const drinks = /[饮喝干醉斟倒][^。！？\n]{0,8}酒|桂花酒|烈酒|酒杯|一饮而尽/.test(sentence);
           if (drinkBanned && drinks && !/[不没别禁]/.test(sentence)) {
-            add('error', '规矩不许饮酒，正文却在喝酒', `恒定条目「${entry.comment || '未命名'}」禁酒。`, sentence, '酒');
+            add('error', '规矩不许饮酒，正文却在喝酒', t('check.drink', { name: entry.comment || '未命名' }), sentence, '酒');
           }
         });
         const negated = content.matchAll(/(?:从不|绝不会|不许|不准|禁止|不能)([^，。；、\n]{2,8})/g);
@@ -725,7 +725,7 @@
           if (at < 0) continue;
           const sentence = sentences(spoken).find((item) => item.includes(phrase)) || phrase;
           if (/[不没别禁]/.test(sentence)) continue;
-          add('warn', '恒定条目被正文反过来说', `「${entry.comment || '条目'}」写着「${match[0]}」，正文却出现了「${phrase}」。`, sentence, phrase);
+          add('warn', '恒定条目被正文反过来说', t('check.contra', { name: entry.comment || '条目', rule: match[0], phrase }), sentence, phrase);
         }
       });
     });
@@ -809,7 +809,7 @@
       const around = `${source.slice(Math.max(0, at - 8), at)}【${ch}】${source.slice(at + (source[at] ? 1 : 0), at + 9)}`;
       return { error: `第 ${at + 1} 个字符「${ch}」这里断了：${message} 上下文 ${around}`, groups, steps, reading: '' };
     };
-    function push(text) { if (text) steps.push(text); }
+    function push(text) { if (text) steps.push(t(text)); }
     function readQuantifier() {
       const ch = source[index];
       if (ch !== '*' && ch !== '+' && ch !== '?' && ch !== '{') return { text: '' };
@@ -817,7 +817,7 @@
         const matched = source.slice(index).match(/^\{(\d+)(,(\d+)?)?\}/);
         if (!matched) return { text: '' };
         index += matched[0].length;
-        let text = !matched[2] ? `量词 {${matched[1]}}：紧挨着的上一项恰好重复 ${matched[1]} 次。` : matched[3] === undefined ? `量词 {${matched[1]},}：上一项至少 ${matched[1]} 次，默认尽量多。` : `量词 {${matched[1]},${matched[3]}}：上一项重复 ${matched[1]} 到 ${matched[3]} 次。`;
+        let text = !matched[2] ? t('rx.quant', { n: matched[1] }) : matched[3] === undefined ? t('rx.quantMin', { n: matched[1] }) : t('rx.quantRange', { a: matched[1], b: matched[3] });
         if (source[index] === '?') { text += '后面的问号表示尽量少。'; index += 1; }
         return { text };
       }
@@ -848,16 +848,16 @@
         f: '转义 \\f：换页符。',
       };
       if (named[name]) return { text: named[name] };
-      if (/[1-9]/.test(name)) return { text: `转义 \\${name}：引用前面第 ${name} 个捕获组已经抓住的文字。` };
+      if (/[1-9]/.test(name)) return { text: t('rx.backref', { n: name }) };
       if (name === 'k' && source[index] === '<') {
         const from = index + 1;
         const close = source.indexOf('>', from);
         if (close < 0) return fail('命名引用 \\k<名字> 没有写完。');
         const groupName = source.slice(from, close);
         index = close + 1;
-        return { text: `转义 \\k<${groupName}>：引用名字叫「${groupName}」的捕获组。` };
+        return { text: t('rx.kref', { name: groupName }) };
       }
-      return { text: `转义 \\${name}：这里只按字面匹配「${name}」。反斜杠取消了它本来的特殊含义。` };
+      return { text: t('rx.litEscape', { name }) };
     }
     function readClass() {
       index += 1;
@@ -878,9 +878,7 @@
       if (source[index] !== ']') return fail('字符类开了方括号，却没有用 ] 关上。');
       index += 1;
       const shown = body || '空';
-      return { text: negated
-        ? `反义字符类 [^${shown}]：匹配一个不在这些字里的字符。方括号开头的 ^ 只表示“除外”，不是行首。`
-        : `字符类 [${shown}]：匹配一个落在这些字里的字符。中间的连字符表示从起点到终点。` };
+      return { text: negated ? t('rx.classNot', { set: shown }) : t('rx.class', { set: shown }) };
     }
     function readGroup() {
       index += 1;
@@ -914,8 +912,8 @@
         groupNo = capturing;
         groups.push({ index: capturing, name });
         header = name
-          ? `捕获组第 ${capturing} 组，名字「${name}」：括号里匹配到的文字会记下来。替换时可写 $${capturing}，也能用这个名字。`
-          : `捕获组第 ${capturing} 组：括号里匹配到的文字会记下来。替换时写成 $${capturing}。`;
+          ? t('rx.groupNamed', { n: capturing, name })
+          : t('rx.group', { n: capturing });
       } else if (kind === 'ahead') header = '正向先行 (?= )：要求后面接着括号里的内容，但这一段本身不占匹配结果。';
       else if (kind === 'negAhead') header = '负向先行 (?! )：要求后面不能接着括号里的内容，它自己不吃字符。';
       else if (kind === 'behind') header = '正向后行 (?<= )：要求前面已经是括号里的内容。';
@@ -925,7 +923,7 @@
       if (inner.error) return inner;
       if (source[index] !== ')') return fail('有分组没有用右括号关上。');
       index += 1;
-      push(groupNo ? `第 ${groupNo} 组到这里结束。` : '这个分组到这里结束。');
+      push(groupNo ? t('rx.groupEnd', { n: groupNo }) : '这个分组到这里结束。');
       return { text: '组', silent: true };
     }
     function readAtom() {
@@ -943,7 +941,7 @@
         index += 1;
       }
       if (!literal) return fail('这里有一个写不下去的符号。');
-      return { text: `字面「${literal}」：按这些字原样匹配。点号、星号这类符号如果没被转义，才有特殊含义；这里没有。` };
+      return { text: t('rx.literal', { text: literal }) };
     }
     function readSeq(stop) {
       let pieces = 0;
@@ -991,7 +989,7 @@
     const flagSteps = [];
     if (split.wrapped) {
       if (!split.flags) flagSteps.push('标志：结束斜杠后面是空的。只找第一处，并且区分大小写。');
-      else [...split.flags].forEach((flag) => flagSteps.push(`标志 ${flag}：${FLAG_DETAIL[flag] || flag}`));
+      else [...split.flags].forEach((flag) => flagSteps.push(t('rx.flagLine', { flag, detail: t(FLAG_DETAIL[flag] || flag) })));
     } else flagSteps.push('写法：没有用斜杠包起来，所以按全局 g 查找，并且区分大小写。');
     const flagText = split.flags
       ? [...split.flags].map((flag) => FLAG_TEXT[flag] || flag).join('、') + (split.wrapped ? '' : '（没写斜杠，默认全局）')
