@@ -275,6 +275,7 @@
       }
     };
     stage.querySelector('#model-test').onclick = async () => {
+      if (UI.flyPlane) UI.flyPlane(stage.querySelector('#model-test'));
       if (!root.NIJANModel) return;
       if (!root.NIJANModel.load().model) { reply.textContent = '先选择一个模型。'; return; }
       reply.textContent = '正在发送…';
@@ -955,6 +956,7 @@
       row.querySelector('[data-m="talk"]').oninput = (event) => {
         member.talkativeness = Number(event.target.value);
         row.querySelector('.field-label').textContent = `话多 ${member.talkativeness.toFixed(2)}`;
+        if (root.TAI18n) root.TAI18n.localize(row.querySelector('.field-label'));
         paintPreview();
         UI.markDirty();
       };
@@ -1041,6 +1043,7 @@
       }).join('');
       marks = [...log.querySelectorAll('mark')];
       body.querySelector('#hit-count').textContent = needle ? `${marks.length} 处` : `${current.messages.length} 条消息`;
+      if (root.TAI18n) root.TAI18n.localize(body.querySelector('#hit-count'));
     };
     renderLog();
     body.querySelector('#passage').addEventListener('input', (event) => {

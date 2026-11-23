@@ -468,7 +468,7 @@
     const area = (label, path, value, rows) => `<label class="field"><span class="field-label">${esc(label)}</span><textarea data-path="${path}" rows="${rows || 4}">${esc(value || '')}</textarea></label>`;
     const text = (label, path, value) => `<label class="field"><span class="field-label">${esc(label)}</span><input data-path="${path}" type="text" value="${esc(value || '')}"></label>`;
     const ideas = data.ideas.length
-      ? data.ideas.map((idea, index) => `<div class="idea"><p>${esc(idea.text)}</p><div class="row"><button type="button" class="btn btn-small" data-yes="${index}">接受</button><button type="button" class="btn btn-small" data-no="${index}">拒绝</button><span class="muted">${idea.status === 'yes' ? '已接受' : idea.status === 'no' ? '已拒绝' : '未决定'}</span></div></div>`).join('')
+      ? data.ideas.map((idea, index) => `<div class="idea check-item${idea.status === 'yes' ? ' checked' : ''}"><span class="tick" aria-hidden="true"></span><p>${esc(idea.text)}</p><div class="row"><button type="button" class="btn btn-small" data-yes="${index}">接受</button><button type="button" class="btn btn-small" data-no="${index}">拒绝</button><span class="muted">${idea.status === 'yes' ? '已接受' : idea.status === 'no' ? '已拒绝' : '未决定'}</span></div></div>`).join('')
       : '<p class="help">还没有灵感。先写下要求，再向模型要。</p>';
     const questions = data.questions.length
       ? data.questions.map((question, index) => `<label class="field"><span class="field-label">${esc(question)}</span><input data-path="answers.${index}" type="text" value="${esc(data.answers[index] || '')}"></label>`).join('')
@@ -501,7 +501,7 @@
       </section>
       <section class="studio-live paper">
         <label class="field"><span class="field-label">写的时候补充</span><input id="studio-more" data-path="supplement" type="text" value="${esc(data.supplement || '')}" placeholder="例如：女主外貌"></label>
-        <p id="studio-progress" class="studio-progress${data.writing ? '' : ' done'}">${esc(data.progress || '还没开始写。')}</p>
+        <div class="studio-status"><span class="tide" id="studio-tide" style="--p:${data.progress && data.progress.indexOf('写完') === 0 ? 1 : 0}"></span><p id="studio-progress" class="studio-progress${data.writing ? '' : ' done'}">${esc(data.progress || '还没开始写。')}</p><span class="bell${data.progress && data.progress.indexOf('写完') === 0 ? ' on' : ''}" id="studio-bell" aria-hidden="true"></span></div>
       </section>
       <div id="studio-scan"></div>
       <section class="studio-results"${data.writing ? '' : ' hidden'}>
@@ -524,9 +524,9 @@
       const host = stage.querySelector('#studio-scan');
       if (!host) return;
       const split = splitEntries();
-      const card = (entry) => `<article class="scan-entry"><strong>${esc(entry.comment || '未命名')}</strong><p class="muted">${esc(entry.bookName || '')}${(entry.keys || []).length ? ` · 关键词 ${esc(entry.keys.join('、'))}` : ''}</p><p>${esc(String(entry.content || '').replace(/\s+/g, ' ').slice(0, 80))}</p>${entry.reason ? `<p class="help">${esc(entry.reason)}</p>` : ''}</article>`;
-      const column = (title, rows) => `<article class="paper scan-col"><h3>${title}</h3>${rows.map(card).join('') || '<p class="help">这里还没有。</p>'}</article>`;
-      host.innerHTML = `${draft().classNote ? `<p class="help">${esc(draft().classNote)}</p>` : ''}<div class="studio-scan">${column('触发的', split.triggered)}${column('未触发的', split.idle)}</div>`;
+      const card = (entry, checked) => `<article class="scan-entry check-item${checked ? ' checked' : ''}"><span class="tick" aria-hidden="true"></span><div><strong>${esc(entry.comment || '未命名')}</strong><p class="muted">${esc(entry.bookName || '')}${(entry.keys || []).length ? ` · 关键词 ${esc(entry.keys.join('、'))}` : ''}</p><p>${esc(String(entry.content || '').replace(/\s+/g, ' ').slice(0, 80))}</p>${entry.reason ? `<p class="help">${esc(entry.reason)}</p>` : ''}</div></article>`;
+      const column = (title, rows, checked) => `<article class="paper scan-col"><h3>${title}</h3>${rows.map((entry) => card(entry, checked)).join('') || '<p class="help">这里还没有。</p>'}</article>`;
+      host.innerHTML = `${draft().classNote ? `<p class="help">${esc(draft().classNote)}</p>` : ''}<div class="studio-scan">${column('触发的', split.triggered, true)}${column('未触发的', split.idle, false)}</div>`;
     };
     paintScan();
     stage.querySelectorAll('[data-path]').forEach((node) => {
@@ -566,7 +566,7 @@
         render(stage);
       } catch (error) { ui.toast(error.message); }
     };
-    const showProgress = (text, writing) => {
+    const showProgress = (text, writing, ratio) => {
       draft().progress = text;
       draft().writing = writing;
       const node = stage.querySelector('#studio-progress');
@@ -574,6 +574,10 @@
         node.textContent = text;
         node.classList.toggle('done', !writing);
       }
+      const tide = stage.querySelector('#studio-tide');
+      if (tide) tide.style.setProperty('--p', String(ratio == null ? (writing ? 0.2 : 0) : ratio));
+      const bell = stage.querySelector('#studio-bell');
+      if (bell) bell.classList.toggle('on', !writing && ratio >= 1);
       const results = stage.querySelector('.studio-results');
       if (results) results.hidden = !writing;
     };
@@ -586,6 +590,9 @@
       if (!needModel()) return;
       const ideas = draft().ideas;
       if (!ideas.length || ideas.some((idea) => !idea.status)) { ui.toast('先要灵感，并接受或拒绝每一条'); return; }
+      if (ui.flyPlane) ui.flyPlane(stage.querySelector('#studio-write'));
+      const allowed = await ui.ask({ title: '写入角色卡和世界书', body: '滑到尽头，模型才会写进角色卡和世界书。', actions: [{ id: 'no', label: '先不写' }], swipe: '滑开写入' });
+      if (allowed !== 'yes') return;
       const steps = [
         ['正在写角色卡…', '只写 JSON 的 character 和 sections。把用户的补充写进对应字段。'],
         ['正在写世界书…', '只写 JSON 的 world。entries 里每条都要有条目名、触发关键词和正文，条目名不能空。把用户的补充写进去。'],
@@ -593,8 +600,9 @@
       ];
       try {
         let sent = '';
-        for (const [label, task] of steps) {
-          showProgress(label, true);
+        for (let index = 0; index < steps.length; index += 1) {
+          const [label, task] = steps[index];
+          showProgress(label, true, (index + 1) / steps.length);
           const supplement = readSupplement();
           sent = supplement;
           let result = await root.NIJANModel.askJson(`${task} ${WRITE_TASK}`, Object.assign(contextForModel(), { supplement }));
@@ -615,7 +623,7 @@
           applyModel(revision || {});
           importLive();
         }
-        showProgress('写完了', false);
+        showProgress('写完了', false, 1);
         ui.toast(liveOn() ? '写完了，并送进对应页面' : '写完了。实时导入关着，所以还没送进工坊。');
         render(stage);
       } catch (error) {

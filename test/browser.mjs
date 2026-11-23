@@ -377,6 +377,11 @@ try {
     const more = document.querySelector('#studio-more');
     let revealed = false;
     document.querySelector('#studio-write').click();
+    const knob = document.querySelector('.swipe-knob');
+    const knobBox = knob.getBoundingClientRect();
+    knob.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: knobBox.left + 8, pointerId: 1 }));
+    knob.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: knobBox.left + 420, pointerId: 1 }));
+    knob.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: knobBox.left + 420, pointerId: 1 }));
     setTimeout(() => {
       revealed = document.querySelector('.studio-results').hidden === false;
       more.value = '女主外貌';

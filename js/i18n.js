@@ -373,7 +373,7 @@
   };
 
   function load() {
-    const base = { lang: 'zh', teach: true, scale: 1, density: 'comfortable', jsonMode: false, adult: false, liveImport: true, replyLength: 'medium', replyChars: 600 };
+    const base = { lang: 'zh', teach: true, scale: 1, density: 'comfortable', jsonMode: false, adult: false, liveImport: true, replyLength: 'medium', replyChars: 600, cursorSize: 32 };
     try {
       return Object.assign(base, JSON.parse(localStorage.getItem(KEY) || '{}'));
     } catch (error) {
@@ -397,12 +397,30 @@
     return key;
   }
 
+  function paintCursor(size) {
+    const px = Math.max(16, Math.min(64, Math.round(Number(size) || 32)));
+    const url = (body) => {
+      const xml = `<svg xmlns="http://www.w3.org/2000/svg" width="${px}" height="${px}" viewBox="0 0 32 32">${body}</svg>`;
+      return `url("data:image/svg+xml,${encodeURIComponent(xml)}")`;
+    };
+    const shape = 'M4 2 4 26 11 19.5 15.5 28 19.2 26.2 14.6 17.6 23 17.2Z';
+    const accent = '<path fill="#ff4f9a" d="M14.4 23.6 16.4 27.2 18.2 26.2 16.2 22.8Z"/><circle fill="#7aa2ff" cx="8" cy="12" r="1.25"/>';
+    const rest = `<path fill="#f4f4f4" stroke="#141414" stroke-width="1.6" stroke-linejoin="round" d="${shape}"/>${accent}`;
+    const hot = `<path fill="#f7f8ff" stroke="#3d7dff" stroke-width="2.2" stroke-linejoin="round" d="${shape}"/>${accent}`;
+    const tipX = Math.max(0, Math.round((4 / 32) * px));
+    const tipY = Math.max(0, Math.round((2 / 32) * px));
+    const rootNode = document.documentElement;
+    rootNode.style.setProperty('--cursor', `${url(rest)} ${tipX} ${tipY}, auto`);
+    rootNode.style.setProperty('--cursor-hot', `${url(hot)} ${tipX} ${tipY}, pointer`);
+  }
+
   function apply() {
     const lang = prefs.lang || 'zh';
     document.documentElement.lang = lang === 'en' ? 'en' : lang === 'ja' ? 'ja' : 'zh-CN';
     document.documentElement.dataset.teach = prefs.teach === false ? 'off' : 'on';
     document.documentElement.dataset.density = prefs.density === 'compact' ? 'compact' : 'comfortable';
     document.documentElement.style.setProperty('--ui-scale', String(Number(prefs.scale) || 1));
+    paintCursor(prefs.cursorSize);
     const product = lang === 'en' ? 'Realmweave' : '织境';
     const tagline = lang === 'en'
       ? 'From a single thought, write the people and the world.'
@@ -434,8 +452,67 @@
     return phraseKeys;
   }
 
+  let reversePhrase = null;
+
+  function foreignLists() {
+    if (reversePhrase) return reversePhrase;
+    const en = [];
+    const ja = [];
+    Object.keys(PHRASE).forEach((zh) => {
+      const row = PHRASE[zh];
+      if (!row) return;
+      if (row.en && row.en !== zh) en.push([row.en, zh]);
+      if (row.ja && row.ja !== zh) ja.push([row.ja, zh]);
+    });
+    en.sort((a, b) => b[0].length - a[0].length);
+    ja.sort((a, b) => b[0].length - a[0].length);
+    reversePhrase = [en, ja];
+    return reversePhrase;
+  }
+
+  function toChinese(raw) {
+    const trimmed = raw.trim();
+    if (!trimmed) return raw;
+    const lists = foreignLists();
+    for (let pass = 0; pass < lists.length; pass += 1) {
+      const list = lists[pass];
+      for (let i = 0; i < list.length; i += 1) {
+        const foreign = list[i][0];
+        const zh = list[i][1];
+        if (trimmed === foreign) return raw.replace(trimmed, zh);
+        const lead = trimmed.length - foreign.length;
+        if (lead > 0 && lead <= 2 && trimmed.endsWith(foreign)) return raw.replace(trimmed, trimmed.slice(0, trimmed.length - foreign.length) + zh);
+      }
+    }
+    return raw;
+  }
+
+  function restoreChinese(node) {
+    if (!node) return;
+    if (node.nodeType === 1) {
+      ['placeholder', 'title', 'aria-label'].forEach((attr) => {
+        if (!node.getAttribute) return;
+        const value = node.getAttribute(attr);
+        if (!value) return;
+        const next = toChinese(value);
+        if (next !== value) node.setAttribute(attr, next);
+      });
+      if (node.matches && node.matches('textarea, script, style')) return;
+    }
+    const kids = node.childNodes ? [...node.childNodes] : [];
+    kids.forEach((child) => {
+      if (child.nodeType === 3) {
+        const skipContent = child.parentElement && child.parentElement.closest && child.parentElement.closest('textarea, .msg .body, #char-preview, .cast, .gallery, figcaption, .snippet, .entry > p, .rail-char');
+        if (skipContent) return;
+        const next = toChinese(child.nodeValue);
+        if (next !== child.nodeValue) child.nodeValue = next;
+      } else if (child.nodeType === 1) restoreChinese(child);
+    });
+  }
+
   function localize(node) {
-    if (!node || (prefs.lang || 'zh') === 'zh') return;
+    if (!node) return;
+    if ((prefs.lang || 'zh') === 'zh') { restoreChinese(node); return; }
     if (node.nodeType === 1) {
       ['placeholder', 'title', 'aria-label'].forEach((attr) => {
         if (!node.getAttribute) return;
@@ -445,6 +522,12 @@
         const mapped = phraseOf(trimmed);
         if (mapped) node.setAttribute(attr, value.replace(trimmed, mapped));
       });
+      if (node.matches && node.matches('textarea, input')) {
+        const current = node.value || '';
+        const mappedValue = phraseOf(current.trim());
+        if (mappedValue && current.trim() === current) node.value = mappedValue;
+        else if (mappedValue) node.value = current.replace(current.trim(), mappedValue);
+      }
       if (node.matches && node.matches('textarea, script, style')) return;
     }
     const kids = node.childNodes ? [...node.childNodes] : [];
@@ -453,9 +536,28 @@
         const raw = child.nodeValue;
         const trimmed = raw.trim();
         if (!trimmed) return;
-        const skipContent = child.parentElement && child.parentElement.closest && child.parentElement.closest('textarea, .msg .body, #char-preview, .rail-char, .cast, .gallery, figcaption, .snippet, .entry > b, .entry > p');
-        if (skipContent) return;
+        const skipContent = child.parentElement && child.parentElement.closest && child.parentElement.closest('textarea, .msg .body, #char-preview, .cast, .gallery, figcaption, .snippet, .entry > p');
+        if (skipContent) {
+          const only = phraseOf(trimmed);
+          if (only) child.nodeValue = raw.replace(trimmed, only);
+          return;
+        }
         let mapped = phraseOf(trimmed);
+        const unitHost = child.parentElement && child.parentElement.matches && child.parentElement.matches('.muted, .field-label, .dark-muted, small, #prev-meta');
+        if (!mapped && unitHost) {
+          const talk = trimmed.match(/^话多\s+(\d+(?:\.\d+)?)$/);
+          const library = trimmed.match(/^库约\s+(.+)$/);
+          const people = trimmed.match(/^(\d+)\s+人$/);
+          const meta = trimmed.match(/^(.*)\s·\s(.*)\s·\s话多\s+(\d+(?:\.\d+)?)$/);
+          if (talk && phraseOf('话多')) mapped = `${phraseOf('话多')} ${talk[1]}`;
+          else if (library && phraseOf('库约')) mapped = `${phraseOf('库约')} ${library[1]}`;
+          else if (people && phraseOf('人')) mapped = `${people[1]} ${phraseOf('人')}`;
+          else if (meta && phraseOf('话多')) mapped = `${phraseOf(meta[1]) || meta[1]} · ${phraseOf(meta[2]) || meta[2]} · ${phraseOf('话多')} ${meta[3]}`;
+        }
+        if (!mapped) {
+          const count = trimmed.match(/^(\d+)\s+(条消息|条|块|处)$/);
+          if (count && phraseOf(count[2])) mapped = `${count[1]} ${phraseOf(count[2])}`;
+        }
         const numbered = !mapped && trimmed.match(/^(\d+\.\s*)(.+)$/);
         if (!mapped && numbered && phraseOf(numbered[2])) mapped = numbered[1] + phraseOf(numbered[2]);
         if (!mapped) {
@@ -474,6 +576,6 @@
   }
 
   apply();
-  function add(extra) { Object.assign(PHRASE, extra || {}); phraseKeys = null; }
+  function add(extra) { Object.assign(PHRASE, extra || {}); phraseKeys = null; reversePhrase = null; }
   root.TAI18n = { t, load, save, apply, localize, add, get prefs() { return prefs; } };
 })(typeof globalThis !== 'undefined' ? globalThis : window);

@@ -242,7 +242,7 @@
       system_prompt: result.system_prompt || before.system_prompt,
     };
     const lines = diffLines(before, next);
-    ui.ask({ title: '模型改了这些', body: lines.join('\n') || '没有改动', actions: [{ id: 'yes', label: '写入', kind: 'btn-primary' }, { id: 'no', label: '放弃' }] }).then((answer) => {
+    ui.ask({ title: '模型改了这些', body: lines.join('\n') || '没有改动', actions: [{ id: 'no', label: '放弃' }], swipe: '滑开写入角色卡' }).then((answer) => {
       if (answer !== 'yes') return;
       Object.assign(character, next);
       ui.markDirty();
@@ -257,7 +257,7 @@
     const entries = root.TAFormats.worldInfoToEntries(result.entries ? result : { entries: result.entries || result });
     const before = { count: book.entries.length };
     const after = { count: entries.length, names: entries.map((entry) => entry.comment).join('、') };
-    ui.ask({ title: '模型准备写入的条目', body: diffLines(before, { count: after.count, names: after.names }).join('\n'), actions: [{ id: 'yes', label: '写入', kind: 'btn-primary' }, { id: 'no', label: '放弃' }] }).then((answer) => {
+    ui.ask({ title: '模型准备写入的条目', body: diffLines(before, { count: after.count, names: after.names }).join('\n'), actions: [{ id: 'no', label: '放弃' }], swipe: '滑开写入世界书' }).then((answer) => {
       if (answer !== 'yes') return;
       book.entries = entries.map((entry) => Object.assign({ id: `lore_${Math.random().toString(16).slice(2)}`, secondaryKeys: [], constant: false, selective: true, order: 100, position: 'before_char', enabled: true, depth: 4, outletName: '' }, entry));
       ui.markDirty();
