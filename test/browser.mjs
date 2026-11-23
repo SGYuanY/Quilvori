@@ -165,6 +165,21 @@ try {
     setTimeout(() => resolve({ columns: document.querySelectorAll('.column').length, text: document.body.innerText.includes('听雨楼') }), 40);
   })`);
   check('lore board', lore.columns >= 6 && lore.text, JSON.stringify(lore));
+  const formula = await evaluate(`new Promise((resolve) => {
+    document.querySelector('[data-nav="characters"]').click();
+    setTimeout(() => {
+      const card = document.querySelector('#stage').innerText;
+      document.querySelector('[data-nav="lore"]').click();
+      setTimeout(() => {
+        const book = document.querySelector('#stage').innerText;
+        resolve({
+          card: /这是谁|和用户是什么关系|最不该被写反/.test(card),
+          book: /这本书主要约束|读者一进来就该知道|哪些词一出现/.test(book),
+        });
+      }, 40);
+    }, 40);
+  })`);
+  check('no fixed questions', !formula.card && !formula.book, JSON.stringify(formula));
 
   const chat = await evaluate(`new Promise((resolve) => {
     document.querySelector('[data-nav="chat"]').click();

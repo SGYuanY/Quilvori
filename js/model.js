@@ -93,11 +93,6 @@
     return JSON.parse(raw);
   }
 
-  function localQuestions(kind) {
-    if (kind === 'card') return ['这是谁，别人会怎么称呼？', '和用户是什么关系？', '最不该被写反的一点是什么？'];
-    return ['这本书主要约束哪件事？', '读者一进来就该知道的规矩是哪条？', '哪些词一出现就该插入这条？'];
-  }
-
   function localInspirations(kind, answers) {
     const seed = (answers || []).filter(Boolean).join('；') || '还没有补充';
     if (kind === 'card') {
@@ -147,7 +142,7 @@
     let answers = [];
     let chosen = '';
     const paintQuestions = (extra) => {
-      const questions = localQuestions(kind).concat(extra || []);
+      const questions = extra || [];
       body.innerHTML = questions.map((q, i) => `<label class="field"><span class="field-label">${ui.esc(q)}</span><input data-answer="${i}" type="text" value="${ui.esc(answers[i] || '')}"></label>`).join('');
       body.querySelectorAll('[data-answer]').forEach((input) => {
         input.oninput = () => { answers[Number(input.dataset.answer)] = input.value; };
@@ -204,7 +199,6 @@
         ui.toast(error.message);
       }
     };
-    paintQuestions();
   }
 
   function applyCard(result) {
