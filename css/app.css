@@ -272,6 +272,10 @@ img { max-width: 100%; display: block; }
 .clamp { display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; white-space: pre-wrap; }
 
 .hero { padding: 28px; margin-bottom: 16px; }
+.connect { display: grid; grid-template-columns: 1.15fr 0.85fr; gap: 18px; padding: 22px 24px; margin-bottom: 16px; border-color: var(--brass-2); }
+.connect h2 { margin: 4px 0 8px; font-size: 34px; }
+.model-side { display: flex; flex-direction: column; gap: 8px; }
+#model-reply { white-space: pre-wrap; min-height: 2.6em; }
 .hero h2 { margin: 6px 0 8px; font-size: 40px; line-height: 1.25; }
 .lede { max-width: 62ch; margin: 0 0 16px; font-size: 17px; }
 .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 16px; }
@@ -536,6 +540,8 @@ html[data-density="compact"] .dropwell { padding: 8px 12px; }
   .stage { padding: 6px 14px 28px; }
   .export-slip { margin: 0 14px 10px; }
   .hero h2 { font-size: 30px; }
+  .connect { grid-template-columns: 1fr; }
+  .connect h2 { font-size: 28px; }
   .grid-2 { grid-template-columns: 1fr; }
   .stats, .cast { grid-template-columns: 1fr 1fr; }
 }

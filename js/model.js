@@ -15,6 +15,21 @@
     return merged;
   }
 
+  let catalog = [];
+
+  function apiRoot(baseUrl) {
+    return String(baseUrl || '').trim().replace(/\/$/, '').replace(/\/chat\/completions$/, '').replace(/\/models$/, '');
+  }
+
+  function modelsFromPayload(data) {
+    const list = Array.isArray(data) ? data : ((data && (data.data || data.models)) || []);
+    return list.map((item) => {
+      if (typeof item === 'string') return item.trim();
+      if (!item || typeof item !== 'object') return '';
+      return String(item.id || item.name || item.model || '').trim();
+    }).filter(Boolean);
+  }
+
   function configured() {
     const cfg = load();
     return !!(cfg.baseUrl && cfg.model && cfg.key);
@@ -56,7 +71,7 @@
   async function complete(messages) {
     const cfg = load();
     if (!cfg.baseUrl || !cfg.model || !cfg.key) {
-      const error = new Error('先在设置里填写接口地址、模型名和密钥。密钥只留在这台浏览器。');
+      const error = new Error('先在总览连接，并选一个模型。密钥只留在这台浏览器。');
       error.code = 'no-model';
       throw error;
     }
@@ -229,6 +244,25 @@
     });
   }
 
+  async function listModels() {
+    const cfg = load();
+    if (!cfg.baseUrl || !cfg.key) {
+      const error = new Error('先填写接口地址和密钥。密钥只留在这台浏览器。');
+      error.code = 'no-model';
+      throw error;
+    }
+    const response = await fetch(`${apiRoot(cfg.baseUrl)}/models`, {
+      headers: { Authorization: `Bearer ${cfg.key}` },
+    });
+    if (!response.ok) throw new Error(`模型列表返回 ${response.status}`);
+    catalog = modelsFromPayload(await response.json());
+    return catalog.slice();
+  }
+
+  async function testMessage(text) {
+    return String(await complete([{ role: 'user', content: text || '请只回复：收到' }]) || '');
+  }
+
   async function semanticFindings(character) {
     if (!configured()) return [];
     const raw = await complete([
@@ -239,5 +273,5 @@
     return parsed.findings || [];
   }
 
-  root.NIJANModel = { load, save, configured, allowsAdult, jsonMode, systemPrompt, mount, semanticFindings };
+  root.NIJANModel = { load, save, configured, allowsAdult, jsonMode, systemPrompt, mount, semanticFindings, listModels, testMessage, modelsFromPayload, rememberedModels: () => catalog.slice() };
 })(typeof globalThis !== 'undefined' ? globalThis : window);

@@ -494,8 +494,8 @@
       <label class="check"><input id="set-json" type="checkbox"> 书写时用 JSON 互转（默认关闭）</label>
       <p class="field-label">模型接口（密钥只留在这台浏览器）</p>
       <label class="field"><span class="field-label">地址</span><input id="set-base" type="text" placeholder="https://api.openai.com/v1"></label>
-      <label class="field"><span class="field-label">模型名</span><input id="set-model" type="text" placeholder="gpt-4o-mini"></label>
       <label class="field"><span class="field-label">密钥</span><input id="set-key" type="password" autocomplete="off"></label>
+      <p class="help">模型在总览里连接后选择，不用手填名称。</p>
       <label class="field"><span class="field-label">模型倾向</span><select id="set-profile"><option value="default">默认中文</option><option value="weak-zh">中文弱，用英文提示</option><option value="weak-en">英文弱，用中文提示</option><option value="strict">审核严，不含 18+</option></select></label>
       <label class="field"><span class="field-label">${tr('界面字号')}</span><input id="set-scale" type="range" min="0.9" max="1.2" step="0.05"></label>
       <label class="field"><span class="field-label">${tr('间距')}</span>
@@ -508,7 +508,6 @@
     host.querySelector('#set-json').checked = !!prefs.jsonMode;
     const model = root.NIJANModel ? root.NIJANModel.load() : { baseUrl: '', model: '', key: '', profile: 'default' };
     host.querySelector('#set-base').value = model.baseUrl || '';
-    host.querySelector('#set-model').value = model.model || '';
     host.querySelector('#set-key').value = model.key || '';
     host.querySelector('#set-profile').value = model.profile || 'default';
     host.querySelector('#set-scale').value = String(prefs.scale || 1);
@@ -525,7 +524,6 @@
       if (root.NIJANModel) {
         root.NIJANModel.save({
           baseUrl: host.querySelector('#set-base').value.trim(),
-          model: host.querySelector('#set-model').value.trim(),
           key: host.querySelector('#set-key').value,
           profile: host.querySelector('#set-profile').value,
         });
@@ -536,7 +534,6 @@
     host.querySelector('#set-teach').onchange = commit;
     host.querySelector('#set-json').onchange = commit;
     host.querySelector('#set-base').oninput = commit;
-    host.querySelector('#set-model').oninput = commit;
     host.querySelector('#set-key').oninput = commit;
     host.querySelector('#set-profile').onchange = commit;
     host.querySelector('#set-scale').oninput = commit;
