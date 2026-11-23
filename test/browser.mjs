@@ -380,6 +380,17 @@ try {
   })`);
   check('supplement reaches model', writing.obvious && writing.seen.includes('女主外貌') && writing.progress.includes('写完'), JSON.stringify(writing));
 
+  const entryName = await evaluate(`(() => {
+    const data = NIJANStudio.draft();
+    data.bookName = '外貌书';
+    data.bookText = '条目名：\\n关键词：眼睛\\n正文：眼睛是很淡的茶色。';
+    NIJANStudio.importLive();
+    const book = TAUI.state.lib.worldBooks.find((item) => item.id === 'ai_book');
+    const entry = book.entries[0];
+    return { comment: entry.comment, keys: entry.keys.join(','), content: entry.content };
+  })()`);
+  check('world entry has a name', entryName.comment.startsWith('眼睛是很淡的茶色') && entryName.comment !== '未命名' && entryName.keys === '眼睛' && entryName.content === '眼睛是很淡的茶色。', JSON.stringify(entryName));
+
   const writerSettings = await evaluate(`(() => {
     document.querySelector('[data-shell="settings"]').click();
     const adult = document.querySelector('#set-adult');
