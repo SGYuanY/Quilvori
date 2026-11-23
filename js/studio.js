@@ -5,6 +5,7 @@
       brief: '',
       supplement: '',
       progress: '还没开始写。',
+      progressRatio: 0,
       writing: false,
       questions: [],
       answers: [],
@@ -34,6 +35,8 @@
       scriptName: '',
       scriptText: '',
       check: '',
+      backupNote: '',
+      memoryHtml: '',
       classes: null,
       classNote: '',
       entryEdit: '',
@@ -52,11 +55,23 @@
     { id: 'book', label: '角色书' },
   ];
 
+  const DRAFT_KEY = 'nijan-studio-draft';
+
   function draft() {
     const ui = root.TAUI;
-    if (!ui.state.studio) ui.state.studio = emptyDraft();
+    if (!ui.state.studio) {
+      let saved = null;
+      try { saved = JSON.parse(sessionStorage.getItem(DRAFT_KEY) || 'null'); } catch (error) { saved = null; }
+      ui.state.studio = Object.assign(emptyDraft(), saved && typeof saved === 'object' ? saved : {});
+    }
     return ui.state.studio;
   }
+
+  function persistDraft() {
+    try { sessionStorage.setItem(DRAFT_KEY, JSON.stringify(draft())); } catch (error) { /* 这一次打开里记不下就只留在内存 */ }
+  }
+
+  window.addEventListener('pagehide', persistDraft);
 
   function liveOn() {
     const prefs = root.TAI18n && root.TAI18n.prefs;
@@ -393,6 +408,8 @@
     ui.state.sel.script = script.id;
 
     lib.settings.modelCheck = data.check || '';
+    if (String(data.memoryHtml || '').trim()) lib.memoryHtml = data.memoryHtml;
+    if (String(data.backupNote || '').trim()) lib.settings.backupNote = data.backupNote;
     ui.state.sel.checkChar = 'ai_card';
     ui.state.sel.checkBook = 'ai_book';
     ui.markDirty();
@@ -464,6 +481,7 @@
   function render(stage) {
     const ui = root.TAUI;
     const data = draft();
+    persistDraft();
     const esc = ui.esc;
     const area = (label, path, value, rows) => `<label class="field"><span class="field-label">${esc(label)}</span><textarea data-path="${path}" rows="${rows || 4}">${esc(value || '')}</textarea></label>`;
     const text = (label, path, value) => `<label class="field"><span class="field-label">${esc(label)}</span><input data-path="${path}" type="text" value="${esc(value || '')}"></label>`;
@@ -501,7 +519,7 @@
       </section>
       <section class="studio-live paper">
         <label class="field"><span class="field-label">写的时候补充</span><input id="studio-more" data-path="supplement" type="text" value="${esc(data.supplement || '')}" placeholder="例如：女主外貌"></label>
-        <div class="studio-status"><span class="tide" id="studio-tide" style="--p:${data.progress && data.progress.indexOf('写完') === 0 ? 1 : 0}"></span><p id="studio-progress" class="studio-progress${data.writing ? '' : ' done'}">${esc(data.progress || '还没开始写。')}</p><span class="bell${data.progress && data.progress.indexOf('写完') === 0 ? ' on' : ''}" id="studio-bell" aria-hidden="true"></span></div>
+        <div class="studio-status"><span class="tide" id="studio-tide" style="--p:${Number(data.progressRatio) || 0}"></span><p id="studio-progress" class="studio-progress${data.writing ? '' : ' done'}">${esc(data.progress || '还没开始写。')}</p><span class="bell${!data.writing && Number(data.progressRatio) >= 1 ? ' on' : ''}" id="studio-bell" aria-hidden="true"></span></div>
       </section>
       <div id="studio-scan"></div>
       <section class="studio-results"${data.writing ? '' : ' hidden'}>
@@ -512,11 +530,13 @@
       <article class="studio-col paper"><h3>群聊卡司</h3>${text('群名', 'groupName', data.groupName)}${area('情景', 'groupScenario', data.groupScenario, 4)}</article>
       <article class="studio-col paper"><h3>聊天阅览</h3>${text('标题', 'chatName', data.chatName)}${area('对白', 'chatText', data.chatText, 6)}<p class="help">一行一句：名字：话。自己说用「我：」。</p></article>
       <article class="studio-col paper"><h3>素材库</h3>${text('名称', 'assetName', data.assetName)}<label class="field"><span class="field-label">种类</span><select data-path="assetKind"><option value="expression"${data.assetKind === 'expression' ? ' selected' : ''}>表情</option><option value="avatar"${data.assetKind === 'avatar' ? ' selected' : ''}>头像</option><option value="background"${data.assetKind === 'background' ? ' selected' : ''}>背景</option></select></label>${area('说明', 'assetNote', data.assetNote, 3)}</article>
-      <article class="studio-col paper"><h3>正则</h3>${text('名称', 'regexName', data.regexName)}${text('查找', 'regexFind', data.regexFind)}${text('替换', 'regexReplace', data.regexReplace)}</article>
-      <article class="studio-col paper"><h3>快捷回复</h3>${text('套名', 'quickName', data.quickName)}${area('回复', 'quickText', data.quickText, 5)}<p class="help">一行一条：标签：内容</p></article>
-      <article class="studio-col paper"><h3>作者注与情景时间线</h3>${area('作者注', 'noteText', data.noteText, 4)}${area('情节', 'beatText', data.beatText, 4)}<p class="help">一行一条：标题：内容</p></article>
-      <article class="studio-col paper"><h3>角色关系图</h3>${area('人物', 'graphNodes', data.graphNodes, 4)}${area('关系', 'graphEdges', data.graphEdges, 4)}<p class="help">人物一行一个。关系写成「甲 -> 乙：关系」。</p></article>
-      <article class="studio-col paper"><h3>群聊剧本</h3>${text('剧本名', 'scriptName', data.scriptName)}${area('句子', 'scriptText', data.scriptText, 6)}<p class="help">一行一句：旁白：句子，或角色名：句子。</p></article>
+      <details class="studio-fold"><summary>正则</summary><article class="studio-col paper"><h3>正则</h3>${text('名称', 'regexName', data.regexName)}${text('查找', 'regexFind', data.regexFind)}${text('替换', 'regexReplace', data.regexReplace)}</article></details>
+      <details class="studio-fold"><summary>快捷回复</summary><article class="studio-col paper"><h3>快捷回复</h3>${text('套名', 'quickName', data.quickName)}${area('回复', 'quickText', data.quickText, 5)}<p class="help">一行一条：标签：内容</p></article></details>
+      <details class="studio-fold"><summary>作者注</summary><article class="studio-col paper"><h3>作者注与情景时间线</h3>${area('作者注', 'noteText', data.noteText, 4)}${area('情节', 'beatText', data.beatText, 4)}<p class="help">一行一条：标题：内容</p></article></details>
+      <details class="studio-fold"><summary>关系图</summary><article class="studio-col paper"><h3>角色关系图</h3>${area('人物', 'graphNodes', data.graphNodes, 4)}${area('关系', 'graphEdges', data.graphEdges, 4)}<p class="help">人物一行一个。关系写成「甲 -> 乙：关系」。</p></article></details>
+      <details class="studio-fold"><summary>剧本</summary><article class="studio-col paper"><h3>群聊剧本</h3>${text('剧本名', 'scriptName', data.scriptName)}${area('句子', 'scriptText', data.scriptText, 6)}<p class="help">一行一句：旁白：句子，或角色名：句子。</p></article></details>
+      <details class="studio-fold"><summary>备份</summary><article class="studio-col paper"><h3>整库备份</h3>${area('备份说明', 'backupNote', data.backupNote, 4)}</article></details>
+      <details class="studio-fold"><summary>HTML 记忆</summary><article class="studio-col paper"><h3>HTML 记忆</h3>${area('记忆 HTML', 'memoryHtml', data.memoryHtml, 6)}</article></details>
       <article class="studio-col paper"><h3>人设一致性检查</h3>${area('判断', 'check', data.check, 6)}<button type="button" class="btn" id="studio-judge">让模型看逻辑</button><p class="help">空字段和关键词仍在一致性页里查。这里是模型读完全稿后的判断。</p></article>
       </section>
     </div>`;
@@ -533,6 +553,7 @@
       const eventName = node.tagName === 'SELECT' ? 'change' : 'input';
       node.addEventListener(eventName, () => {
         setPath(draft(), node.dataset.path, node.value);
+        persistDraft();
         importLive();
         if (node.dataset.path === 'brief' || node.dataset.path === 'supplement') paintScan();
       });
@@ -569,13 +590,15 @@
     const showProgress = (text, writing, ratio) => {
       draft().progress = text;
       draft().writing = writing;
+      draft().progressRatio = ratio == null ? (writing ? 0.2 : 0) : ratio;
+      persistDraft();
       const node = stage.querySelector('#studio-progress');
       if (node) {
         node.textContent = text;
         node.classList.toggle('done', !writing);
       }
       const tide = stage.querySelector('#studio-tide');
-      if (tide) tide.style.setProperty('--p', String(ratio == null ? (writing ? 0.2 : 0) : ratio));
+      if (tide) tide.style.setProperty('--p', String(draft().progressRatio));
       const bell = stage.querySelector('#studio-bell');
       if (bell) bell.classList.toggle('on', !writing && ratio >= 1);
       const results = stage.querySelector('.studio-results');
@@ -682,16 +705,16 @@
         render(stage);
       } catch (error) { ui.toast(error.message || '分类没有完成'); }
     };
-    stage.querySelector('#entry-edit').oninput = (event) => { draft().entryEdit = event.target.value; };
+    stage.querySelector('#entry-edit').oninput = (event) => { draft().entryEdit = event.target.value; persistDraft(); };
     stage.querySelector('#entry-rewrite').onclick = async () => {
       if (!needModel()) return;
       const instruction = stage.querySelector('#entry-edit').value.trim();
       if (!instruction) { ui.toast('先写下要怎么改这些条目'); return; }
       if (!parseEntries(draft().bookText).length) { ui.toast('先导入一本世界书'); return; }
       try {
-        showProgress('正在改条目…', true);
+        showProgress('正在改条目…', true, 0.6);
         await rewriteEntries(instruction);
-        showProgress('条目改完了', false);
+        showProgress('条目改完了', false, 1);
         render(stage);
       } catch (error) {
         showProgress(`没改完：${error.message || '模型没有返回'}`, false);

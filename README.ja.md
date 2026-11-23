@@ -1,12 +1,14 @@
-# 织境
+![Realmweave](img/mark.svg)
 
-[中文](README.md) · [English](README.en.md) · 日本語
+# Realmweave
 
-![织境](img/mark.svg)
+织境
 
 ひとつの想いから、人物と世界を書く。
 
-英語名は Realmweave。SillyTavern 用の素材をローカルで書く工房です。SillyTavern の代わりにはなりません。原稿はブラウザに残ります。書き出したファイルは SillyTavern が読み込め、SillyTavern から書き出したファイルも読めます。モデルの鍵はこのブラウザのローカルストレージだけに残します。リポジトリにも、書き出した原稿にも入りません。
+[中文](README.md) · [English](README.en.md) · 日本語
+
+SillyTavern 用の素材をローカルで書く工房です。SillyTavern の代わりにはなりません。原稿はブラウザに残ります。書き出したファイルは SillyTavern が読み込め、SillyTavern から書き出したファイルも読めます。モデルの鍵はこのブラウザのローカルストレージだけに残します。リポジトリにも、書き出した原稿にも入りません。
 
 ## 開く
 

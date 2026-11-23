@@ -1,12 +1,14 @@
+![Realmweave](img/mark.svg)
+
 # Realmweave
 
-[中文](README.md) · English · [日本語](README.ja.md)
-
-![Realmweave](img/mark.svg)
+织境
 
 From a single thought, write the people and the world.
 
-Chinese name: 织境. A local workshop for SillyTavern material. It does not replace SillyTavern. Drafts stay in the browser. Exports are files SillyTavern can import, and files SillyTavern exports can be read back. The model key stays in this browser's local storage. It is not committed and it is not written into exported drafts.
+[中文](README.md) · English · [日本語](README.ja.md)
+
+A local workshop for SillyTavern material. It does not replace SillyTavern. Drafts stay in the browser. Exports are files SillyTavern can import, and files SillyTavern exports can be read back. The model key stays in this browser's local storage. It is not committed and it is not written into exported drafts.
 
 ## Open
 
