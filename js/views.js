@@ -309,7 +309,9 @@
       ${hint(galleryOn ? '点卡片进入编辑。复制会另存一张，原来的还在。工具栏的导出作用于当前选中的卡。' : '点「画廊」看全部卡片，或点上方名字切换。新建、导入 JSON 或 PNG（也可拖进来），或复制一张再改。导出前可选附带世界书，选中的书会放进 character_book。')}
     </div>
     ${UI.picker(list, character && character.id, (item) => (item.tags || []).slice(0, 3).join(' · '))}
+    <div id="card-ai"></div>
     <div id="char-body"></div>`;
+    mountAiBar(stage.querySelector('#card-ai') || stage, 'card');
     const body = stage.querySelector('#char-body');
     UI.bindPicker(stage, (id) => { UI.state.sel.character = id; UI.renderStage(); });
     stage.querySelector('[data-act="view-gallery"]').onclick = () => { UI.state.cardView = 'gallery'; UI.renderStage(); };
@@ -543,6 +545,7 @@
       <div id="lore-hits"></div>
       <div id="lore-lesson"></div>
       <div id="book-import"></div>
+      <div id="lore-ai"></div>
     </div>
     <div class="board-layout">
       <div class="board">${F.POSITIONS.map((position) => `<section class="column"><h3>${position.label}</h3>${entries.filter((item) => item.position === position.id).map((item) => `<article class="entry${item.id === (entry && entry.id) ? ' on' : ''}${item.enabled ? '' : ' off'}" data-id="${UI.esc(item.id)}"><b>${UI.esc(item.comment || '未命名')}</b><p>${UI.esc((item.keys || []).join(' / ') || '无关键词')}</p><div class="row"><span class="muted">${item.constant ? '恒定' : '触发'}</span><button type="button" class="btn btn-small" data-toggle="${UI.esc(item.id)}">${item.enabled ? '启用' : '停用'}</button></div></article>`).join('') || '<p class="dark-muted">空</p>'}</section>`).join('')}</div>
@@ -730,6 +733,7 @@
     paintHits();
     showReading(stage.querySelector('#book-import'), UI.t('import.bookTitle'), UI.state.bookImportId === book.id ? F.explainBook(book) : null);
     stage.querySelector('#book-drop-btn').onclick = () => importBook();
+    mountAiBar(stage.querySelector('#lore-ai') || stage, 'book');
     stage.querySelector('#lore-undo').onclick = () => {
       const prev = loreUndo.pop();
       if (!prev) { UI.toast('没有可撤销的世界书修改'); return; }
@@ -1205,6 +1209,7 @@
       <button type="button" class="btn btn-danger" id="del-rx" ${script ? '' : 'disabled'}>删除</button>
       ${hint('新建或导入酒馆的正则 JSON。导出的仍是原来的数组。右侧按顺序讲每一截；试一句会标出匹配、分组、替换和没吃到的字。')}
     </div>${UI.picker(list, script && script.id, (item) => (item.disabled ? '停用' : '启用'))}<div id="rx-body"></div>`;
+    mountPageAssist(stage, 'regex');
     UI.bindPicker(stage, (id) => { UI.state.sel.regex = id; UI.renderStage(); });
     stage.querySelector('#new-rx').onclick = () => {
       const created = { id: Store.uid('rx'), scriptName: '新脚本', findRegex: '', replaceString: '', trimStrings: [], placement: [2], disabled: false, markdownOnly: false, promptOnly: false, runOnEdit: false, substituteRegex: 0, minDepth: null, maxDepth: null };
@@ -1316,6 +1321,7 @@
       <button type="button" class="btn btn-danger" id="del-qr" ${set ? '' : 'disabled'}>删除</button>
       ${hint('一套里有多条短句。导出为 Quick Reply v2；每条颜色记在 atelierColor。点「复制内容」只复制句子。')}
     </div>${UI.picker(sets, set && set.id, (item) => `${item.replies.length} 条`)}<div id="qr-body"></div>`;
+    mountPageAssist(stage, 'quick');
     UI.bindPicker(stage, (id) => { UI.state.sel.qr = id; UI.renderStage(); });
     stage.querySelector('#new-qr').onclick = () => {
       const created = { id: Store.uid('qrset'), name: '新的快捷回复', replies: [] };
@@ -1394,6 +1400,7 @@
       <button type="button" class="btn btn-primary" id="export-tl">导出 JSON</button>
       ${hint('注记钉在某一楼，情节是节拍。点一条再改标题和楼层。')}
     </div><div class="work"><div><div id="tl-lesson"></div><div class="timeline" id="tl"></div></div><div id="tl-editor"></div></div>`;
+    mountPageAssist(stage, 'timeline');
     const paintTimelineLesson = () => {
       const notes = lib.timeline.notes || [];
       const beats = lib.timeline.beats || [];
@@ -1470,6 +1477,7 @@
       <button type="button" class="btn btn-primary" id="export-graph">导出为世界书</button>
       ${hint('先从角色同步人物，再拖圆点。右侧选起点终点并写上关系。')}
     </div><div class="work"><div class="graph-wrap"><svg id="graph-svg" viewBox="0 0 800 560"></svg></div><div class="graph-side paper" id="graph-side"></div></div>`;
+    mountPageAssist(stage, 'graph');
     const svg = stage.querySelector('#graph-svg');
     const paint = () => {
       const edges = graphData.edges.map((edge) => {
@@ -1697,6 +1705,7 @@
       <button type="button" class="btn btn-danger" id="del-script" ${current ? '' : 'disabled'}>删除</button>
       ${hint('选说话的人再写句子。触发词可留空。上移、下移改顺序，右侧是预览。')}
     </div>${UI.picker(scripts, current && current.id, (item) => `${item.beats.length} 拍`)}<div id="script-body"></div>`;
+    mountPageAssist(stage, 'script');
     UI.bindPicker(stage, (id) => { UI.state.sel.script = id; UI.renderStage(); });
     stage.querySelector('#new-script').onclick = () => {
       const created = { id: Store.uid('script'), name: '新剧本', beats: [{ id: Store.uid('sb'), speaker: 'narrator', line: '', trigger: '' }] };
@@ -1780,6 +1789,7 @@
       <button type="button" class="btn btn-danger" id="backup-clear">清空库</button>
       ${hint('导出一份带日期的 JSON。恢复时可把文件拖进来，再选替换或合并。')}
     </div>
+    <p class="help" id="backup-note">${UI.esc((lib.settings && lib.settings.backupNote) || '')}</p>
     <div class="paper">
       <p class="eyebrow">LIBRARY</p>
       <h2>${UI.esc(lib.meta.name || '我的酒馆库')}</h2>
@@ -1787,6 +1797,7 @@
       <div class="stats">${rows.map(([label, count]) => `<div class="stat"><b>${count}</b><span>${label}</span></div>`).join('')}</div>
       <p class="help">恢复时可以整份替换，或按编号合并。合并时同一编号以备份为准。</p>
     </div>`;
+    mountPageAssist(stage, 'backup');
     async function restoreFile(file) {
       if (!file) return;
       try {
@@ -2162,6 +2173,7 @@
         </div>
         ${UI.field('记忆 HTML', `<textarea id="memory-html" rows="14">${UI.esc(lib.memoryHtml)}</textarea>`)}
         <p class="help">这里写或贴 SillyTavern 记忆扩展用来显示的 HTML 面板。预览在下方，脚本跑在隔离框里。</p>
+        <div id="memory-assist"></div>
       </section>
       <section class="paper">
         <h3>预览</h3>
@@ -2177,6 +2189,7 @@
     const paint = () => { frame.srcdoc = area.value || '<p></p>'; };
     area.addEventListener('input', () => { lib.memoryHtml = area.value; UI.markDirty(); paint(); });
     paint();
+    mountPageAssist(stage, 'memory');
     stage.querySelector('#memory-import').onclick = async () => {
       const file = await UI.pickFile('.html,.json,text/html,application/json');
       if (!file) return;
@@ -2202,8 +2215,156 @@
     };
   }
 
+  function paintFindings(host, findings) {
+    if (!host) return;
+    const buckets = { empty: [], name: [], rule: [], model: [] };
+    findings.forEach((item) => {
+      const title = String(item.title || '');
+      const bucket = /空|empty/i.test(title) ? 'empty' : /名|typo|发色|瞳/i.test(title) ? 'name' : /模型|语义/.test(title) ? 'model' : 'rule';
+      buckets[bucket].push(item);
+    });
+    const block = (key, label) => `<section><h4>${UI.t(label)}</h4>${buckets[key].length ? buckets[key].map((item) => `<p><strong>${UI.esc(UI.t(item.severity === 'error' ? '冲突' : item.severity === 'warn' ? '存疑' : '备注'))}</strong> ${UI.esc(UI.t(item.title))}。${UI.esc(UI.t(item.detail || ''))}</p>`).join('') : `<p class="help">${UI.t('这里还没有。')}</p>`}</section>`;
+    host.innerHTML = `${block('empty', '空栏')}${block('name', '名字与笔误')}${block('rule', '恒定规矩')}${block('model', '模型判断')}`;
+  }
+
+  async function runPersona(host, character, bookId) {
+    if (!character) { UI.toast('先有一张角色卡'); return; }
+    const findings = F.checkConsistency(UI.state.lib, character.id, bookId || null);
+    paintFindings(host, findings);
+  }
+
+  async function runLogic(host, character, book) {
+    if (!root.NIJANModel || !root.NIJANModel.configured()) { UI.toast('先在总览连接模型，并选一个。'); return; }
+    const findings = [];
+    if (character && root.NIJANModel.semanticFindings) {
+      const extra = await root.NIJANModel.semanticFindings(character);
+      (extra || []).forEach((item) => findings.push({ severity: 'warn', title: item.title || '语义', detail: item.detail || '' }));
+    }
+    if (book) {
+      const result = await root.NIJANModel.askJson('读这些世界书条目，按空栏、互相矛盾、关键词问题分类。只回 JSON：{"items":[{"title":"...","detail":"...","bucket":"empty|name|rule|model"}]}。', { name: book.name, entries: (book.entries || []).map((entry) => ({ name: entry.comment, keys: entry.keys, content: entry.content })) });
+      (result.items || []).forEach((item) => findings.push({ severity: 'warn', title: item.bucket === 'model' ? '语义' : (item.title || '逻辑'), detail: item.detail || '' }));
+    }
+    paintFindings(host, findings);
+  }
+
+  async function fillGaps(character) {
+    if (!character) { UI.toast('先有一张角色卡'); return; }
+    if (!root.NIJANModel || !root.NIJANModel.configured()) { UI.toast('先在总览连接模型，并选一个。'); return; }
+    const fields = ['description', 'personality', 'scenario', 'first_mes', 'mes_example', 'system_prompt', 'creator_notes'];
+    const labels = { description: '描述', personality: '性格', scenario: '情景', first_mes: '开场白', mes_example: '示例对话', system_prompt: '系统提示', creator_notes: '作者注' };
+    const empty = fields.filter((key) => !String(character[key] || '').trim());
+    if (!empty.length) { UI.toast('这张卡的栏都有字'); return; }
+    const result = await root.NIJANModel.askJson(`只从这张卡已有的文字里，把内容归进这些空栏：${empty.map((key) => labels[key]).join('、')}。不要新编情节。只回 JSON，键用这些英文栏名。`, character);
+    const lines = empty.map((key) => `${labels[key]}：${result[key] ? String(result[key]) : '（空）'}`);
+    const answer = await UI.ask({ title: '缺栏归类', body: lines.join('\n'), actions: [{ id: 'no', label: '放弃' }], swipe: '滑开写入角色卡' });
+    if (answer !== 'yes') return;
+    empty.forEach((key) => { if (result[key]) character[key] = String(result[key]); });
+    character.updatedAt = stamp();
+    UI.markDirty();
+    UI.renderStage();
+  }
+
+  function mountAiBar(stage, page) {
+    if (!stage || stage.querySelector('.ai-toolbar')) return;
+    const host = document.createElement('section');
+    host.className = 'paper stack ai-toolbar';
+    host.innerHTML = `<div class="row"><button type="button" class="btn" data-ai="persona">${UI.t('人设检查')}</button><button type="button" class="btn" data-ai="logic">${UI.t('逻辑检查')}</button><button type="button" class="btn" data-ai="gaps">${UI.t('缺栏归类')}</button></div><div class="ai-check-grid" data-ai-out></div>`;
+    const toolbar = stage.querySelector('.toolbar');
+    if (toolbar) toolbar.insertAdjacentElement('afterend', host);
+    else stage.prepend(host);
+    const out = host.querySelector('[data-ai-out]');
+    const character = () => UI.charById(UI.state.sel.character) || (UI.state.lib.characters || [])[0] || null;
+    const book = () => (UI.state.lib.worldBooks || []).find((item) => item.id === UI.state.sel.book) || (UI.state.lib.worldBooks || [])[0] || null;
+    host.querySelector('[data-ai="persona"]').onclick = () => runPersona(out, character(), page === 'book' ? (book() && book().id) : null);
+    host.querySelector('[data-ai="logic"]').onclick = () => runLogic(out, character(), page === 'card' ? null : book()).catch((error) => UI.toast(error.message));
+    host.querySelector('[data-ai="gaps"]').onclick = () => fillGaps(character()).catch((error) => UI.toast(error.message));
+  }
+
+  function mountPageAssist(stage, kind) {
+    if (!stage || stage.querySelector('.ai-assist')) return;
+    const titles = { regex: '正则辅助', quick: '快捷回复辅助', timeline: '作者注与时间线辅助', graph: '关系图辅助', script: '剧本辅助', backup: '备份辅助', memory: 'HTML 记忆辅助' };
+    const box = document.createElement('section');
+    box.className = 'paper stack ai-assist';
+    box.innerHTML = `<h3>${UI.t(titles[kind] || 'AI 辅助')}</h3><p class="help">${UI.t('写下想要的效果。模型写完后，滑开才会写入这一页。')}</p><textarea rows="3" data-assist placeholder="${UI.t('例如：写一条把引号收成直角的正则')}"></textarea><button type="button" class="btn" data-assist-go>${UI.t('让模型写')}</button>`;
+    stage.prepend(box);
+    box.querySelector('[data-assist-go]').onclick = async () => {
+      if (!root.NIJANModel || !root.NIJANModel.configured()) { UI.toast('先在总览连接模型，并选一个。'); return; }
+      const note = box.querySelector('[data-assist]').value.trim();
+      try {
+        const result = await root.NIJANModel.askJson(assistTask(kind), { note, library: kind === 'backup' ? { characters: UI.state.lib.characters.length, books: UI.state.lib.worldBooks.length } : undefined });
+        const preview = JSON.stringify(result, null, 2).slice(0, 800);
+        const answer = await UI.ask({ title: titles[kind] || '写入', body: preview, actions: [{ id: 'no', label: '放弃' }], swipe: '滑开写入' });
+        if (answer !== 'yes') return;
+        applyAssist(kind, result);
+        UI.markDirty();
+        UI.renderStage();
+        UI.toast('已写入');
+      } catch (error) { UI.toast(error.message); }
+    };
+  }
+
+  function assistTask(kind) {
+    const tasks = {
+      regex: '写一条酒馆正则。只回 JSON：{"scriptName":"...","findRegex":"/.../g","replaceString":"..."}。',
+      quick: '写一套快捷回复。只回 JSON：{"name":"...","replies":[{"label":"...","message":"..."}]}。',
+      timeline: '写作者注和情节。只回 JSON：{"notes":[{"title":"...","body":"...","floor":0}],"beats":[{"title":"...","summary":"...","floor":0}]}。',
+      graph: '写人物和关系。只回 JSON：{"nodes":["甲","乙"],"edges":[{"from":"甲","to":"乙","label":"旧识"}]}。',
+      script: '写一出短剧本。只回 JSON：{"name":"...","beats":[{"speaker":"旁白","line":"...","trigger":""}]}。',
+      backup: '读库的规模，写一段备份说明，不要改库。只回 JSON：{"note":"..."}。',
+      memory: '写一块给 SillyTavern 酒馆助手用的 HTML 记忆面板。只回 JSON：{"html":"<section>...</section>"}。',
+    };
+    return tasks[kind] || tasks.memory;
+  }
+
+  function applyAssist(kind, result) {
+    const lib = UI.state.lib;
+    if (kind === 'regex') {
+      const created = { id: Store.uid('rx'), scriptName: result.scriptName || '新脚本', findRegex: result.findRegex || '', replaceString: result.replaceString || '', trimStrings: [], placement: [2], disabled: false, markdownOnly: false, promptOnly: false, runOnEdit: false, substituteRegex: 0, minDepth: null, maxDepth: null };
+      lib.regexScripts.unshift(created);
+      UI.state.sel.regex = created.id;
+    } else if (kind === 'quick') {
+      const created = { id: Store.uid('qrset'), name: result.name || '新的快捷回复', replies: (result.replies || []).map((reply) => ({ id: Store.uid('qr'), label: reply.label || '回复', message: reply.message || '', color: '#c6a15a', title: '' })) };
+      lib.quickReplySets.unshift(created);
+      UI.state.sel.qr = created.id;
+    } else if (kind === 'timeline') {
+      (result.notes || []).forEach((note) => lib.timeline.notes.unshift({ id: Store.uid('note'), floor: Number(note.floor) || 0, title: note.title || '注记', body: note.body || '' }));
+      (result.beats || []).forEach((beat, index) => lib.timeline.beats.unshift({ id: Store.uid('beat'), order: index + 1, title: beat.title || '情节', summary: beat.summary || '', floor: Number(beat.floor) || 0 }));
+    } else if (kind === 'graph') {
+      const ids = {};
+      (result.nodes || []).forEach((label, index) => {
+        const id = Store.uid('node');
+        ids[label] = id;
+        lib.graph.nodes.push({ id, characterId: null, label: String(label), x: 120 + (index % 4) * 160, y: 120 + Math.floor(index / 4) * 120 });
+      });
+      (result.edges || []).forEach((edge) => {
+        if (!ids[edge.from] || !ids[edge.to]) return;
+        lib.graph.edges.push({ id: Store.uid('edge'), from: ids[edge.from], to: ids[edge.to], label: edge.label || '关系', note: '' });
+      });
+    } else if (kind === 'script') {
+      const created = { id: Store.uid('script'), name: result.name || '新剧本', beats: (result.beats || []).map((beat) => ({ id: Store.uid('sb'), speaker: beat.speaker === '旁白' ? 'narrator' : 'narrator', line: beat.line || '', trigger: beat.trigger || '' })) };
+      (result.beats || []).forEach((beat, index) => {
+        const known = lib.characters.find((item) => item.name === beat.speaker);
+        created.beats[index].speaker = beat.speaker === '旁白' || !known ? 'narrator' : known.id;
+      });
+      lib.scripts.unshift(created);
+      UI.state.sel.script = created.id;
+    } else if (kind === 'backup') {
+      if (!lib.settings) lib.settings = {};
+      lib.settings.backupNote = String(result.note || '');
+    } else if (kind === 'memory') {
+      lib.memoryHtml = String(result.html || '');
+    }
+  }
+
   function studio(stage) {
     if (root.NIJANStudio) root.NIJANStudio.render(stage);
+    const logic = document.createElement('details');
+    logic.className = 'paper studio-logic';
+    logic.innerHTML = `<summary>${UI.t('逻辑检查')}</summary><div id="studio-ai-host"></div>`;
+    const live = stage.querySelector('.studio-live');
+    if (live) live.insertAdjacentElement('afterend', logic);
+    const host = logic.querySelector('#studio-ai-host');
+    if (host) mountAiBar(host, 'studio');
   }
 
   UI.mount({

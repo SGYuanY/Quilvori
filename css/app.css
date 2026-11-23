@@ -326,6 +326,13 @@ label.stretch input:checked::after { transform: translateX(32px); }
 .studio { display: flex; flex-direction: column; gap: 16px; }
 .studio-compose { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(220px, 0.8fr) minmax(220px, 0.8fr); gap: 14px; align-items: stretch; }
 .studio-results { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-items: start; }
+.studio-fold { grid-column: 1 / -1; border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; background: rgba(255,255,255,0.03); }
+.studio-fold summary { cursor: pointer; font-family: var(--serif); letter-spacing: 0.06em; }
+.studio-logic { margin: 12px 0; }
+.ai-toolbar { margin: 8px 0 14px; }
+.ai-check-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 8px; }
+.ai-check-grid h4 { margin: 0 0 4px; font-size: 14px; }
+.ai-assist { margin-bottom: 12px; }
 .studio-results[hidden] { display: none; }
 .studio-start, .studio-scan { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }
 .part-grid { display: flex; flex-wrap: wrap; gap: 8px 14px; margin: 8px 0 12px; }
@@ -393,8 +400,7 @@ label.stretch input:checked::after { transform: translateX(32px); }
   padding: 10px;
   transition: margin 180ms ease, transform 180ms ease;
 }
-.column:not(:hover):not(:has(.entry.on)) .entry + .entry { margin-top: -46px; }
-.column:hover .entry, .column:has(.entry.on) .entry { margin-top: 0; }
+.entry + .entry { margin-top: 8px; }
 .entry .btn { color: var(--ink); border-color: rgba(255, 255, 255, 0.16); }
 .entry.on { box-shadow: inset 0 0 0 1.5px var(--brass); }
 .entry.off { opacity: 0.55; }
@@ -492,10 +498,16 @@ input[type="color"] { width: 46px; height: 32px; padding: 0; border: 0; backgrou
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: 4px;
+  margin: 6px 0 12px;
+  min-height: 22px;
   color: var(--ink-soft);
   font-size: 12px;
+  line-height: 1.4;
+  position: relative;
+  z-index: 1;
 }
+.len span { white-space: nowrap; flex: 0 0 auto; }
+.len .odo { display: inline-block; min-width: 2.2em; font-variant-numeric: tabular-nums; text-align: right; }
 .len i {
   display: block;
   width: 72px;
