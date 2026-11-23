@@ -3,6 +3,9 @@
   function emptyDraft() {
     return {
       brief: '',
+      supplement: '',
+      progress: '还没开始写。',
+      writing: false,
       questions: [],
       answers: [],
       ideas: [],
@@ -230,6 +233,7 @@
     const data = draft();
     return {
       brief: data.brief,
+      supplement: data.supplement || '',
       answers: data.questions.map((question, index) => ({ question, answer: data.answers[index] || '' })),
       accepted: data.ideas.filter((idea) => idea.status === 'yes').map((idea) => idea.text),
       rejected: data.ideas.filter((idea) => idea.status === 'no').map((idea) => idea.text),
@@ -303,6 +307,10 @@
         <article class="studio-col paper"><h3>追问</h3>${questions}</article>
         <article class="studio-col paper"><h3>灵感</h3>${ideas}</article>
       </section>
+      <section class="studio-live paper">
+        <label class="field"><span class="field-label">写的时候补充</span><input id="studio-more" data-path="supplement" type="text" value="${esc(data.supplement || '')}" placeholder="例如：女主外貌"></label>
+        <p id="studio-progress" class="studio-progress${data.writing ? '' : ' done'}">${esc(data.progress || '还没开始写。')}</p>
+      </section>
       <section class="studio-results">
       <article class="studio-col paper"><h3>段落预设</h3>${area('文风', 'sections.style', data.sections.style, 3)}${area('人称和视角', 'sections.pov', data.sections.pov, 3)}${area('关系边界', 'sections.bond', data.sections.bond, 3)}${area('安全词', 'sections.safe', data.sections.safe, 2)}${area('输出格式', 'sections.format', data.sections.format, 2)}</article>
       <article class="studio-col paper"><h3>角色卡</h3>${text('名字', 'card.name', data.card.name)}${area('描述', 'card.description', data.card.description, 3)}${area('性格', 'card.personality', data.card.personality, 3)}${area('情景', 'card.scenario', data.card.scenario, 3)}${area('开场', 'card.first_mes', data.card.first_mes, 3)}${area('示例', 'card.mes_example', data.card.mes_example, 3)}${area('系统提示', 'card.system_prompt', data.card.system_prompt, 2)}</article>
@@ -355,23 +363,59 @@
         render(stage);
       } catch (error) { ui.toast(error.message); }
     };
+    const showProgress = (text, writing) => {
+      draft().progress = text;
+      draft().writing = writing;
+      const node = stage.querySelector('#studio-progress');
+      if (!node) return;
+      node.textContent = text;
+      node.classList.toggle('done', !writing);
+    };
+    const readSupplement = () => {
+      const input = stage.querySelector('#studio-more');
+      if (input) draft().supplement = input.value;
+      return String(draft().supplement || '').trim();
+    };
     stage.querySelector('#studio-write').onclick = async () => {
       if (!needModel()) return;
       const ideas = draft().ideas;
       if (!ideas.length || ideas.some((idea) => !idea.status)) { ui.toast('先要灵感，并接受或拒绝每一条'); return; }
+      const steps = [
+        ['正在写角色卡…', '只写 JSON 的 character 和 sections。把用户的补充写进对应字段。'],
+        ['正在写世界书…', '只写 JSON 的 world。entries 里每条都要有条目名、触发关键词和正文，条目名不能空。把用户的补充写进去。'],
+        ['正在写其余工坊…', '只写 JSON 的 prompt, group, chat, asset, regex, quick, timeline, graph, script, check。把用户的补充写进去。'],
+      ];
       try {
-        let result = await root.NIJANModel.askJson(WRITE_TASK, contextForModel());
-        if (result && result.unsure) {
-          const answer = await ui.ask({ title: '先停一下', body: result.question || '这里我没把握。', actions: [{ id: 'yes', label: '按这个继续', kind: 'btn-primary' }, { id: 'no', label: '先不写' }] });
-          if (answer !== 'yes') return;
-          draft().answers.push(result.question || '');
-          result = await root.NIJANModel.askJson(WRITE_TASK, contextForModel());
+        let sent = '';
+        for (const [label, task] of steps) {
+          showProgress(label, true);
+          const supplement = readSupplement();
+          sent = supplement;
+          let result = await root.NIJANModel.askJson(`${task} ${WRITE_TASK}`, Object.assign(contextForModel(), { supplement }));
+          if (result && result.unsure) {
+            showProgress('模型停下来问了一句', true);
+            const answer = await ui.ask({ title: '先停一下', body: result.question || '这里我没把握。', actions: [{ id: 'yes', label: '按这个继续', kind: 'btn-primary' }, { id: 'no', label: '先不写' }] });
+            if (answer !== 'yes') { showProgress('已停下', false); return; }
+            draft().answers.push(result.question || '');
+            result = await root.NIJANModel.askJson(`${task} ${WRITE_TASK}`, Object.assign(contextForModel(), { supplement: readSupplement() }));
+          }
+          applyModel(result || {});
+          importLive();
         }
-        applyModel(result || {});
-        importLive();
-        ui.toast(liveOn() ? '已写入各栏，并送进对应页面' : '已写在这一页。实时导入关着，所以还没送进工坊。');
+        const latest = readSupplement();
+        if (latest && latest !== sent) {
+          showProgress('正在写入补充…', true);
+          const revision = await root.NIJANModel.askJson('用户在写作过程中补充了内容。把补充写进已有稿子。只回需要改的 JSON。', Object.assign(contextForModel(), { supplement: latest }));
+          applyModel(revision || {});
+          importLive();
+        }
+        showProgress('写完了', false);
+        ui.toast(liveOn() ? '写完了，并送进对应页面' : '写完了。实时导入关着，所以还没送进工坊。');
         render(stage);
-      } catch (error) { ui.toast(error.message); }
+      } catch (error) {
+        showProgress(`没写完：${error.message || '模型没有返回'}`, false);
+        ui.toast(error.message);
+      }
     };
     stage.querySelector('#studio-judge').onclick = async () => {
       if (!needModel()) return;
