@@ -524,7 +524,7 @@
       const host = stage.querySelector('#studio-scan');
       if (!host) return;
       const split = splitEntries();
-      const card = (entry, checked) => `<article class="scan-entry check-item${checked ? ' checked' : ''}"><span class="tick" aria-hidden="true"></span><div><strong>${esc(entry.comment || '未命名')}</strong><p class="muted">${esc(entry.bookName || '')}${(entry.keys || []).length ? ` · 关键词 ${esc(entry.keys.join('、'))}` : ''}</p><p>${esc(String(entry.content || '').replace(/\s+/g, ' ').slice(0, 80))}</p>${entry.reason ? `<p class="help">${esc(entry.reason)}</p>` : ''}</div></article>`;
+      const card = (entry, checked) => `<article class="scan-entry check-item${checked ? ' checked' : ''}"><span class="tick" aria-hidden="true"></span><div><strong>${esc(entry.comment || '未命名')}</strong><p class="muted">${esc(entry.bookName || '')}${(entry.keys || []).length ? ` · ${ui.t('关键词')} ${esc(entry.keys.join('、'))}` : ''}</p><p>${esc(String(entry.content || '').replace(/\s+/g, ' ').slice(0, 80))}</p>${entry.reason ? `<p class="help">${esc(entry.reason)}</p>` : ''}</div></article>`;
       const column = (title, rows, checked) => `<article class="paper scan-col"><h3>${title}</h3>${rows.map((entry) => card(entry, checked)).join('') || '<p class="help">这里还没有。</p>'}</article>`;
       host.innerHTML = `${draft().classNote ? `<p class="help">${esc(draft().classNote)}</p>` : ''}<div class="studio-scan">${column('触发的', split.triggered, true)}${column('未触发的', split.idle, false)}</div>`;
     };
