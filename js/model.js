@@ -95,7 +95,7 @@
     return text;
   }
 
-  async function complete(messages) {
+  async function complete(messages, signal) {
     const cfg = load();
     if (!cfg.baseUrl || !cfg.model || !cfg.key) {
       const error = new Error('先在总览连接，并选一个模型。密钥只留在这台浏览器。');
@@ -105,6 +105,7 @@
     const url = cfg.baseUrl.replace(/\/$/, '').replace(/\/chat\/completions$/, '') + '/chat/completions';
     const response = await fetch(url, {
       method: 'POST',
+      signal,
       headers: { Authorization: `Bearer ${cfg.key}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ model: cfg.model, temperature: Number.isFinite(Number(cfg.temperature)) ? Number(cfg.temperature) : 0.7, messages }),
     });
@@ -280,11 +281,11 @@
     return catalog.slice();
   }
 
-  async function askJson(task, user) {
+  async function askJson(task, user, signal) {
     const raw = await complete([
       { role: 'system', content: systemPrompt(task) },
       { role: 'user', content: typeof user === 'string' ? user : JSON.stringify(user) },
-    ]);
+    ], signal);
     return parseJson(raw);
   }
 

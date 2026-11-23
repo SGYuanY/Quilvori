@@ -530,6 +530,7 @@
     };
     stage.innerHTML = `<div class="dropwell"><div><strong>把世界书拖到这里</strong><span>酒馆世界信息的 JSON。</span></div><button type="button" class="btn btn-primary" id="book-drop-btn">选择文件</button></div><div id="sticker-host"></div><div id="json-host"></div><div class="toolbar">
       <button type="button" class="btn" id="lore-undo">撤销</button>
+      <button type="button" class="btn btn-primary" id="new-book">新建世界书</button>
       <label class="dark-muted">书<select id="book-select">${lib.worldBooks.map((item) => `<option value="${UI.esc(item.id)}"${item.id === book.id ? ' selected' : ''}>${UI.esc(item.name)}</option>`).join('')}</select></label>
       <button type="button" class="btn" id="rename-book">改书名</button>
       <button type="button" class="btn btn-primary" id="new-entry">新建条目</button>
@@ -553,6 +554,7 @@
     </div>`;
     const editor = stage.querySelector('#lore-editor');
     stage.querySelector('#book-select').onchange = (event) => { UI.state.sel.book = event.target.value; UI.state.sel.entry = null; UI.renderStage(); };
+    stage.querySelector('#new-book').onclick = () => addBook();
     stage.querySelector('#new-entry').onclick = () => {
       const created = blankEntry();
       book.entries.unshift(created);
@@ -2223,7 +2225,7 @@
       const bucket = /空|empty/i.test(title) ? 'empty' : /名|typo|发色|瞳/i.test(title) ? 'name' : /模型|语义/.test(title) ? 'model' : 'rule';
       buckets[bucket].push(item);
     });
-    const block = (key, label) => `<section><h4>${UI.t(label)}</h4>${buckets[key].length ? buckets[key].map((item) => `<p><strong>${UI.esc(UI.t(item.severity === 'error' ? '冲突' : item.severity === 'warn' ? '存疑' : '备注'))}</strong> ${UI.esc(UI.t(item.title))}。${UI.esc(UI.t(item.detail || ''))}</p>`).join('') : `<p class="help">${UI.t('这里还没有。')}</p>`}</section>`;
+    const block = (key, label) => `<section><h4>${UI.t(label)}</h4>${buckets[key].length ? buckets[key].map((item) => `<p><strong>${UI.esc(UI.t(item.severity === 'error' ? '冲突' : item.severity === 'warn' ? '存疑' : '备注'))}</strong> ${UI.esc(UI.t(item.title))}${item.entry ? ` · ${UI.esc(item.entry)}` : ''}${item.place ? ` · ${UI.esc(item.place)}` : ''}。${UI.esc(item.detail || '')}</p>`).join('') : `<p class="help">${UI.t('这里还没有。')}</p>`}</section>`;
     host.innerHTML = `${block('empty', '空栏')}${block('name', '名字与笔误')}${block('rule', '恒定规矩')}${block('model', '模型判断')}`;
   }
 
@@ -2234,17 +2236,23 @@
   }
 
   async function runLogic(host, character, book) {
+    if (!character || !book) { UI.toast('先选一张角色卡和一本世界书'); return; }
     if (!root.NIJANModel || !root.NIJANModel.configured()) { UI.toast('先在总览连接模型，并选一个。'); return; }
-    const findings = [];
-    if (character && root.NIJANModel.semanticFindings) {
-      const extra = await root.NIJANModel.semanticFindings(character);
-      (extra || []).forEach((item) => findings.push({ severity: 'warn', title: item.title || '语义', detail: item.detail || '' }));
-    }
-    if (book) {
-      const result = await root.NIJANModel.askJson('读这些世界书条目，按空栏、互相矛盾、关键词问题分类。只回 JSON：{"items":[{"title":"...","detail":"...","bucket":"empty|name|rule|model"}]}。', { name: book.name, entries: (book.entries || []).map((entry) => ({ name: entry.comment, keys: entry.keys, content: entry.content })) });
-      (result.items || []).forEach((item) => findings.push({ severity: 'warn', title: item.bucket === 'model' ? '语义' : (item.title || '逻辑'), detail: item.detail || '' }));
-    }
+    const note = host.parentElement && host.parentElement.querySelector('.model-progress');
+    if (note) note.textContent = UI.t('正在检查…');
+    const result = await root.NIJANModel.askJson('对照这张角色卡和这本世界书，做详细检查。逻辑错误和人设崩坏都要写出条目名和位置（角色卡的栏名，或世界书的注入位置）。说明写具体，不要一句话带过。只回 JSON：{"items":[{"severity":"error","kind":"logic|persona","title":"...","entry":"条目或栏名","place":"位置","detail":"详细说明"}]}。', {
+      card: { name: character.name, personality: character.personality, scenario: character.scenario, first_mes: character.first_mes, description: character.description, mes_example: character.mes_example },
+      book: { name: book.name, entries: (book.entries || []).map((entry) => ({ name: entry.comment, keys: entry.keys, place: entry.position, content: entry.content })) },
+    });
+    const findings = (result.items || []).map((item) => ({
+      severity: item.severity === 'error' ? 'error' : 'warn',
+      title: item.kind === 'persona' ? '人设崩坏' : '逻辑错误',
+      entry: item.entry || item.title || '',
+      place: item.place || '',
+      detail: item.detail || '',
+    }));
     paintFindings(host, findings);
+    if (note) note.textContent = UI.t('检查写完了');
   }
 
   async function fillGaps(character) {
@@ -2268,16 +2276,37 @@
     if (!stage || stage.querySelector('.ai-toolbar')) return;
     const host = document.createElement('section');
     host.className = 'paper stack ai-toolbar';
-    host.innerHTML = `<div class="row"><button type="button" class="btn" data-ai="persona">${UI.t('人设检查')}</button><button type="button" class="btn" data-ai="logic">${UI.t('逻辑检查')}</button><button type="button" class="btn" data-ai="gaps">${UI.t('缺栏归类')}</button></div><div class="ai-check-grid" data-ai-out></div>`;
+    const cards = UI.state.lib.characters || [];
+    const books = UI.state.lib.worldBooks || [];
+    host.innerHTML = `<div class="row"><label class="field"><span class="field-label">${UI.t('角色卡')}</span><select data-logic-card>${cards.map((item) => `<option value="${UI.esc(item.id)}"${item.id === UI.state.sel.character ? ' selected' : ''}>${UI.esc(item.name || '未命名')}</option>`).join('')}</select></label><label class="field"><span class="field-label">${UI.t('世界书')}</span><select data-logic-book>${books.map((item) => `<option value="${UI.esc(item.id)}"${item.id === UI.state.sel.book ? ' selected' : ''}>${UI.esc(item.name || '未命名')}</option>`).join('')}</select></label></div><div class="row"><button type="button" class="btn" data-ai="persona">${UI.t('人设检查')}</button><button type="button" class="btn" data-ai="logic">${UI.t('逻辑检查')}</button><button type="button" class="btn" data-ai="gaps">${UI.t('缺栏归类')}</button></div><p class="model-progress"></p><div class="ai-check-grid" data-ai-out></div>`;
     const toolbar = stage.querySelector('.toolbar');
     if (toolbar) toolbar.insertAdjacentElement('afterend', host);
     else stage.prepend(host);
     const out = host.querySelector('[data-ai-out]');
-    const character = () => UI.charById(UI.state.sel.character) || (UI.state.lib.characters || [])[0] || null;
-    const book = () => (UI.state.lib.worldBooks || []).find((item) => item.id === UI.state.sel.book) || (UI.state.lib.worldBooks || [])[0] || null;
-    host.querySelector('[data-ai="persona"]').onclick = () => runPersona(out, character(), page === 'book' ? (book() && book().id) : null);
-    host.querySelector('[data-ai="logic"]').onclick = () => runLogic(out, character(), page === 'card' ? null : book()).catch((error) => UI.toast(error.message));
-    host.querySelector('[data-ai="gaps"]').onclick = () => fillGaps(character()).catch((error) => UI.toast(error.message));
+    const chosenCard = () => UI.charById(host.querySelector('[data-logic-card]').value);
+    const chosenBook = () => (UI.state.lib.worldBooks || []).find((item) => item.id === host.querySelector('[data-logic-book]').value);
+    const progress = host.querySelector('.model-progress');
+    host.querySelector('[data-ai="persona"]').onclick = () => {
+      progress.textContent = UI.t('正在检查…');
+      const card = chosenCard();
+      const book = chosenBook();
+      if (card) UI.state.sel.character = card.id;
+      if (book) UI.state.sel.book = book.id;
+      runPersona(out, card, book && book.id);
+      progress.textContent = UI.t('检查写完了');
+    };
+    host.querySelector('[data-ai="logic"]').onclick = () => {
+      progress.textContent = UI.t('正在检查…');
+      const card = chosenCard();
+      const book = chosenBook();
+      if (card) UI.state.sel.character = card.id;
+      if (book) UI.state.sel.book = book.id;
+      runLogic(out, card, book).catch((error) => { progress.textContent = ''; UI.toast(error.message); });
+    };
+    host.querySelector('[data-ai="gaps"]').onclick = () => {
+      progress.textContent = UI.t('正在归类…');
+      fillGaps(chosenCard()).then(() => { progress.textContent = UI.t('归类写完了'); }).catch((error) => { progress.textContent = ''; UI.toast(error.message); });
+    };
   }
 
   function mountPageAssist(stage, kind) {
@@ -2288,7 +2317,14 @@
     box.innerHTML = `<h3>${UI.t(titles[kind] || 'AI 辅助')}</h3><p class="help">${UI.t('写下想要的效果。模型写完后，滑开才会写入这一页。')}</p><textarea rows="3" data-assist placeholder="${UI.t('例如：写一条把引号收成直角的正则')}"></textarea><button type="button" class="btn" data-assist-go>${UI.t('让模型写')}</button>`;
     stage.prepend(box);
     box.querySelector('[data-assist-go]').onclick = async () => {
-      if (!root.NIJANModel || !root.NIJANModel.configured()) { UI.toast('先在总览连接模型，并选一个。'); return; }
+      let progress = box.querySelector('.model-progress');
+      if (!progress) {
+        progress = document.createElement('p');
+        progress.className = 'model-progress';
+        box.appendChild(progress);
+      }
+      progress.textContent = UI.t('正在写…');
+      if (!root.NIJANModel || !root.NIJANModel.configured()) { progress.textContent = ''; UI.toast('先在总览连接模型，并选一个。'); return; }
       const note = box.querySelector('[data-assist]').value.trim();
       try {
         const result = await root.NIJANModel.askJson(assistTask(kind), { note, library: kind === 'backup' ? { characters: UI.state.lib.characters.length, books: UI.state.lib.worldBooks.length } : undefined });

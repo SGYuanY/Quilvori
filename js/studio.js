@@ -40,7 +40,27 @@
       classes: null,
       classNote: '',
       entryEdit: '',
+      targetCardId: '',
+      targetBookId: '',
     };
+  }
+
+  let activeJob = 0;
+  let activeAbort = null;
+
+  function startJob() {
+    if (activeAbort) activeAbort.abort();
+    activeJob += 1;
+    activeAbort = new AbortController();
+    return { id: activeJob, signal: activeAbort.signal };
+  }
+
+  function jobGone(job) {
+    return !job || job.id !== activeJob;
+  }
+
+  function stopped(error, job) {
+    return jobGone(job) || (error && error.name === 'AbortError');
   }
 
   const CARD_PARTS = [
@@ -151,7 +171,8 @@
 
   function listedEntries() {
     const books = (root.TAUI.state.lib && root.TAUI.state.lib.worldBooks) || [];
-    const working = books.find((book) => book.id === 'ai_book' && (book.entries || []).length);
+    const preferred = draft().targetBookId && books.find((book) => book.id === draft().targetBookId && (book.entries || []).length);
+    const working = preferred || books.find((book) => book.id === 'ai_book' && (book.entries || []).length);
     const source = working ? [working] : books;
     const rows = [];
     source.forEach((book) => {
@@ -190,6 +211,7 @@
       if (!part || !part.field || !source) return;
       data.card[part.field] = source[part.field] != null ? String(source[part.field]) : '';
     });
+    if (options && options.targetId) data.targetCardId = options.targetId;
     if (ids.indexOf('book') !== -1 && source && source.book) {
       let parsed = [];
       try {
@@ -301,7 +323,9 @@
       section.on = true;
     });
 
-    const card = ensure(lib.characters, 'ai_card', () => ({
+    const cardId = data.targetCardId || 'ai_card';
+    const bookId = data.targetBookId || 'ai_book';
+    const card = ensure(lib.characters, cardId, () => ({
       name: '新角色', description: '', personality: '', scenario: '', first_mes: '', mes_example: '',
       creator_notes: '', system_prompt: '', post_history_instructions: '', alternate_greetings: [], tags: ['AI'],
       creator: '', character_version: '1.0.0', talkativeness: 0.5, avatarAssetId: null, expressionAssetIds: [],
@@ -310,7 +334,7 @@
     Object.assign(card, data.card, { updatedAt: now });
     ui.state.sel.character = card.id;
 
-    const book = ensure(lib.worldBooks, 'ai_book', () => ({ name: 'AI 世界书', description: '', entries: [] }));
+    const book = ensure(lib.worldBooks, bookId, () => ({ name: 'AI 世界书', description: '', entries: [] }));
     book.name = data.bookName || 'AI 世界书';
     book.entries = parseEntries(data.bookText).map((entry, index) => ({
       id: `ai_lore_${index}`, comment: entryTitle(entry) || '未命名', content: entry.content, keys: entry.keys,
@@ -330,7 +354,7 @@
     const group = ensure(lib.groups, 'ai_group', () => ({ name: 'AI 群', scenario: '', activation: 'natural', members: [] }));
     group.name = data.groupName || 'AI 群';
     group.scenario = data.groupScenario || '';
-    group.members = [{ characterId: 'ai_card', talkativeness: 0.5, enabled: true }];
+    group.members = [{ characterId: card.id, talkativeness: 0.5, enabled: true }];
     ui.state.sel.group = group.id;
 
     const chat = ensure(lib.chats, 'ai_chat', () => ({ name: 'AI 聊天', sourceName: '', userName: '我', characterName: card.name, bookmarks: [], messages: [] }));
@@ -386,7 +410,7 @@
     linesOf(data.graphNodes).forEach((label, index) => {
       const id = `ai_node_${index}`;
       nodeIds[label] = id;
-      lib.graph.nodes.push({ id, characterId: label === card.name ? 'ai_card' : null, label, x: 160 + (index % 3) * 180, y: 140 + Math.floor(index / 3) * 120 });
+      lib.graph.nodes.push({ id, characterId: label === card.name ? card.id : null, label, x: 160 + (index % 3) * 180, y: 140 + Math.floor(index / 3) * 120 });
     });
     linesOf(data.graphEdges).forEach((line, index) => {
       const match = line.match(/^(.+?)\s*(?:->|→)\s*(.+?)\s*[:：]\s*(.*)$/);
@@ -410,8 +434,8 @@
     lib.settings.modelCheck = data.check || '';
     if (String(data.memoryHtml || '').trim()) lib.memoryHtml = data.memoryHtml;
     if (String(data.backupNote || '').trim()) lib.settings.backupNote = data.backupNote;
-    ui.state.sel.checkChar = 'ai_card';
-    ui.state.sel.checkBook = 'ai_book';
+    ui.state.sel.checkChar = card.id;
+    ui.state.sel.checkBook = book.id;
     ui.markDirty();
   }
 
@@ -474,9 +498,13 @@
     if (script.name) data.scriptName = script.name;
     if (Array.isArray(script.lines)) data.scriptText = script.lines.join('\n');
     if (payload.check) data.check = String(payload.check);
+    const memory = payload.memory || {};
+    if (memory.html) data.memoryHtml = String(memory.html);
+    const backup = payload.backup || {};
+    if (backup.note) data.backupNote = String(backup.note);
   }
 
-  const WRITE_TASK = '根据用户的要求、回答和已接受的灵感，写出可导入酒馆工坊各栏的 JSON。键为 sections, character, world, prompt, group, chat, asset, regex, quick, timeline, graph, script, check。world.entries 用条目名、触发关键词、正文。没把握时只回 {"unsure":true,"question":"..."}。不要先写固定问卷。';
+  const WRITE_TASK = '根据用户的要求、回答和已接受的灵感，写出可导入酒馆工坊各栏的 JSON。键为 sections, character, world, prompt, group, chat, asset, regex, quick, timeline, graph, script, check, memory, backup。world.entries 用条目名、触发关键词、正文。memory 用 {"html":"..."}，backup 用 {"note":"..."}。没把握时只回 {"unsure":true,"question":"..."}。不要先写固定问卷。';
 
   function render(stage) {
     const ui = root.TAUI;
@@ -505,21 +533,22 @@
           <div class="row"><button type="button" class="btn" id="import-card-file">选择角色卡文件</button><span id="import-card-file-name" class="muted"></span></div>
           <label class="check"><input id="part-all" type="checkbox">整张卡</label>
           <div class="part-grid">${CARD_PARTS.map((part) => `<label class="check"><input data-part="${part.id}" type="checkbox">${part.label}</label>`).join('')}</div>
-          <button type="button" class="btn btn-primary" id="import-card-go">用所选部分新开一稿</button>
+          <div class="row"><button type="button" class="btn btn-primary" id="import-card-go">用所选部分新开一稿</button><button type="button" class="btn" id="pass-card-hand">手工改这张卡</button><button type="button" class="btn" id="pass-card-model">让模型改这张卡</button></div>
         </article>
         <article class="paper" id="import-book">
           <h3>导入世界书</h3>
           <p class="help">导入后，模型给每条分类。条目名留在列表里。然后可以让模型改这些条目。</p>
           <label class="field"><span class="field-label">库里的书</span><select id="import-book-pick"><option value="">不从库里选</option>${(ui.state.lib.worldBooks || []).map((item) => `<option value="${esc(item.id)}">${esc(item.name || '未命名')}</option>`).join('')}</select></label>
           <div class="row"><button type="button" class="btn" id="import-book-file">选择世界书文件</button></div>
-          <button type="button" class="btn btn-primary" id="import-book-go">导入并让模型分类</button>
+          <div class="row"><button type="button" class="btn btn-primary" id="import-book-go">导入并让模型分类</button><button type="button" class="btn" id="pass-book-hand">手工改这本书</button><button type="button" class="btn" id="pass-book-model">让模型改这本书</button></div>
           <label class="field"><span class="field-label">让模型改这些条目</span><textarea id="entry-edit" rows="3">${esc(data.entryEdit || '')}</textarea></label>
           <button type="button" class="btn" id="entry-rewrite">按这句话改条目</button>
         </article>
       </section>
       <section class="studio-live paper">
-        <label class="field"><span class="field-label">写的时候补充</span><input id="studio-more" data-path="supplement" type="text" value="${esc(data.supplement || '')}" placeholder="例如：女主外貌"></label>
+        <label class="field"><span class="field-label">写的时候补充</span><div class="row"><input id="studio-more" data-path="supplement" type="text" value="${esc(data.supplement || '')}" placeholder="任何补充都可以，不限外貌"><button type="button" class="btn" id="studio-send">发送补充</button></div><p class="help">模型正在写时，发送会让它停下并按这条重新想。写完之后仍可以再发，直到你满意。</p></label>
         <div class="studio-status"><span class="tide" id="studio-tide" style="--p:${Number(data.progressRatio) || 0}"></span><p id="studio-progress" class="studio-progress${data.writing ? '' : ' done'}">${esc(data.progress || '还没开始写。')}</p><span class="bell${!data.writing && Number(data.progressRatio) >= 1 ? ' on' : ''}" id="studio-bell" aria-hidden="true"></span></div>
+        <p class="help studio-links"><a href="characters.html">角色卡工坊</a> · <a href="lore.html">世界书看板</a> · <a href="regex.html">正则</a> · <a href="quick.html">快捷回复</a> · <a href="timeline.html">作者注与时间线</a> · <a href="graph.html">角色关系图</a> · <a href="script.html">群聊剧本</a> · <a href="backup.html">整库备份</a> · <a href="memory.html">HTML 记忆</a></p>
       </section>
       <div id="studio-scan"></div>
       <section class="studio-results"${data.writing ? '' : ' hidden'}>
@@ -572,20 +601,36 @@
     stage.querySelector('#studio-ask').onclick = async () => {
       if (!needModel()) return;
       if (!draft().brief.trim()) { ui.toast('先写下要写的事'); return; }
+      showProgress('正在追问…', true, 0.15);
+      const job = startJob();
       try {
-        const result = await root.NIJANModel.askJson('先不要写正文。只提出这次必须问清的问题，只回 JSON：{"questions":["..."]}。没有必要问就回空数组。不要使用套话问卷。', draft().brief);
+        const result = await root.NIJANModel.askJson('先不要写正文。只提出这次必须问清的问题，只回 JSON：{"questions":["..."]}。没有必要问就回空数组。不要使用套话问卷。', draft().brief, job.signal);
+        if (jobGone(job)) return;
         draft().questions = Array.isArray(result.questions) ? result.questions.map(String) : [];
         draft().answers = draft().questions.map((_, index) => draft().answers[index] || '');
+        showProgress('问完了', false, 1);
         render(stage);
-      } catch (error) { ui.toast(error.message); }
+      } catch (error) {
+        if (stopped(error, job)) return;
+        showProgress('追问停了', false, 0);
+        ui.toast(error.message);
+      }
     };
     stage.querySelector('#studio-ideas').onclick = async () => {
       if (!needModel()) return;
+      showProgress('正在想灵感…', true, 0.2);
+      const job = startJob();
       try {
-        const result = await root.NIJANModel.askJson('给三条不同的写法灵感，先不要写完整文档。只回 JSON：{"ideas":["...","...","..."]}。', contextForModel());
+        const result = await root.NIJANModel.askJson('给三条不同的写法灵感，先不要写完整文档。只回 JSON：{"ideas":["...","...","..."]}。', contextForModel(), job.signal);
+        if (jobGone(job)) return;
         draft().ideas = (result.ideas || []).map((text) => ({ text: String(text), status: '' }));
+        showProgress('灵感好了', false, 1);
         render(stage);
-      } catch (error) { ui.toast(error.message); }
+      } catch (error) {
+        if (stopped(error, job)) return;
+        showProgress('灵感停了', false, 0);
+        ui.toast(error.message);
+      }
     };
     const showProgress = (text, writing, ratio) => {
       draft().progress = text;
@@ -609,48 +654,78 @@
       if (input) draft().supplement = input.value;
       return String(draft().supplement || '').trim();
     };
+    const reviseFromSupplement = async (job) => {
+      const revision = await root.NIJANModel.askJson('用户补充了内容。停下正在做的事，按这条补充重写已有稿子，角色卡、世界书和其余工坊都要跟上。只回需要改的 JSON。', Object.assign(contextForModel(), { supplement: readSupplement() }), job.signal);
+      if (jobGone(job)) return false;
+      applyModel(revision || {});
+      importLive();
+      return true;
+    };
     stage.querySelector('#studio-write').onclick = async () => {
       if (!needModel()) return;
       const ideas = draft().ideas;
       if (!ideas.length || ideas.some((idea) => !idea.status)) { ui.toast('先要灵感，并接受或拒绝每一条'); return; }
+      showProgress('正在准备写入…', true, 0.08);
       if (ui.flyPlane) ui.flyPlane(stage.querySelector('#studio-write'));
       const allowed = await ui.ask({ title: '写入角色卡和世界书', body: '滑到尽头，模型才会写进角色卡和世界书。', actions: [{ id: 'no', label: '先不写' }], swipe: '滑开写入' });
-      if (allowed !== 'yes') return;
+      if (allowed !== 'yes') { showProgress('已停下', false, 0); return; }
       const steps = [
         ['正在写角色卡…', '只写 JSON 的 character 和 sections。把用户的补充写进对应字段。'],
         ['正在写世界书…', '只写 JSON 的 world。entries 里每条都要有条目名、触发关键词和正文，条目名不能空。把用户的补充写进去。'],
-        ['正在写其余工坊…', '只写 JSON 的 prompt, group, chat, asset, regex, quick, timeline, graph, script, check。把用户的补充写进去。'],
+        ['正在写其余工坊…', '只写 JSON 的 prompt, group, chat, asset, regex, quick, timeline, graph, script, check, memory, backup。把用户的补充写进去。'],
       ];
+      const job = startJob();
       try {
         let sent = '';
         for (let index = 0; index < steps.length; index += 1) {
+          if (jobGone(job)) return;
           const [label, task] = steps[index];
           showProgress(label, true, (index + 1) / steps.length);
           const supplement = readSupplement();
           sent = supplement;
-          let result = await root.NIJANModel.askJson(`${task} ${WRITE_TASK}`, Object.assign(contextForModel(), { supplement }));
+          let result = await root.NIJANModel.askJson(`${task} ${WRITE_TASK}`, Object.assign(contextForModel(), { supplement }), job.signal);
+          if (jobGone(job)) return;
           if (result && result.unsure) {
-            showProgress('模型停下来问了一句', true);
+            showProgress('模型停下来问了一句', true, draft().progressRatio);
             const answer = await ui.ask({ title: '先停一下', body: result.question || '这里我没把握。', actions: [{ id: 'yes', label: '按这个继续', kind: 'btn-primary' }, { id: 'no', label: '先不写' }] });
-            if (answer !== 'yes') { showProgress('已停下', false); return; }
+            if (jobGone(job)) return;
+            if (answer !== 'yes') { showProgress('已停下', false, 0); return; }
             draft().answers.push(result.question || '');
-            result = await root.NIJANModel.askJson(`${task} ${WRITE_TASK}`, Object.assign(contextForModel(), { supplement: readSupplement() }));
+            result = await root.NIJANModel.askJson(`${task} ${WRITE_TASK}`, Object.assign(contextForModel(), { supplement: readSupplement() }), job.signal);
+            if (jobGone(job)) return;
           }
           applyModel(result || {});
           importLive();
         }
         const latest = readSupplement();
         if (latest && latest !== sent) {
-          showProgress('正在写入补充…', true);
-          const revision = await root.NIJANModel.askJson('用户在写作过程中补充了内容。把补充写进已有稿子。只回需要改的 JSON。', Object.assign(contextForModel(), { supplement: latest }));
-          applyModel(revision || {});
-          importLive();
+          showProgress('正在按补充整理…', true, 0.9);
+          if (!(await reviseFromSupplement(job))) return;
         }
-        showProgress('写完了', false, 1);
+        if (jobGone(job)) return;
+        showProgress('写完了，并送进对应页面', false, 1);
         ui.toast(liveOn() ? '写完了，并送进对应页面' : '写完了。实时导入关着，所以还没送进工坊。');
         render(stage);
       } catch (error) {
-        showProgress(`没写完：${error.message || '模型没有返回'}`, false);
+        if (stopped(error, job)) return;
+        showProgress(`没写完：${error.message || '模型没有返回'}`, false, 0);
+        ui.toast(error.message);
+      }
+    };
+    stage.querySelector('#studio-send').onclick = async () => {
+      if (!needModel()) return;
+      const note = readSupplement();
+      if (!note) { ui.toast('先写下补充'); return; }
+      showProgress('正在按补充整理…', true, Math.max(0.4, Number(draft().progressRatio) || 0.4));
+      const job = startJob();
+      try {
+        if (!(await reviseFromSupplement(job))) return;
+        showProgress('已按补充整理', false, 1);
+        ui.toast('已按补充整理，并送进对应页面');
+        render(stage);
+      } catch (error) {
+        if (stopped(error, job)) return;
+        showProgress(`没整理完：${error.message || '模型没有返回'}`, false, 0);
         ui.toast(error.message);
       }
     };
@@ -677,13 +752,36 @@
         stage.querySelector('#import-card-file-name').textContent = file.name;
       } catch (error) { ui.toast(error.message || '这张卡读不了'); }
     };
+    const takeCard = (fresh) => {
+      const picked = [...stage.querySelectorAll('[data-part]:checked')].map((box) => box.dataset.part);
+      const parts = picked.length ? picked : ['all'];
+      if (!pendingCard) { ui.toast('先选一张已有角色卡'); return false; }
+      if (pendingCard.id) draft().targetCardId = pendingCard.id;
+      applyCardParts(pendingCard, parts, { fresh, targetId: pendingCard.id || '' });
+      return true;
+    };
     stage.querySelector('#import-card-go').onclick = async () => {
       const picked = [...stage.querySelectorAll('[data-part]:checked')].map((box) => box.dataset.part);
       if (!pendingCard) { ui.toast('先选一张已有角色卡'); return; }
       if (!picked.length) { ui.toast('勾选整张卡，或勾选要留下的部分'); return; }
+      draft().targetCardId = '';
       applyCardParts(pendingCard, picked, { fresh: true });
       if (picked.includes('book') && pendingCard.book) await importWorldEntries(parseEntries(draft().bookText), draft().bookName);
       ui.toast('已按勾选的部分新开一稿');
+      render(stage);
+    };
+    stage.querySelector('#pass-card-hand').onclick = () => {
+      showProgress('正在带入角色卡…', true, 0.3);
+      if (!takeCard(false)) { showProgress('已停下', false, 0); return; }
+      showProgress('已带入角色卡工坊，可以直接改', false, 1);
+      ui.toast('已带入角色卡工坊，可以直接改填写栏');
+      render(stage);
+    };
+    stage.querySelector('#pass-card-model').onclick = () => {
+      showProgress('正在带入角色卡…', true, 0.3);
+      if (!takeCard(false)) { showProgress('已停下', false, 0); return; }
+      showProgress('已带入。写下补充或开始写', false, 0.35);
+      ui.toast('已带入。写下补充或开始写，模型会改这张卡');
       render(stage);
     };
     stage.querySelector('#import-book-pick').onchange = (event) => {
@@ -697,13 +795,45 @@
         ui.toast(`已读到「${pendingBook.name}」`);
       } catch (error) { ui.toast(error.message || '这本世界书读不了'); }
     };
+    const takeBook = async (withModel, linkWorkbench) => {
+      if (!pendingBook) { ui.toast('先选一本已有世界书'); return false; }
+      showProgress(withModel ? '正在让模型看这本书…' : '正在带入世界书…', true, 0.35);
+      draft().targetBookId = linkWorkbench && pendingBook.id ? pendingBook.id : '';
+      if (withModel) await importWorldEntries(pendingBook.entries || [], pendingBook.name);
+      else {
+        draft().bookName = pendingBook.name || draft().bookName;
+        draft().bookText = entriesToText((pendingBook.entries || []).map((entry) => ({
+          comment: entryTitle(entry),
+          keys: entry.keys || [],
+          content: entry.content || '',
+        })));
+        importLive();
+      }
+      return true;
+    };
     stage.querySelector('#import-book-go').onclick = async () => {
-      if (!pendingBook) { ui.toast('先选一本已有世界书'); return; }
       try {
-        await importWorldEntries(pendingBook.entries || [], pendingBook.name);
+        if (!(await takeBook(true, false))) return;
+        showProgress('条目已导入，并按模型分成触发和未触发', false, 1);
         ui.toast('条目已导入，并按模型分成触发和未触发');
         render(stage);
-      } catch (error) { ui.toast(error.message || '分类没有完成'); }
+      } catch (error) { showProgress('分类没有完成', false, 0); ui.toast(error.message || '分类没有完成'); }
+    };
+    stage.querySelector('#pass-book-hand').onclick = async () => {
+      try {
+        if (!(await takeBook(false, true))) return;
+        showProgress('已带入世界书看板，可以直接改', false, 1);
+        ui.toast('已带入世界书看板，可以直接改');
+        render(stage);
+      } catch (error) { ui.toast(error.message); }
+    };
+    stage.querySelector('#pass-book-model').onclick = async () => {
+      try {
+        if (!(await takeBook(true, true))) return;
+        showProgress('已带入。写下补充或开始写', false, 0.4);
+        ui.toast('已带入。写下补充或开始写，模型会改这本书');
+        render(stage);
+      } catch (error) { showProgress('分类没有完成', false, 0); ui.toast(error.message || '分类没有完成'); }
     };
     stage.querySelector('#entry-edit').oninput = (event) => { draft().entryEdit = event.target.value; persistDraft(); };
     stage.querySelector('#entry-rewrite').onclick = async () => {
@@ -711,24 +841,49 @@
       const instruction = stage.querySelector('#entry-edit').value.trim();
       if (!instruction) { ui.toast('先写下要怎么改这些条目'); return; }
       if (!parseEntries(draft().bookText).length) { ui.toast('先导入一本世界书'); return; }
+      showProgress('正在改条目…', true, 0.6);
+      const job = startJob();
       try {
-        showProgress('正在改条目…', true, 0.6);
-        await rewriteEntries(instruction);
+        const result = await root.NIJANModel.askJson(
+          '按用户的要求修改这些条目。每条都要保留能看见的条目名，触发关键词和正文分开。只回 JSON：{"entries":[{"条目名":"","触发关键词":[],"正文":""}]}。',
+          { instruction, entries: parseEntries(draft().bookText).map((entry) => ({ 条目名: entry.comment, 触发关键词: entry.keys, 正文: entry.content })) },
+          job.signal
+        );
+        if (jobGone(job)) return;
+        const next = (result.entries || []).map((entry) => ({
+          comment: entryTitle(entry),
+          keys: [].concat(entry['触发关键词'] || entry.keys || []),
+          content: entry['正文'] || entry.content || '',
+          constant: false,
+          enabled: true,
+        })).filter((entry) => entry.comment || entry.content);
+        await importWorldEntries(next, draft().bookName);
+        if (jobGone(job)) return;
         showProgress('条目改完了', false, 1);
         render(stage);
       } catch (error) {
-        showProgress(`没改完：${error.message || '模型没有返回'}`, false);
+        if (stopped(error, job)) return;
+        showProgress(`没改完：${error.message || '模型没有返回'}`, false, 0);
         ui.toast(error.message);
       }
     };
     stage.querySelector('#studio-judge').onclick = async () => {
       if (!needModel()) return;
+      showProgress('正在检查逻辑…', true, 0.45);
+      const job = startJob();
       try {
-        const result = await root.NIJANModel.askJson('读这些稿子，判断逻辑是否前后一致。只回 JSON：{"check":"..."}。空字段和关键词重复不用你报。', contextForModel());
-        draft().check = String(result.check || '');
+        const result = await root.NIJANModel.askJson('对照角色卡和世界书做详细逻辑检查。每一条都要写出条目名和位置。只回 JSON：{"check":"...","items":[{"entry":"","place":"","detail":""}]}。', contextForModel(), job.signal);
+        if (jobGone(job)) return;
+        const lines = [String(result.check || '')].concat((result.items || []).map((item) => `${item.entry || '未命名'} · ${item.place || '未写位置'}：${item.detail || ''}`));
+        draft().check = lines.filter(Boolean).join('\n');
         importLive();
+        showProgress('逻辑检查写完了', false, 1);
         render(stage);
-      } catch (error) { ui.toast(error.message); }
+      } catch (error) {
+        if (stopped(error, job)) return;
+        showProgress('检查停了', false, 0);
+        ui.toast(error.message);
+      }
     };
   }
 
