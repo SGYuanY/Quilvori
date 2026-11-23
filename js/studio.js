@@ -69,17 +69,30 @@
     return match ? [match[1].trim(), match[2].trim()] : ['', String(line).trim()];
   }
 
+  function entryTitle(entry) {
+    const named = String((entry && (entry['条目名'] || entry.comment || entry.name || entry.title)) || '').trim();
+    if (named && named !== '未命名') return named;
+    const body = String((entry && (entry['正文'] || entry.content || entry.body)) || '').trim();
+    const line = body.split('\n').map((item) => item.trim()).find(Boolean) || '';
+    const cleaned = line.replace(/^(正文|body)[:：]\s*/, '').trim();
+    if (!cleaned) return '';
+    return cleaned.length > 18 ? `${cleaned.slice(0, 18)}…` : cleaned;
+  }
+
   function parseEntries(text) {
     return String(text || '').split(/\n\s*\n/).map((block) => block.trim()).filter(Boolean).map((block) => {
       const rows = block.split('\n');
-      const comment = (rows.find((row) => /^条目名/.test(row)) || '').replace(/^条目名[:：]\s*/, '') || rows[0].replace(/^条目名[:：]\s*/, '');
       const keysRow = rows.find((row) => /^关键词|^触发/.test(row)) || '';
       const keys = keysRow.replace(/^(关键词|触发关键词)[:：]\s*/, '').split(/[,，]/).map((item) => item.trim()).filter(Boolean);
       const bodyIndex = rows.findIndex((row) => /^正文|^body/.test(row));
       const content = bodyIndex >= 0
         ? rows.slice(bodyIndex).join('\n').replace(/^(正文|body)[:：]\s*/, '').trim()
         : rows.filter((row) => !/^条目名|^关键词|^触发/.test(row)).slice(1).join('\n').trim();
-      return { comment: comment.trim(), keys, content };
+      const comment = entryTitle({
+        条目名: (rows.find((row) => /^条目名/.test(row)) || '').replace(/^条目名[:：]\s*/, ''),
+        正文: content,
+      });
+      return { comment, keys, content };
     }).filter((entry) => entry.comment || entry.content);
   }
 
@@ -129,7 +142,7 @@
     const book = ensure(lib.worldBooks, 'ai_book', () => ({ name: 'AI 世界书', description: '', entries: [] }));
     book.name = data.bookName || 'AI 世界书';
     book.entries = parseEntries(data.bookText).map((entry, index) => ({
-      id: `ai_lore_${index}`, comment: entry.comment || '未命名', content: entry.content, keys: entry.keys,
+      id: `ai_lore_${index}`, comment: entryTitle(entry) || '未命名', content: entry.content, keys: entry.keys,
       secondaryKeys: [], constant: false, selective: true, order: 100 - index, position: 'before_char',
       enabled: true, depth: 4, outletName: '',
     }));
@@ -252,7 +265,8 @@
     if (Array.isArray(world.entries)) {
       data.bookText = world.entries.map((entry) => {
         const keys = entry['触发关键词'] || entry.keys || [];
-        return `条目名：${entry['条目名'] || entry.comment || ''}\n关键词：${[].concat(keys).join('，')}\n正文：${entry['正文'] || entry.content || ''}`;
+        const body = entry['正文'] || entry.content || entry.body || '';
+        return `条目名：${entryTitle(entry)}\n关键词：${[].concat(keys).join('，')}\n正文：${body}`;
       }).join('\n\n');
     }
     const prompt = payload.prompt || {};
@@ -428,5 +442,5 @@
     };
   }
 
-  root.NIJANStudio = { render, importLive, draft };
+  root.NIJANStudio = { render, importLive, draft, entryTitle };
 })(typeof globalThis !== 'undefined' ? globalThis : window);
