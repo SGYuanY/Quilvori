@@ -368,7 +368,7 @@
   };
 
   function load() {
-    const base = { lang: 'zh', teach: true, scale: 1, density: 'comfortable', jsonMode: false };
+    const base = { lang: 'zh', teach: true, scale: 1, density: 'comfortable', jsonMode: false, adult: false, liveImport: true };
     try {
       return Object.assign(base, JSON.parse(localStorage.getItem(KEY) || '{}'));
     } catch (error) {

@@ -328,6 +328,25 @@ try {
     }, 60);
   })`);
   check('studio columns import', studio.cols >= 13 && studio.workshops && studio.imported && !studio.formula, JSON.stringify(studio));
+
+  const writerSettings = await evaluate(`(() => {
+    document.querySelector('[data-shell="settings"]').click();
+    const adult = document.querySelector('#set-adult');
+    const live = document.querySelector('#set-live');
+    const temp = document.querySelector('#set-temp');
+    const before = { adult: adult.checked, live: live.checked };
+    temp.value = '1.2';
+    temp.dispatchEvent(new Event('input', { bubbles: true }));
+    adult.checked = true;
+    adult.dispatchEvent(new Event('change', { bubbles: true }));
+    const savedTemp = NIJANModel.load().temperature;
+    const savedAdult = TAI18n.prefs.adult === true;
+    adult.checked = false;
+    adult.dispatchEvent(new Event('change', { bubbles: true }));
+    document.querySelector('#set-close').click();
+    return { before, savedTemp, savedAdult, closedAdult: TAI18n.prefs.adult === false };
+  })()`);
+  check('writer settings', writerSettings.before.adult === false && writerSettings.before.live === true && Math.abs(writerSettings.savedTemp - 1.2) < 0.05 && writerSettings.savedAdult && writerSettings.closedAdult, JSON.stringify(writerSettings));
 } catch (error) {
   console.error(error);
   fails.push(error.message);
