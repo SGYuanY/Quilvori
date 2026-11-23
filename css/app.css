@@ -287,10 +287,16 @@ select option:checked {
 
 .hero { padding: 28px; margin-bottom: 16px; }
 .connect { display: grid; grid-template-columns: 1.15fr 0.85fr; gap: 18px; padding: 22px 24px; margin-bottom: 16px; border-color: var(--brass-2); }
-.studio-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; align-items: start; }
-.studio-col h3 { margin: 0 0 8px; font-size: 18px; }
-.studio-col .idea { padding: 8px 0; border-top: 1px solid var(--line); }
-.studio-col textarea { min-height: 72px; }
+.studio { display: flex; flex-direction: column; gap: 16px; }
+.studio-compose { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(220px, 0.8fr) minmax(220px, 0.8fr); gap: 14px; align-items: stretch; }
+.studio-results { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-items: start; }
+.studio-request textarea { min-height: 200px; font-size: 17px; }
+.studio-col h3 { margin: 0 0 12px; font-size: 22px; }
+.studio-col .idea { padding: 10px 0; border-top: 1px solid var(--line); }
+.studio-col textarea { min-height: 128px; font-size: 15px; line-height: 1.75; }
+@media (min-width: 1280px) {
+  .studio-results { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
 .connect h2 { margin: 4px 0 8px; font-size: 34px; }
 .model-side { display: flex; flex-direction: column; gap: 8px; }
 #model-reply { white-space: pre-wrap; min-height: 2.6em; }
@@ -558,7 +564,7 @@ html[data-density="compact"] .dropwell { padding: 8px 12px; }
   .stage { padding: 6px 14px 28px; }
   .export-slip { margin: 0 14px 10px; }
   .hero h2 { font-size: 30px; }
-  .connect, .studio-grid { grid-template-columns: 1fr; }
+  .connect, .studio-compose, .studio-results { grid-template-columns: 1fr; }
   .connect h2 { font-size: 28px; }
   .grid-2 { grid-template-columns: 1fr; }
   .stats, .cast { grid-template-columns: 1fr 1fr; }

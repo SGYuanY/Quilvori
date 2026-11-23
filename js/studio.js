@@ -297,10 +297,13 @@
     const questions = data.questions.length
       ? data.questions.map((question, index) => `<label class="field"><span class="field-label">${esc(question)}</span><input data-path="answers.${index}" type="text" value="${esc(data.answers[index] || '')}"></label>`).join('')
       : '<p class="help">模型还没提问。点「先问再写」之后，这里只放它这次问出来的问题。</p>';
-    stage.innerHTML = `<div class="studio-grid">
-      <article class="studio-col paper"><h3>要写的事</h3>${area('要求', 'brief', data.brief, 5)}<div class="row"><button type="button" class="btn" id="studio-ask">先问再写</button><button type="button" class="btn" id="studio-ideas">给我灵感</button><button type="button" class="btn btn-primary" id="studio-write">开始写</button></div><p class="help">接受或拒绝每一条灵感之后才写。改下面任一栏，会送进对应的页面。</p></article>
-      <article class="studio-col paper"><h3>追问</h3>${questions}</article>
-      <article class="studio-col paper"><h3>灵感</h3>${ideas}</article>
+    stage.innerHTML = `<div class="studio">
+      <section class="studio-compose">
+        <article class="studio-col paper studio-request"><h3>要写的事</h3>${area('要求', 'brief', data.brief, 8)}<div class="row"><button type="button" class="btn" id="studio-ask">先问再写</button><button type="button" class="btn" id="studio-ideas">给我灵感</button><button type="button" class="btn btn-primary" id="studio-write">开始写</button></div><p class="help">接受或拒绝每一条灵感之后才写。改下面任一栏，会送进对应的页面。</p></article>
+        <article class="studio-col paper"><h3>追问</h3>${questions}</article>
+        <article class="studio-col paper"><h3>灵感</h3>${ideas}</article>
+      </section>
+      <section class="studio-results">
       <article class="studio-col paper"><h3>段落预设</h3>${area('文风', 'sections.style', data.sections.style, 3)}${area('人称和视角', 'sections.pov', data.sections.pov, 3)}${area('关系边界', 'sections.bond', data.sections.bond, 3)}${area('安全词', 'sections.safe', data.sections.safe, 2)}${area('输出格式', 'sections.format', data.sections.format, 2)}</article>
       <article class="studio-col paper"><h3>角色卡</h3>${text('名字', 'card.name', data.card.name)}${area('描述', 'card.description', data.card.description, 3)}${area('性格', 'card.personality', data.card.personality, 3)}${area('情景', 'card.scenario', data.card.scenario, 3)}${area('开场', 'card.first_mes', data.card.first_mes, 3)}${area('示例', 'card.mes_example', data.card.mes_example, 3)}${area('系统提示', 'card.system_prompt', data.card.system_prompt, 2)}</article>
       <article class="studio-col paper"><h3>世界书</h3>${text('书名', 'bookName', data.bookName)}${area('条目', 'bookText', data.bookText, 8)}<p class="help">一条一块。条目名、关键词、正文各占一行，条目之间空一行。</p></article>
@@ -314,6 +317,7 @@
       <article class="studio-col paper"><h3>角色关系图</h3>${area('人物', 'graphNodes', data.graphNodes, 4)}${area('关系', 'graphEdges', data.graphEdges, 4)}<p class="help">人物一行一个。关系写成「甲 -> 乙：关系」。</p></article>
       <article class="studio-col paper"><h3>群聊剧本</h3>${text('剧本名', 'scriptName', data.scriptName)}${area('句子', 'scriptText', data.scriptText, 6)}<p class="help">一行一句：旁白：句子，或角色名：句子。</p></article>
       <article class="studio-col paper"><h3>人设一致性检查</h3>${area('判断', 'check', data.check, 6)}<button type="button" class="btn" id="studio-judge">让模型看逻辑</button><p class="help">空字段和关键词仍在一致性页里查。这里是模型读完全稿后的判断。</p></article>
+      </section>
     </div>`;
     stage.querySelectorAll('[data-path]').forEach((node) => {
       const eventName = node.tagName === 'SELECT' ? 'change' : 'input';
