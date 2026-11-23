@@ -717,6 +717,12 @@
     ['人设崩坏', 'Broken persona', '人設が崩れている'],
     ['逻辑错误', 'Logic error', '論理の誤り'],
     ['写完了，并送进对应页面', 'Finished, and sent to the matching page', '書き終わり、対応するページへ送りました'],
+    ['没写进去：女主设定和外貌没有变', 'Not written: the heroine entry and appearance did not change', '書き込まれていません：ヒロイン設定と外見は変わっていません'],
+    ['没写进去：备用开场没有变', 'Not written: the alternate greeting did not change', '書き込まれていません：代替の挨拶は変わっていません'],
+    ['没写进去：没有栏位变化', 'Not written: no field changed', '書き込まれていません：欄は変わっていません'],
+    ['HTML 记忆不是按模板写的面板', 'HTML memory is not a panel from the template', 'HTML 記憶はテンプレートのパネルではありません'],
+    ['多出来的开场白写在备用开场，一行一条，不替换主开场白。', 'Extra greetings go in alternate greetings, one per line. They do not replace the main greeting.', '追加の挨拶は代替挨拶へ、一行に一つ。最初の挨拶は置き換えません。'],
+    ['备用开场', 'Alternate greetings', '代替の挨拶'],
   ];
   const extra = {};
   rows.forEach(([zh, en, ja]) => { extra[zh] = { en, ja }; });
