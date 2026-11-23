@@ -338,7 +338,7 @@
         ],
       }],
       themes: [
-        { id: 'theme_lacquer', name: '夜漆', vars: { bg: '#07090d', lacquer: '#0c1118', paper: '#101820', ink: '#e9fff8', accent: '#d6ff3f', fontScale: 1, radius: 18 } },
+        { id: 'theme_lacquer', name: '夜漆', vars: { bg: '#1c1c1c', lacquer: '#141414', paper: '#2e2e2e', ink: '#e8e8e8', accent: '#d0d0d0', fontScale: 1, radius: 10 } },
         { id: 'theme_paper', name: '暖纸', vars: { bg: '#3a2c22', lacquer: '#4a382c', paper: '#f7efe2', ink: '#24180f', accent: '#a96b3c', fontScale: 1.05, radius: 22 } },
         { id: 'theme_frost', name: '霜墨', vars: { bg: '#12161b', lacquer: '#1c232b', paper: '#e7e1d6', ink: '#16191d', accent: '#b7a06a', fontScale: 1, radius: 12 } },
       ],
@@ -372,8 +372,10 @@
     lib.themes.forEach((theme) => {
       const vars = theme && theme.vars;
       if (!vars || theme.name !== '夜漆') return;
-      if (vars.bg === '#140e0a' && vars.paper === '#f4e7d1' && vars.ink === '#1a120c' && vars.accent === '#c6a15a') {
-        theme.vars = Object.assign({}, vars, { bg: '#07090d', lacquer: '#0c1118', paper: '#101820', ink: '#e9fff8', accent: '#d6ff3f' });
+      const neon = vars.bg === '#07090d' && vars.accent === '#d6ff3f';
+      const oldWarm = vars.bg === '#140e0a' && vars.paper === '#f4e7d1' && vars.ink === '#1a120c' && vars.accent === '#c6a15a';
+      if (neon || oldWarm) {
+        theme.vars = Object.assign({}, vars, { bg: '#1c1c1c', lacquer: '#141414', paper: '#2e2e2e', ink: '#e8e8e8', accent: '#d0d0d0', radius: 10 });
       }
     });
     return lib;

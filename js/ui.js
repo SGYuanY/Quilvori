@@ -1,7 +1,7 @@
 /* Shell, persistence, and small DOM helpers. Views live in views.js. */
 (function (root) {
   const ROUTES = [
-    { id: 'home', mark: '01', label: '总览', eyebrow: 'NEON', title: '总览', search: false, blurb: 'blurb.home' },
+    { id: 'home', mark: '01', label: '总览', eyebrow: 'HOME', title: '总览', search: false, blurb: 'blurb.home' },
     { id: 'studio', mark: '02', label: 'AI 创作', eyebrow: 'STUDIO', title: 'AI 创作', search: false, blurb: 'blurb.studio' },
     { id: 'sections', mark: '03', label: '段落预设', eyebrow: 'SECTIONS', title: '段落预设', search: false, blurb: 'blurb.sections' },
     { id: 'characters', mark: '04', label: '角色卡工坊', eyebrow: 'CARD V2', title: '角色卡工坊', search: true, placeholder: '搜角色、标签', blurb: 'blurb.characters' },
@@ -238,7 +238,7 @@
   function ensureTheme() {
     const lib = state.lib;
     if (!lib.themes.length) {
-      lib.themes.push({ id: 'theme_live', name: '夜漆', vars: { bg: '#07090d', lacquer: '#0c1118', paper: '#101820', ink: '#e9fff8', accent: '#d6ff3f', fontScale: 1, radius: 18 } });
+      lib.themes.push({ id: 'theme_live', name: '夜漆', vars: { bg: '#1c1c1c', lacquer: '#141414', paper: '#2e2e2e', ink: '#e8e8e8', accent: '#d0d0d0', fontScale: 1, radius: 10 } });
     }
     const theme = lib.themes.find((item) => item.id === lib.activeThemeId) || lib.themes[0];
     lib.activeThemeId = theme.id;
@@ -251,13 +251,13 @@
     const style = document.documentElement.style;
     if (!theme) return;
     const vars = theme.vars || {};
-    style.setProperty('--bg', vars.bg || '#07090d');
-    style.setProperty('--lacquer', vars.lacquer || '#0c1118');
-    style.setProperty('--paper', vars.paper || '#101820');
-    style.setProperty('--foam', '#e7fff6');
-    style.setProperty('--ink', vars.ink || '#e9fff8');
-    style.setProperty('--brass', vars.accent || '#d6ff3f');
-    style.setProperty('--brass-2', '#3dffe8');
+    style.setProperty('--bg', vars.bg || '#1c1c1c');
+    style.setProperty('--lacquer', vars.lacquer || '#141414');
+    style.setProperty('--paper', vars.paper || '#2e2e2e');
+    style.setProperty('--foam', vars.ink || '#e8e8e8');
+    style.setProperty('--ink', vars.ink || '#e8e8e8');
+    style.setProperty('--brass', vars.accent || '#d0d0d0');
+    style.setProperty('--brass-2', vars.accent || '#f2f2f2');
     style.setProperty('--font-scale', String(vars.fontScale || 1));
     style.setProperty('--radius', `${vars.radius || 18}px`);
     style.setProperty('--bubble-radius', `${Math.max(8, Number(vars.radius || 18) - 2)}px`);
@@ -265,6 +265,20 @@
 
   function routeMeta() {
     return ROUTES.find((route) => route.id === state.route) || ROUTES[0];
+  }
+
+  function paintRail() {
+    const host = document.getElementById('rail-cast');
+    if (!host || !state.lib) return;
+    host.innerHTML = (state.lib.characters || []).map((character) => {
+      const avatar = assetById(character.avatarAssetId);
+      const face = avatar ? `<img alt="" src="${esc(avatar.dataUrl)}">` : `<span>${esc((character.name || '名').slice(0, 1))}</span>`;
+      const on = state.sel.character === character.id ? ' on' : '';
+      return `<button type="button" class="rail-char${on}" data-char="${esc(character.id)}">${face}<b>${esc(character.name || '未命名')}</b></button>`;
+    }).join('');
+    host.querySelectorAll('[data-char]').forEach((button) => {
+      button.onclick = () => { state.sel.character = button.dataset.char; go('characters'); };
+    });
   }
 
   function paintChrome() {
@@ -290,6 +304,7 @@
       if (mark) mark.textContent = route.mark;
       if (name) name.textContent = tr(route.label);
     });
+    paintRail();
     const importCard = document.querySelector('[data-shell="import-card"]');
     const importBook = document.querySelector('[data-shell="import-book"]');
     const settingsButton = document.querySelector('[data-shell="settings"]');
@@ -602,13 +617,15 @@
     const app = document.getElementById('app');
     app.innerHTML = `<div class="shell">
       <aside class="nav">
-        <div class="brand"><span class="seal">笺</span><span><strong>霓笺</strong><em>NEON</em></span></div>
+        <div class="brand"><span class="seal">笺</span><span><strong>霓笺</strong><em>本地稿</em></span></div>
         <div class="nav-import">
           <button type="button" class="btn btn-primary" data-shell="import-card">导入角色卡</button>
           <button type="button" class="btn" data-shell="import-book">导入世界书</button>
           <button type="button" class="btn" data-shell="settings">设置</button>
         </div>
         <nav class="nav-list">${ROUTES.map((route) => `<button type="button" class="nav-btn" data-nav="${route.id}"><span data-label>${route.label}</span></button>`).join('')}</nav>
+        <div class="rail-label">人物</div>
+        <div id="rail-cast" class="rail-cast"></div>
         <div class="nav-foot">
           <p class="note">示例会替换当前库。清空只删这台浏览器里的稿。</p>
           <button type="button" class="btn" data-shell="demo">载入示例</button>
