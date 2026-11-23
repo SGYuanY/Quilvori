@@ -95,6 +95,61 @@
     return text;
   }
 
+  let lastReasoning = '';
+
+  function piece(value, depth) {
+    if (value == null || depth > 4) return '';
+    if (typeof value === 'string') return value.trim();
+    if (Array.isArray(value)) return value.map((item) => piece(item, depth + 1)).filter(Boolean).join('\n').trim();
+    if (typeof value !== 'object') return '';
+    if (value.reasoning_content != null) {
+      const named = piece(value.reasoning_content, depth + 1);
+      if (named) return named;
+    }
+    if (value.reasoning != null && value.reasoning !== value) {
+      const named = piece(value.reasoning, depth + 1);
+      if (named) return named;
+    }
+    if (typeof value.text === 'string' && value.text.trim()) return value.text.trim();
+    if (typeof value.content === 'string') return value.content.trim();
+    if (Array.isArray(value.content)) return piece(value.content, depth + 1);
+    return '';
+  }
+
+  function readReasoning(data) {
+    const choice = data && data.choices && data.choices[0];
+    const message = (choice && choice.message) || null;
+    const chunks = [];
+    const push = (value) => {
+      const text = piece(value, 0);
+      if (text && !chunks.includes(text)) chunks.push(text);
+    };
+    if (message) {
+      push(message.reasoning_content);
+      push(message.reasoning);
+    }
+    if (choice) {
+      push(choice.reasoning_content);
+      push(choice.reasoning);
+    }
+    if (data && typeof data === 'object') {
+      push(data.reasoning_content);
+      push(data.reasoning);
+    }
+    const content = message && message.content;
+    if (Array.isArray(content)) {
+      content.forEach((part) => {
+        const type = String((part && (part.type || part.kind)) || '').toLowerCase();
+        if (type === 'reasoning' || type === 'reasoning_content' || type === 'reasoning_text') push(part);
+      });
+    }
+    return chunks.join('\n\n');
+  }
+
+  function announceReasoning() {
+    try { root.dispatchEvent(new CustomEvent('nijan-reasoning', { detail: lastReasoning })); } catch (error) { /* 页面还没听 */ }
+  }
+
   async function complete(messages, signal) {
     const cfg = load();
     if (!cfg.baseUrl || !cfg.model || !cfg.key) {
@@ -109,9 +164,22 @@
       headers: { Authorization: `Bearer ${cfg.key}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ model: cfg.model, temperature: Number.isFinite(Number(cfg.temperature)) ? Number(cfg.temperature) : 0.7, messages }),
     });
+    let data = null;
+    try { data = await response.json(); } catch (error) { data = null; }
+    lastReasoning = readReasoning(data);
+    announceReasoning();
     if (!response.ok) throw new Error(`接口返回 ${response.status}`);
-    const data = await response.json();
-    return (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '';
+    const message = data && data.choices && data.choices[0] && data.choices[0].message;
+    const content = message && message.content;
+    if (typeof content === 'string') return content;
+    if (Array.isArray(content)) {
+      return content.map((part) => {
+        const type = String((part && (part.type || part.kind)) || 'text').toLowerCase();
+        if (type === 'reasoning' || type === 'reasoning_content' || type === 'reasoning_text') return '';
+        return piece(part, 0);
+      }).filter(Boolean).join('\n');
+    }
+    return content || '';
   }
 
   function parseJson(text) {
@@ -303,5 +371,5 @@
     return parsed.findings || [];
   }
 
-  root.NIJANModel = { load, save, configured, allowsAdult, jsonMode, systemPrompt, writingGuide, mount, semanticFindings, listModels, testMessage, askJson, modelsFromPayload, rememberedModels: () => catalog.slice() };
+  root.NIJANModel = { load, save, configured, allowsAdult, jsonMode, systemPrompt, writingGuide, mount, semanticFindings, listModels, testMessage, askJson, modelsFromPayload, rememberedModels: () => catalog.slice(), lastReasoning: () => lastReasoning };
 })(typeof globalThis !== 'undefined' ? globalThis : window);

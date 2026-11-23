@@ -725,6 +725,8 @@
     ['备用开场', 'Alternate greetings', '代替の挨拶'],
     ['展开', 'Open', '開く'],
     ['收起', 'Close', '閉じる'],
+    ['思考', 'Thinking', '思考'],
+    ['这个模型没有返回思考', 'This model did not return any thinking.', 'このモデルは思考を返していません。'],
   ];
   const extra = {};
   rows.forEach(([zh, en, ja]) => { extra[zh] = { en, ja }; });
