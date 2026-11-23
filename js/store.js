@@ -41,6 +41,7 @@
       timeline: { notes: [], beats: [] },
       graph: { nodes: [], edges: [] },
       scripts: [],
+      stickerPacks: [],
       themes: [],
       activeThemeId: null,
       settings: { chatBackgroundAssetId: null },
@@ -361,6 +362,7 @@
     if (!Array.isArray(lib.timeline.beats)) lib.timeline.beats = [];
     if (!Array.isArray(lib.graph.nodes)) lib.graph.nodes = [];
     if (!Array.isArray(lib.graph.edges)) lib.graph.edges = [];
+    if (!Array.isArray(lib.stickerPacks)) lib.stickerPacks = [];
     const sectionDefaults = defaultSections();
     const incomingSections = (input && input.sections) || {};
     lib.sections = {};

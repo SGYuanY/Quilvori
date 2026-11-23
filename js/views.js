@@ -244,7 +244,7 @@
     if (character) UI.state.sel.character = character.id;
     const books = lib.worldBooks;
     const galleryOn = UI.state.cardView === 'gallery';
-    stage.innerHTML = `<div class="dropwell"><div><strong>把角色卡拖到这里</strong><span>JSON，或带 chara 数据的 PNG。</span></div><button type="button" class="btn btn-primary" id="card-drop-btn">选择文件</button></div><div class="toolbar">
+    stage.innerHTML = `<div class="dropwell"><div><strong>把角色卡拖到这里</strong><span>JSON，或带 chara 数据的 PNG。</span></div><button type="button" class="btn btn-primary" id="card-drop-btn">选择文件</button></div><div id="writer"></div><div id="sticker-host"></div><div id="json-host"></div><div class="toolbar">
       <button type="button" class="btn${galleryOn ? ' btn-primary' : ''}" data-act="view-gallery">画廊</button>
       <button type="button" class="btn${galleryOn ? '' : ' btn-primary'}" data-act="view-edit">编辑</button>
       <button type="button" class="btn btn-primary" data-act="new">新建角色</button>
@@ -281,6 +281,9 @@
       UI.markDirty();
       UI.renderStage();
     };
+    if (root.NIJANModel) root.NIJANModel.mount(stage, 'card');
+    mountSticker(stage, character);
+    mountJson(stage, 'card', character);
     const importCard = async (file) => importCharacterFile(file || await UI.pickFile('.json,.png,application/json,image/png'));
     stage.querySelector('[data-act="import"]').onclick = () => importCard();
     stage.querySelector('#card-drop-btn').onclick = () => importCard();
@@ -303,9 +306,15 @@
     const bookOf = () => lib.worldBooks.find((book) => book.id === stage.querySelector('#attach-book').value) || null;
     stage.querySelector('[data-act="json"]').onclick = () => {
       const filename = `${UI.safeName(character.name)}.json`;
-      UI.downloadJson(filename, F.characterToCard(character, bookOf()));
-      UI.toast('已导出角色卡 JSON');
-      UI.showExport(filename, '角色卡 JSON。到酒馆角色列表里「导入角色」。');
+      const card = F.characterToCard(character, bookOf());
+      const pack = (lib.stickerPacks || []).find((item) => item.id === character.stickerPackId);
+      if (pack) {
+        card.data.extensions.expression_folder = `${character.name}/expressions`;
+        exportStickerFiles(pack, character.name);
+      }
+      UI.downloadJson(filename, card);
+      UI.toast(pack ? '已导出角色卡和表情文件夹' : '已导出角色卡 JSON');
+      UI.showExport(filename, pack ? '角色卡 JSON 放到酒馆 characters。表情图片放到该角色的 expressions 文件夹。' : '角色卡 JSON。放到酒馆 characters，或在角色列表里导入。');
     };
     stage.querySelector('[data-act="png"]').onclick = () => exportCharacterPng(character, bookOf()).then(() => {
       UI.toast('已导出带 chara 数据的 PNG');
@@ -450,7 +459,8 @@
       if (file) importBook(file);
     };
     if (!lib.worldBooks.length) {
-      stage.innerHTML = `<div class="dropwell"><div><strong>把世界书拖到这里</strong><span>酒馆世界信息的 JSON。</span></div><button type="button" class="btn btn-primary" id="book-drop-btn">选择文件</button></div><div class="toolbar"><button type="button" class="btn btn-primary" id="new-book">新建世界书</button><button type="button" class="btn" id="import-book">导入 JSON</button>${hint('新建一本，或导入酒馆导出的世界信息 JSON。')}</div>`;
+      stage.innerHTML = `<div class="dropwell"><div><strong>把世界书拖到这里</strong><span>酒馆世界信息的 JSON。</span></div><button type="button" class="btn btn-primary" id="book-drop-btn">选择文件</button></div><div id="writer"></div><div id="sticker-host"></div><div id="json-host"></div><div class="toolbar"><button type="button" class="btn btn-primary" id="new-book">新建世界书</button><button type="button" class="btn" id="import-book">导入 JSON</button>${hint('新建一本，或导入酒馆导出的世界信息 JSON。')}</div>`;
+      if (root.NIJANModel) root.NIJANModel.mount(stage, 'book');
       stage.appendChild(UI.empty('还没有世界书', '新建一本，或导入酒馆导出的世界信息 JSON。', '', null));
       stage.querySelector('#new-book').onclick = () => addBook();
       stage.querySelector('#import-book').onclick = () => importBook();
@@ -461,7 +471,14 @@
     UI.state.sel.book = book.id;
     const entries = book.entries.filter((entry) => UI.matchQuery([entry.comment, entry.content, ...(entry.keys || []), ...(entry.secondaryKeys || [])].join('\n')));
     const entry = entries.find((item) => item.id === UI.state.sel.entry) || null;
-    stage.innerHTML = `<div class="dropwell"><div><strong>把世界书拖到这里</strong><span>酒馆世界信息的 JSON。</span></div><button type="button" class="btn btn-primary" id="book-drop-btn">选择文件</button></div><div class="toolbar">
+    const loreUndo = UI.state.loreUndo || (UI.state.loreUndo = []);
+    const snapLore = () => {
+      if (!book) return;
+      loreUndo.push(JSON.stringify(book.entries));
+      if (loreUndo.length > 40) loreUndo.shift();
+    };
+    stage.innerHTML = `<div class="dropwell"><div><strong>把世界书拖到这里</strong><span>酒馆世界信息的 JSON。</span></div><button type="button" class="btn btn-primary" id="book-drop-btn">选择文件</button></div><div id="writer"></div><div id="sticker-host"></div><div id="json-host"></div><div class="toolbar">
+      <button type="button" class="btn" id="lore-undo">撤销</button>
       <label class="dark-muted">书<select id="book-select">${lib.worldBooks.map((item) => `<option value="${UI.esc(item.id)}"${item.id === book.id ? ' selected' : ''}>${UI.esc(item.name)}</option>`).join('')}</select></label>
       <button type="button" class="btn" id="rename-book">改书名</button>
       <button type="button" class="btn btn-primary" id="new-entry">新建条目</button>
@@ -497,9 +514,12 @@
     };
     stage.querySelector('#export-book').onclick = () => {
       const filename = `${UI.safeName(book.name)}.json`;
-      UI.downloadJson(filename, F.bookToWorldInfo(book));
-      UI.toast('已导出酒馆世界书 JSON');
-      UI.showExport(filename, '世界书 JSON。到酒馆「世界信息」导入。');
+      const data = F.bookToWorldInfo(book);
+      const pack = (lib.stickerPacks || []).find((item) => item.id === book.stickerPackId);
+      if (pack) data.stickerPack = pack.name;
+      UI.downloadJson(filename, data);
+      UI.toast(pack ? '已导出世界书，并记下表情包名称' : '已导出酒馆世界书 JSON');
+      UI.showExport(filename, pack ? `世界书 JSON，只记录表情包「${pack.name}」，不含图片。放到酒馆 worlds 目录后从世界信息导入。` : '世界书 JSON。放到酒馆 worlds 目录，或在世界信息里导入。');
     };
     stage.querySelector('#import-book').onclick = () => importBook();
     stage.querySelector('#del-book').onclick = async () => {
@@ -546,6 +566,7 @@
         <p class="help">复制会另存一条，原来的还在。</p>
       </div>`;
       UI.bindFields(editor, current, (key) => {
+        if (!editor.dataset.snapped) { snapLore(); editor.dataset.snapped = '1'; }
         if (key === 'comment') {
           const title = stage.querySelector(`.entry[data-id="${CSS.escape(current.id)}"] b`);
           if (title) title.textContent = current.comment || '未命名';
@@ -657,6 +678,17 @@
     paintHits();
     showReading(stage.querySelector('#book-import'), UI.t('import.bookTitle'), UI.state.bookImportId === book.id ? F.explainBook(book) : null);
     stage.querySelector('#book-drop-btn').onclick = () => importBook();
+    stage.querySelector('#lore-undo').onclick = () => {
+      const prev = loreUndo.pop();
+      if (!prev) { UI.toast('没有可撤销的世界书修改'); return; }
+      book.entries = JSON.parse(prev);
+      UI.markDirty();
+      UI.renderStage();
+    };
+    mountSticker(stage, book);
+    mountJson(stage, 'book', book);
+    stage.querySelector('#new-entry').addEventListener('click', () => snapLore(), true);
+    stage.querySelector('#del-book').addEventListener('click', () => snapLore(), true);
     paintEditor();
     function addBook() {
       const created = { id: Store.uid('book'), name: '新世界书', description: '', entries: [] };
@@ -1541,6 +1573,22 @@
       const findings = F.checkConsistency(lib, current.id, bookId || null);
       UI.state.lastFindings = { character: current.name, findings };
       const bookName = bookId ? (lib.worldBooks.find((item) => item.id === bookId)?.name || '选中的书') : '库里每一本';
+      if (!stage.querySelector('#semantic-check')) {
+      const semantic = document.createElement('button');
+      semantic.type = 'button';
+      semantic.id = 'semantic-check';
+      semantic.className = 'btn';
+      semantic.textContent = '语义检查';
+      semantic.onclick = async () => {
+        if (!root.NIJANModel || !root.NIJANModel.configured()) { UI.toast('配置模型后才会做语义检查。空字段和关键词规则仍然可用。'); return; }
+        try {
+          const extra = await root.NIJANModel.semanticFindings(current);
+          extra.forEach((item) => findings.push({ severity: 'warn', title: item.title || '语义', detail: item.detail || '', snippet: '', highlight: '' }));
+          host.innerHTML = findings.map((item) => `<article class="paper finding"><div class="sev ${item.severity}">${item.severity === 'error' ? '冲突' : '存疑'}</div><h3>${UI.esc(item.title)}</h3><p>${UI.esc(item.detail)}</p></article>`).join('') || '<div class="paper empty"><h3>语义上也没有新的矛盾</h3></div>';
+        } catch (error) { UI.toast(error.message); }
+      };
+      stage.querySelector('#check-lesson').before(semantic);
+      }
       UI.fillLesson(stage.querySelector('#check-lesson'), [
         `正在查「${current.name}」，对照${bookName}里启用的恒定条目。这是本地字面比对，不是模型审查。`,
         '名字、描述、性格、情景、开场白若是空的，记成冲突。',
@@ -1906,6 +1954,101 @@
     quick.replies = sections.format.on ? [{ id: 'sec_format_reply', label: '输出格式', message: formatReply, color: '#d6ff3f', title: '动作用星号，对白用引号' }] : [];
   }
 
+  function mountSticker(stage, owner) {
+    const host = stage.querySelector('#sticker-host');
+    if (!host) return;
+    const lib = UI.state.lib;
+    if (!Array.isArray(lib.stickerPacks)) lib.stickerPacks = [];
+    host.innerHTML = `<div class="paper stack"><p class="eyebrow">表情包（可选）</p><p class="help">一套可以同时挂到人物卡和世界书。没选的话，导出只有卡和世界书。</p><label class="field"><span class="field-label">使用的一套</span><select id="pack-select"><option value="">不使用</option>${lib.stickerPacks.map((pack) => `<option value="${UI.esc(pack.id)}"${owner && owner.stickerPackId === pack.id ? ' selected' : ''}>${UI.esc(pack.name)}</option>`).join('')}</select></label><div class="row"><button type="button" class="btn btn-small" id="pack-new">新建一套</button><button type="button" class="btn btn-small" id="pack-add">加入图片</button><button type="button" class="btn btn-small" id="pack-export">导出表情文件夹</button></div></div>`;
+    host.querySelector('#pack-select').onchange = (event) => {
+      if (!owner) { UI.toast('先选定一张卡或一本书'); return; }
+      owner.stickerPackId = event.target.value || null;
+      UI.markDirty();
+      UI.renderStage();
+    };
+    host.querySelector('#pack-new').onclick = () => {
+      const name = window.prompt('表情包名称', '一套表情');
+      if (!name) return;
+      const pack = { id: Store.uid('pack'), name: name.trim(), stickers: [] };
+      lib.stickerPacks.push(pack);
+      if (owner) owner.stickerPackId = pack.id;
+      UI.markDirty();
+      UI.renderStage();
+    };
+    host.querySelector('#pack-add').onclick = async () => {
+      const pack = lib.stickerPacks.find((item) => owner && item.id === owner.stickerPackId);
+      if (!pack) { UI.toast('先选定一套表情包'); return; }
+      const files = await UI.pickFile('image/*', true);
+      for (const file of files || []) {
+        pack.stickers.push({ name: file.name, dataUrl: await UI.readDataUrl(file) });
+      }
+      UI.markDirty();
+      UI.renderStage();
+    };
+    host.querySelector('#pack-export').onclick = () => {
+      const pack = lib.stickerPacks.find((item) => owner && item.id === owner.stickerPackId);
+      if (!pack) { UI.toast('这张卡或这本书没有表情包'); return; }
+      exportStickerFiles(pack, (owner && owner.name) || pack.name);
+    };
+  }
+
+  async function exportStickerFiles(pack, characterName) {
+    if (root.nijanDesktop) {
+      const paths = await root.nijanDesktop.getPaths();
+      if (!paths.cards) { UI.toast('先在页面上方设置人物卡文件夹'); return; }
+      const dest = await root.nijanDesktop.writeExpressions({ folder: paths.cards, character: characterName || pack.name, files: pack.stickers || [] });
+      UI.showExport(dest, '表情文件夹已写到人物卡目录下的 expressions。世界书只记录套名，不含这些图片。');
+      return;
+    }
+    (pack.stickers || []).forEach((sticker) => {
+      const link = document.createElement('a');
+      link.href = sticker.dataUrl;
+      link.download = sticker.name;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    });
+    UI.showExport(`${characterName}/expressions`, '浏览器会下载表情图片。请放进酒馆该角色的 expressions 文件夹。世界书导出只写套名。');
+  }
+
+  function mountJson(stage, kind, owner) {
+    const host = stage.querySelector('#json-host');
+    if (!host || !owner || !root.TAI18n || !root.TAI18n.prefs.jsonMode) { if (host) host.innerHTML = ''; return; }
+    const data = kind === 'card' ? F.characterToCard(owner, null) : F.bookToWorldInfo(owner);
+    host.innerHTML = `<details class="paper"><summary>JSON 互转</summary><textarea id="json-box" rows="8">${UI.esc(JSON.stringify(data, null, 2))}</textarea><button type="button" class="btn" id="json-back">从 JSON 转回</button></details>`;
+    host.querySelector('#json-back').onclick = () => {
+      try {
+        const parsed = JSON.parse(host.querySelector('#json-box').value);
+        if (kind === 'card') Object.assign(owner, F.cardToCharacter(parsed));
+        else owner.entries = F.worldInfoToEntries(parsed).map((entry) => Object.assign(blankEntry(), entry, { id: Store.uid('lore') }));
+        UI.markDirty();
+        UI.renderStage();
+      } catch (error) { UI.toast(error.message || '这份 JSON 转不回来'); }
+    };
+  }
+
+  function tutorial(stage) {
+    const steps = [
+      ['打开', '在这个目录运行 python3 -m http.server 8765，或在桌面版运行 npm start。浏览器打开本机 8765。'],
+      ['导入', '左侧「导入角色卡」接受 JSON 或带 chara 的 PNG。「导入世界书」接受酒馆 {entries}，也接受条目名、触发关键词、正文。页面上方的虚线框可以直接拖。'],
+      ['书写', '角色卡工坊写字段。世界书看板改条目。段落预设会写成真正的作者注、世界书、正则和快捷回复。'],
+      ['检查', '人设一致性检查始终做空字段、重复和关键词。配置了模型之后，同一页的「语义检查」才读前后矛盾。'],
+      ['导出到酒馆', '角色卡 JSON 或 PNG 放到 SillyTavern 的 characters，或在角色列表里导入。世界书 JSON 放到 worlds，或在世界信息里导入。正则数组放到正则扩展。快捷回复放到 Quick Reply。表情图片放到该角色目录下的 expressions。世界书只在你选了表情包时记下套名。'],
+      ['文件夹', '桌面版可以用页面上方的按钮选定人物卡文件夹和世界书文件夹，并读取里面已有的文件。两条路径会写在页面上。'],
+    ];
+    stage.innerHTML = `<div class="paper stack"><p class="eyebrow">GUIDE</p><h2>从打开到放进酒馆</h2>${steps.map(([title, body], index) => `<section><h3>${index + 1}. ${title}</h3><p>${body}</p></section>`).join('')}<div class="row"><button type="button" class="btn btn-primary" id="walk-demo">用示例走一遍导入、检查和导出</button><a class="btn" href="lore.html">去世界书页</a><a class="btn" href="check.html">去检查页</a></div><div id="walk-out"></div></div>`;
+    stage.querySelector('#walk-demo').onclick = () => {
+      const lib = UI.state.lib;
+      const book = lib.worldBooks[0];
+      const character = lib.characters[0];
+      const imported = book ? F.worldInfoToEntries(F.bookToWorldInfo(book)) : [];
+      const findings = character ? F.checkConsistency(lib, character.id, book && book.id) : [];
+      const cardName = character ? `${UI.safeName(character.name)}.json` : '角色卡.json';
+      const bookName = book ? `${UI.safeName(book.name)}.json` : '世界书.json';
+      stage.querySelector('#walk-out').innerHTML = `<ol class="lesson"><li>导入：示例世界书「${UI.esc(book ? book.name : '')}」拆出 ${imported.length} 条，第一条是「${UI.esc(imported[0] ? imported[0].comment : '')}」。</li><li>检查：对「${UI.esc(character ? character.name : '')}」跑规则检查，得到 ${findings.length} 条。语义检查要等模型配置好。</li><li>导出：${UI.esc(cardName)} 放到酒馆 characters；${UI.esc(bookName)} 放到酒馆 worlds。正则是 regex-scripts.json，快捷回复是各套自己的 JSON。</li></ol>`;
+    };
+  }
+
   function sections(stage) {
     const lib = UI.state.lib;
     if (!lib.sections) lib.sections = Store.defaultSections ? Store.defaultSections() : lib.sections;
@@ -2022,6 +2165,6 @@
   }
 
   UI.mount({
-    home, characters, lore, prompts, groups, chat, assets, regex, quick, timeline, graph, check, script, theme, backup, sections,
+    home, characters, lore, prompts, groups, chat, assets, regex, quick, timeline, graph, check, script, theme, backup, sections, tutorial,
   });
 })(typeof globalThis !== 'undefined' ? globalThis : window);
