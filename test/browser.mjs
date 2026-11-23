@@ -195,15 +195,22 @@ try {
     setTimeout(() => {
       const requestEl = document.querySelector('.studio-request');
       const boardEl = document.querySelector('.studio');
-      const resultEl = document.querySelector('.studio-results .studio-col');
-      if (!requestEl || !boardEl || !resultEl) { resolve({ missing: true, text: (document.querySelector('#stage')?.innerText || '').slice(0, 180) }); return; }
+      const scanEl = document.querySelector('.studio-scan');
+      const results = document.querySelector('.studio-results');
+      if (!requestEl || !boardEl || !scanEl || !results) { resolve({ missing: true, text: (document.querySelector('#stage')?.innerText || '').slice(0, 180) }); return; }
       const request = requestEl.getBoundingClientRect();
       const board = boardEl.getBoundingClientRect();
-      const result = resultEl.getBoundingClientRect();
-      resolve({ request: Math.round(request.width), board: Math.round(board.width), result: Math.round(result.width) });
+      const scan = scanEl.getBoundingClientRect();
+      resolve({
+        request: Math.round(request.width),
+        board: Math.round(board.width),
+        scan: Math.round(scan.width),
+        hidden: results.hidden,
+        split: document.body.innerText.includes('触发的') && document.body.innerText.includes('未触发的'),
+      });
     }, 40);
   })`);
-  check('studio uses width', studioLayout.request > studioLayout.board * 0.4 && studioLayout.result > 280 && studioLayout.board > 700, JSON.stringify(studioLayout));
+  check('studio uses width', studioLayout.request > studioLayout.board * 0.4 && studioLayout.scan > 280 && studioLayout.board > 700 && studioLayout.hidden && studioLayout.split, JSON.stringify(studioLayout));
 
   const chat = await evaluate(`new Promise((resolve) => {
     document.querySelector('[data-nav="chat"]').click();
@@ -339,6 +346,7 @@ try {
     document.querySelector('[data-nav="studio"]').click();
     setTimeout(() => {
       const text = document.querySelector('#stage').innerText;
+      const results = document.querySelector('.studio-results');
       const input = document.querySelector('[data-path="card.name"]');
       input.value = '测试角色';
       input.dispatchEvent(new Event('input', { bubbles: true }));
@@ -347,11 +355,13 @@ try {
         cols: document.querySelectorAll('.studio-col').length,
         formula: /这是谁|和用户是什么关系|最不该被写反|这本书主要约束/.test(text),
         imported: !!(card && card.name === '测试角色'),
-        workshops: ['段落预设', '角色卡', '世界书', '提示词拼装', '群聊卡司', '聊天阅览', '素材库', '正则', '快捷回复', '作者注与情景时间线', '角色关系图', '群聊剧本', '人设一致性检查'].every((name) => text.includes(name)),
+        hidden: results.hidden,
+        kept: !!document.querySelector('.studio-request') && !!document.querySelector('#studio-more') && !!document.querySelector('#studio-progress'),
+        workshops: ['段落预设', '角色卡', '世界书', '提示词拼装', '群聊卡司', '聊天阅览', '素材库', '正则', '快捷回复', '作者注与情景时间线', '角色关系图', '群聊剧本', '人设一致性检查'].every((name) => results.textContent.includes(name)),
       });
     }, 60);
   })`);
-  check('studio columns import', studio.cols >= 13 && studio.workshops && studio.imported && !studio.formula, JSON.stringify(studio));
+  check('studio columns import', studio.cols >= 13 && studio.workshops && studio.imported && studio.hidden && studio.kept && !studio.formula, JSON.stringify(studio));
 
   const writing = await evaluate(`new Promise((resolve) => {
     const seen = [];
@@ -365,8 +375,10 @@ try {
     data.ideas = [{ text: '安静', status: 'yes' }];
     NIJANStudio.render(document.querySelector('#stage'));
     const more = document.querySelector('#studio-more');
+    let revealed = false;
     document.querySelector('#studio-write').click();
     setTimeout(() => {
+      revealed = document.querySelector('.studio-results').hidden === false;
       more.value = '女主外貌';
       more.dispatchEvent(new Event('input', { bubbles: true }));
     }, 30);
@@ -374,11 +386,38 @@ try {
       resolve({
         obvious: more.closest('.studio-live') != null,
         seen,
+        revealed,
         progress: document.querySelector('#studio-progress')?.textContent || '',
       });
     }, 500);
   })`);
-  check('supplement reaches model', writing.obvious && writing.seen.includes('女主外貌') && writing.progress.includes('写完'), JSON.stringify(writing));
+  check('supplement reaches model', writing.obvious && writing.revealed && writing.seen.includes('女主外貌') && writing.progress.includes('写完'), JSON.stringify(writing));
+
+  const brought = await evaluate(`(async () => {
+    const source = { name: '旧人', description: '茶色眼睛', personality: '嘴严', scenario: '雨夜', first_mes: '进来', mes_example: '例子', system_prompt: '系统', creator_notes: '注' };
+    NIJANStudio.applyCardParts(source, ['appearance'], { fresh: true });
+    const onlyLook = Object.assign({}, NIJANStudio.draft().card);
+    NIJANStudio.applyCardParts(source, ['all'], { fresh: true });
+    const whole = Object.assign({}, NIJANStudio.draft().card);
+    NIJANModel.configured = () => true;
+    NIJANModel.askJson = async () => ({ entries: [
+      { 条目名: '听雨楼', 触发: true, 理由: '这句话里有楼' },
+      { 条目名: '茶引', 触发: false, 理由: '没提到铜钱' },
+    ] });
+    await NIJANStudio.importWorldEntries([
+      { comment: '听雨楼', keys: ['听雨楼'], content: '楼还在。', constant: true },
+      { comment: '茶引', keys: ['茶引'], content: '铜钱不是通货。', constant: false },
+    ], '导入书');
+    NIJANStudio.render(document.querySelector('#stage'));
+    const scan = document.querySelector('#studio-scan').innerText;
+    return {
+      look: onlyLook.description === '茶色眼睛' && onlyLook.personality === '' && onlyLook.name === '' && onlyLook.scenario === '',
+      whole: whole.name === '旧人' && whole.personality === '嘴严' && whole.description === '茶色眼睛',
+      parts: document.body.innerText.includes('整张卡') && document.body.innerText.includes('外貌') && document.body.innerText.includes('导入世界书'),
+      scan: scan.includes('听雨楼') && scan.includes('茶引') && !scan.includes('未命名'),
+    };
+  })()`);
+  check('import card parts and world book', brought.look && brought.whole && brought.parts && brought.scan, JSON.stringify(brought));
 
   const entryName = await evaluate(`(() => {
     const data = NIJANStudio.draft();
