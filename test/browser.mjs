@@ -120,7 +120,7 @@ try {
   check('saved', counts.save.includes('已保存'));
 
   const routes = await evaluate(`[...document.querySelectorAll('[data-nav]')].map((b) => b.dataset.nav)`);
-  check('17 routes', routes.length === 17, String(routes.length));
+  check('18 routes', routes.length === 18, String(routes.length));
   for (const id of routes) {
     const broken = await evaluate(`new Promise((resolve) => {
       document.querySelector('[data-nav="${id}"]').click();
@@ -448,6 +448,36 @@ try {
     return { before, savedTemp, savedAdult, closedAdult: TAI18n.prefs.adult === false };
   })()`);
   check('writer settings', writerSettings.before.adult === false && writerSettings.before.live === true && Math.abs(writerSettings.savedTemp - 1.2) < 0.05 && writerSettings.savedAdult && writerSettings.closedAdult, JSON.stringify(writerSettings));
+
+  const guide = await evaluate(`(() => {
+    const style = TAUI.state.lib.sections.style;
+    style.on = true;
+    style.preset = 'short';
+    style.custom = '';
+    style.text = '句子短。少形容词。一句只做一件事。';
+    TAI18n.save({ replyLength: 'custom', replyChars: 321 });
+    const prompt = NIJANModel.systemPrompt('写');
+    const payload = NIJANStudio.draft ? null : null;
+    TAI18n.save({ lang: 'zh', replyLength: 'medium', replyChars: 600 });
+    TAUI.show('memory');
+    const zh = document.querySelector('#stage').innerText;
+    TAI18n.save({ lang: 'en' });
+    TAUI.renderStage();
+    const en = document.querySelector('#stage').innerText;
+    TAI18n.save({ lang: 'ja' });
+    TAUI.renderStage();
+    const ja = document.querySelector('#stage').innerText;
+    TAI18n.save({ lang: 'zh' });
+    TAUI.renderStage();
+    return {
+      style: prompt.includes('句子短'),
+      count: prompt.includes('321'),
+      zh: zh.includes('JS-Slash-Runner') && zh.includes('导出 HTML') && zh.includes('放进 SillyTavern'),
+      en: en.includes('Import HTML') && en.includes('JS-Slash-Runner') && en.includes('Enable the panel'),
+      ja: ja.includes('HTML を書き出す') && ja.includes('パネルを有効にする'),
+    };
+  })()`);
+  check('length, style, and memory steps', guide.style && guide.count && guide.zh && guide.en && guide.ja, JSON.stringify(guide));
 } catch (error) {
   console.error(error);
   fails.push(error.message);

@@ -36,5 +36,6 @@ No build step is required for the web page.
 - Regex JSON: import in the regex extension.
 - Quick reply JSON: import in the Quick Reply extension.
 - The chat reader export is this workshop's own reading file. It is not written back into SillyTavern `chats`.
+- HTML memory: export the `.html` file from the HTML memory page. That page lists the SillyTavern steps: enable JS-Slash-Runner, create an HTML script, and import the file.
 
 The license is the MIT `LICENSE` at the repo root. The in-app guide covers open, import, write, check, and where each export file goes.

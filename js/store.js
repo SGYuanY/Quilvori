@@ -363,6 +363,7 @@
     if (!Array.isArray(lib.graph.nodes)) lib.graph.nodes = [];
     if (!Array.isArray(lib.graph.edges)) lib.graph.edges = [];
     if (!Array.isArray(lib.stickerPacks)) lib.stickerPacks = [];
+    if (typeof lib.memoryHtml !== 'string') lib.memoryHtml = '';
     const sectionDefaults = defaultSections();
     const incomingSections = (input && input.sections) || {};
     lib.sections = {};

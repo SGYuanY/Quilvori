@@ -17,7 +17,8 @@
     { id: 'check', mark: '14', label: '人设一致性检查', eyebrow: 'CHECK', title: '人设一致性检查', search: false, blurb: 'blurb.check' },
     { id: 'script', mark: '15', label: '群聊剧本', eyebrow: 'SCRIPT', title: '群聊剧本', search: true, placeholder: '搜剧本、台词', blurb: 'blurb.script' },
     { id: 'backup', mark: '16', label: '整库备份', eyebrow: 'BACKUP', title: '整库备份', search: false, blurb: 'blurb.backup' },
-    { id: 'tutorial', mark: '17', label: '使用教学', eyebrow: 'GUIDE', title: '使用教学', search: false, blurb: 'blurb.tutorial' },
+    { id: 'memory', mark: '17', label: 'HTML 记忆', eyebrow: 'MEMORY', title: 'HTML 记忆', search: false, blurb: 'blurb.memory' },
+    { id: 'tutorial', mark: '18', label: '使用教学', eyebrow: 'GUIDE', title: '使用教学', search: false, blurb: 'blurb.tutorial' },
   ];
 
   const state = {
@@ -530,6 +531,9 @@
       <p class="help">模型在总览里连接后选择，不用手填名称。</p>
       <label class="field"><span class="field-label">模型倾向</span><select id="set-profile"><option value="default">默认中文</option><option value="weak-zh">中文弱，用英文提示</option><option value="weak-en">英文弱，用中文提示</option><option value="strict">审核严，不含 18+</option></select></label>
       <label class="field"><span class="field-label">温度</span><input id="set-temp" type="range" min="0" max="2" step="0.1"></label>
+      <label class="field"><span class="field-label">回复篇幅</span><select id="set-length"><option value="short">短，约 200 字</option><option value="medium">中，约 600 字</option><option value="long">长，约 1500 字</option><option value="custom">自定义字数</option></select></label>
+      <label class="field"><span class="field-label">自定义字数</span><input id="set-chars" type="number" min="50" max="8000" step="50"></label>
+      <p class="help">篇幅会写进模型请求。文风仍在段落预设里选，选中的文风也会一并送出。</p>
       <label class="check"><input id="set-adult" type="checkbox"> 允许成人内容。模型倾向为审核严时，打开也不会写进提示。</label>
       <label class="check"><input id="set-live" type="checkbox"> 创作页的修改实时送进角色卡、世界书和其余工坊</label>
       <p class="field-label">主题</p>
@@ -552,6 +556,8 @@
     host.querySelector('#set-key').value = model.key || '';
     host.querySelector('#set-profile').value = model.profile || 'default';
     host.querySelector('#set-temp').value = String(model.temperature ?? 0.7);
+    host.querySelector('#set-length').value = prefs.replyLength || 'medium';
+    host.querySelector('#set-chars').value = String(prefs.replyChars || 600);
     host.querySelector('#set-adult').checked = !!prefs.adult;
     host.querySelector('#set-live').checked = prefs.liveImport !== false;
     const theme = ensureTheme();
@@ -583,6 +589,8 @@
         jsonMode: host.querySelector('#set-json').checked,
         adult: host.querySelector('#set-adult').checked,
         liveImport: host.querySelector('#set-live').checked,
+        replyLength: host.querySelector('#set-length').value,
+        replyChars: Number(host.querySelector('#set-chars').value) || 600,
       });
       if (root.NIJANModel) {
         root.NIJANModel.save({
@@ -601,6 +609,8 @@
     host.querySelector('#set-key').oninput = commit;
     host.querySelector('#set-profile').onchange = commit;
     host.querySelector('#set-temp').oninput = commit;
+    host.querySelector('#set-length').onchange = commit;
+    host.querySelector('#set-chars').oninput = commit;
     host.querySelector('#set-adult').onchange = commit;
     host.querySelector('#set-live').onchange = commit;
     host.querySelector('#set-scale').oninput = commit;

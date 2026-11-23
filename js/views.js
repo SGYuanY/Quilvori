@@ -2126,11 +2126,68 @@
     if (Object.values(s).some((group) => group.on)) syncSections(lib);
   }
 
+  function memory(stage) {
+    const lib = UI.state.lib;
+    if (typeof lib.memoryHtml !== 'string') lib.memoryHtml = '';
+    const steps = [
+      ['安装扩展', '在 SillyTavern 打开扩展页。若还没有 JS-Slash-Runner（酒馆助手），用扩展管理器安装并启用。已经装过就只要启用。'],
+      ['打开面板', '点聊天页上的酒馆助手按钮，进入脚本。'],
+      ['导入文件', '新建一条脚本，类型选 HTML。点导入，选择织境导出的 HTML 记忆文件；如果导入只收 JSON，就把文件内容粘进脚本正文。'],
+      ['启用面板', '保存并勾选启用。聊天旁边会出现这块 HTML 记忆面板。以后在织境改完，重新导出，再替换同一条脚本的内容。'],
+    ];
+    stage.innerHTML = `<div class="stack">
+      <section class="paper stack">
+        <div class="row">
+          <button type="button" class="btn" id="memory-import">导入 HTML</button>
+          <button type="button" class="btn btn-primary" id="memory-export">导出 HTML</button>
+        </div>
+        ${UI.field('记忆 HTML', `<textarea id="memory-html" rows="14">${UI.esc(lib.memoryHtml)}</textarea>`)}
+        <p class="help">这里写或贴 SillyTavern 记忆扩展用来显示的 HTML 面板。预览在下方，脚本跑在隔离框里。</p>
+      </section>
+      <section class="paper">
+        <h3>预览</h3>
+        <iframe id="memory-preview" class="memory-frame" sandbox="allow-scripts" title="HTML 记忆预览"></iframe>
+      </section>
+      <section class="paper stack">
+        <h3>放进 SillyTavern</h3>
+        <ol class="lesson">${steps.map(([title, body], index) => `<li><strong>${index + 1}. ${title}</strong> ${body}</li>`).join('')}</ol>
+      </section>
+    </div>`;
+    const frame = stage.querySelector('#memory-preview');
+    const area = stage.querySelector('#memory-html');
+    const paint = () => { frame.srcdoc = area.value || '<p></p>'; };
+    area.addEventListener('input', () => { lib.memoryHtml = area.value; UI.markDirty(); paint(); });
+    paint();
+    stage.querySelector('#memory-import').onclick = async () => {
+      const file = await UI.pickFile('.html,.json,text/html,application/json');
+      if (!file) return;
+      try {
+        const raw = await file.text();
+        let html = raw;
+        if (/\.json$/i.test(file.name) || raw.trim().startsWith('{')) {
+          const data = JSON.parse(raw);
+          html = data.html || data.memory || data.content || '';
+          if (!html) throw new Error('这份 JSON 里没有 html');
+        }
+        area.value = html;
+        lib.memoryHtml = html;
+        UI.markDirty();
+        paint();
+        UI.toast('已导入 HTML 记忆');
+      } catch (error) { UI.toast(error.message || '这份记忆读不了'); }
+    };
+    stage.querySelector('#memory-export').onclick = () => {
+      const filename = '织境-html-memory.html';
+      UI.downloadText(filename, area.value || '', 'text/html');
+      UI.showExport(filename, 'HTML 记忆文件。按本页步骤放进 SillyTavern 的酒馆助手。');
+    };
+  }
+
   function studio(stage) {
     if (root.NIJANStudio) root.NIJANStudio.render(stage);
   }
 
   UI.mount({
-    home, studio, characters, lore, prompts, groups, chat, assets, regex, quick, timeline, graph, check, script, backup, sections, tutorial,
+    home, studio, characters, lore, prompts, groups, chat, assets, regex, quick, timeline, graph, check, script, backup, sections, memory, tutorial,
   });
 })(typeof globalThis !== 'undefined' ? globalThis : window);
