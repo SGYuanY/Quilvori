@@ -3,15 +3,22 @@
   const KEY = 'nijan-model';
 
   function load() {
-    try { return Object.assign({ baseUrl: '', model: '', key: '', profile: 'default' }, JSON.parse(localStorage.getItem(KEY) || '{}')); }
-    catch (error) { return { baseUrl: '', model: '', key: '', profile: 'default' }; }
+    try { return Object.assign({ baseUrl: '', model: '', key: '', profile: 'default', temperature: 0.7 }, JSON.parse(localStorage.getItem(KEY) || '{}')); }
+    catch (error) { return { baseUrl: '', model: '', key: '', profile: 'default', temperature: 0.7 }; }
   }
 
   function save(next) {
     const current = load();
     const merged = Object.assign(current, next || {});
     if (!next || !Object.prototype.hasOwnProperty.call(next, 'key')) merged.key = current.key;
-    localStorage.setItem(KEY, JSON.stringify({ baseUrl: merged.baseUrl || '', model: merged.model || '', key: merged.key || '', profile: merged.profile || 'default' }));
+    const temperature = Number(merged.temperature);
+    localStorage.setItem(KEY, JSON.stringify({
+      baseUrl: merged.baseUrl || '',
+      model: merged.model || '',
+      key: merged.key || '',
+      profile: merged.profile || 'default',
+      temperature: Number.isFinite(temperature) ? temperature : 0.7,
+    }));
     return merged;
   }
 
@@ -47,7 +54,7 @@
     const profile = load().profile || 'default';
     const english = profile === 'weak-zh';
     const sections = (root.TAUI && root.TAUI.state && root.TAUI.state.lib && root.TAUI.state.lib.sections) || {};
-    const adultOk = allowsAdult();
+    const adultOk = allowsAdult() && !!(root.TAI18n && root.TAI18n.prefs && root.TAI18n.prefs.adult);
     const r18 = adultOk && sections.r18 && sections.r18.on;
     const nsfw = adultOk && sections.nsfw && sections.nsfw.on;
     if (english) {
@@ -79,7 +86,7 @@
     const response = await fetch(url, {
       method: 'POST',
       headers: { Authorization: `Bearer ${cfg.key}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: cfg.model, temperature: 0.7, messages }),
+      body: JSON.stringify({ model: cfg.model, temperature: Number.isFinite(Number(cfg.temperature)) ? Number(cfg.temperature) : 0.7, messages }),
     });
     if (!response.ok) throw new Error(`接口返回 ${response.status}`);
     const data = await response.json();

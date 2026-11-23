@@ -508,6 +508,9 @@
       <label class="field"><span class="field-label">密钥</span><input id="set-key" type="password" autocomplete="off"></label>
       <p class="help">模型在总览里连接后选择，不用手填名称。</p>
       <label class="field"><span class="field-label">模型倾向</span><select id="set-profile"><option value="default">默认中文</option><option value="weak-zh">中文弱，用英文提示</option><option value="weak-en">英文弱，用中文提示</option><option value="strict">审核严，不含 18+</option></select></label>
+      <label class="field"><span class="field-label">温度</span><input id="set-temp" type="range" min="0" max="2" step="0.1"></label>
+      <label class="check"><input id="set-adult" type="checkbox"> 允许成人内容。模型倾向为审核严时，打开也不会写进提示。</label>
+      <label class="check"><input id="set-live" type="checkbox"> 创作页的修改实时送进角色卡、世界书和其余工坊</label>
       <p class="field-label">主题</p>
       <label class="field"><span class="field-label">背景</span><input id="set-bg" type="color"></label>
       <label class="field"><span class="field-label">纸色</span><input id="set-paper" type="color"></label>
@@ -527,6 +530,9 @@
     host.querySelector('#set-base').value = model.baseUrl || '';
     host.querySelector('#set-key').value = model.key || '';
     host.querySelector('#set-profile').value = model.profile || 'default';
+    host.querySelector('#set-temp').value = String(model.temperature ?? 0.7);
+    host.querySelector('#set-adult').checked = !!prefs.adult;
+    host.querySelector('#set-live').checked = prefs.liveImport !== false;
     const theme = ensureTheme();
     const vars = theme.vars;
     host.querySelector('#set-bg').value = vars.bg || '#07090d';
@@ -554,12 +560,15 @@
         scale: Number(host.querySelector('#set-scale').value),
         density: host.querySelector('#set-density').value,
         jsonMode: host.querySelector('#set-json').checked,
+        adult: host.querySelector('#set-adult').checked,
+        liveImport: host.querySelector('#set-live').checked,
       });
       if (root.NIJANModel) {
         root.NIJANModel.save({
           baseUrl: host.querySelector('#set-base').value.trim(),
           key: host.querySelector('#set-key').value,
           profile: host.querySelector('#set-profile').value,
+          temperature: Number(host.querySelector('#set-temp').value),
         });
       }
       renderStage();
@@ -570,6 +579,9 @@
     host.querySelector('#set-base').oninput = commit;
     host.querySelector('#set-key').oninput = commit;
     host.querySelector('#set-profile').onchange = commit;
+    host.querySelector('#set-temp').oninput = commit;
+    host.querySelector('#set-adult').onchange = commit;
+    host.querySelector('#set-live').onchange = commit;
     host.querySelector('#set-scale').oninput = commit;
     host.querySelector('#set-density').onchange = commit;
     const close = () => {
