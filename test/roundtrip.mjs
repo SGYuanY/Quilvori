@@ -81,7 +81,7 @@ const draft = findings['未名客'];
 check('draft empty personality', draft.some((item) => item.title.includes('性格')));
 check('draft typo', draft.some((item) => item.highlight === '沈听语'));
 check('draft eyes', draft.some((item) => item.title.includes('瞳')));
-check('draft fire', draft.some((item) => item.title.includes('烧毁') || item.detail.includes('烧毁')));
+check('draft fire', draft.some((item) => item.severity === 'error' && item.highlight === '烧毁'));
 check('draft drink', draft.some((item) => item.title.includes('酒')));
 
 const replaced = Store.normalize(F.backupLibrary(F.backupOf(lib)));

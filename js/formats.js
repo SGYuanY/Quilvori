@@ -674,7 +674,7 @@
     ];
     required.forEach(([key, label]) => {
       if (!String(character[key] || '').trim()) {
-        add('error', `缺少${label}`, 'SillyTavern 角色卡的基本字段是空的。', '', '');
+        add(key === 'name' ? 'error' : 'info', key === 'name' ? `缺少${label}` : `${label}留白（可选）`, key === 'name' ? '角色卡需要一个名字。' : '这个栏位可以留白，请按用途决定是否填写。', '', '');
       }
     });
     if (!(character.tags || []).length) add('info', '没有标签', '标签方便在酒馆里筛选，不写也能导入。', '', '');

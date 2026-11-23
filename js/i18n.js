@@ -1,6 +1,8 @@
 /* Interface language and display preferences. User-written card text is not translated. */
 (function (root) {
   const KEY = 'nijan-ui';
+  const LANGUAGES = {zh:'中文',en:'English',ja:'日本語',ru:'Русский',ko:'한국어',th:'ไทย'};
+  const textSources=new WeakMap(),attributeSources=new WeakMap();
   const PHRASE = {
     '总览': { en: 'Overview', ja: '概要' },
     '段落预设': { en: 'Section presets', ja: '段落プリセット' },
@@ -101,9 +103,9 @@
 
   const TEMPLATES = {
     'blurb.studio': {
-      zh: '模型先问，再给灵感。接受或拒绝之后才写。改一栏，就送进对应的工坊页。',
-      en: 'The model asks first, then offers inspirations. Edits import into the matching workshop page.',
-      ja: 'モデルが先に尋ね、灵感を出す。直した内容は対応するページへ入る。',
+      zh: '选定条目或栏位，向模型提要求。对照原文预览，再应用到对应位置。',
+      en: 'Select entries or fields, request changes, then preview and apply them to the matching location.',
+      ja: '項目や欄を選び、変更を依頼します。原文と比較してから適用できます。',
     },
     'blurb.memory': {
       zh: '写一块 HTML 记忆面板，导出文件，再按页面上的步骤放进 SillyTavern。',
@@ -176,9 +178,9 @@
       ja: '人物を拖り、関係を結びます。書き出すと線がワールドブックの項目になります。',
     },
     'blurb.check': {
-      zh: '本地对照空字段、近名、发色瞳色，以及恒定条目和正文是否打架。不是模型审查。',
-      en: 'Locally compare empty fields, near-names, hair and eyes, and constant entries against the prose. Not a model review.',
-      ja: '空欄、似た名前、髪と瞳、恒常項目と本文の食い違いをローカルで見ます。モデル審査ではありません。',
+      zh: '本地规则与 AI 审查分开展示。对照原文查看问题、证据和位置，报告单独保存。',
+      en: 'Local rules and AI review are shown separately. Check evidence and locations against the source; reports are saved separately.',
+      ja: 'ローカルルールと AI 審査を分けて表示します。原文の根拠と位置を確認し、レポートは別に保存します。',
     },
     'blurb.script': {
       zh: '按顺序写旁白或角色的句子，可加触发词。导出工坊自己的 JSON。',
@@ -546,9 +548,9 @@
       ja: '「{name}」を、{book} の有効な恒常項目と照合しています。ローカルの字面チェックで、モデル審査ではありません。',
     },
     'check.empty': {
-      zh: '名字、描述、性格、情景、开场白若是空的，记成冲突。',
-      en: 'An empty name, description, personality, scenario, or first message is a clash.',
-      ja: '名前、説明、性格、情景、最初の発言が空なら衝突です。',
+      zh: '名字必填；描述、性格、情景和开场白留白只作提示，按用途决定是否填写。',
+      en: 'A name is required. Blank descriptions, personalities, scenarios, and first messages are optional-field notes.',
+      ja: '名前は必須です。説明、性格、情景、最初の発言の空欄は任意項目の案内として扱います。',
     },
     'check.names': {
       zh: '开场、情景和备用开场里，如果出现跟其他角色只差一个字的名字，记成存疑。',
@@ -731,17 +733,13 @@
 
   function apply() {
     const lang = prefs.lang || 'zh';
-    document.documentElement.lang = lang === 'en' ? 'en' : lang === 'ja' ? 'ja' : 'zh-CN';
+    document.documentElement.lang = lang === 'zh' ? 'zh-CN' : (LANGUAGES[lang] ? lang : 'zh-CN');
     document.documentElement.dataset.teach = prefs.teach === false ? 'off' : 'on';
     document.documentElement.dataset.density = prefs.density === 'compact' ? 'compact' : 'comfortable';
     document.documentElement.style.setProperty('--ui-scale', String(Number(prefs.scale) || 1));
     paintCursor(prefs.cursorSize);
-    const product = lang === 'en' ? 'Realmweave' : '织境';
-    const tagline = lang === 'en'
-      ? 'From a single thought, write the people and the world.'
-      : lang === 'ja'
-        ? 'ひとつの想いから、人物と世界を書く。'
-        : '从一个念头，写出人物与世界。';
+    const product = lang === 'zh' || lang === 'ja' ? '织境' : 'Realmweave';
+    const tagline = t('从一个念头，写出人物与世界。');
     document.title = product;
     document.querySelectorAll('[data-product]').forEach((node) => { node.textContent = product; });
     document.querySelectorAll('[data-tagline]').forEach((node) => { node.textContent = tagline; });
@@ -749,6 +747,7 @@
 
   function save(next) {
     prefs = Object.assign(load(), next || {});
+    if(!LANGUAGES[prefs.lang])prefs.lang='zh';
     localStorage.setItem(KEY, JSON.stringify(prefs));
     apply();
   }
@@ -771,17 +770,14 @@
 
   function foreignLists() {
     if (reversePhrase) return reversePhrase;
-    const en = [];
-    const ja = [];
+    const lists = Object.keys(LANGUAGES).filter((lang)=>lang!=='zh').map(()=>[]);
     Object.keys(PHRASE).forEach((zh) => {
       const row = PHRASE[zh];
       if (!row) return;
-      if (row.en && row.en !== zh) en.push([row.en, zh]);
-      if (row.ja && row.ja !== zh) ja.push([row.ja, zh]);
+      Object.keys(LANGUAGES).filter((lang)=>lang!=='zh').forEach((lang,index)=>{if(row[lang]&&row[lang]!==zh)lists[index].push([row[lang],zh]);});
     });
-    en.sort((a, b) => b[0].length - a[0].length);
-    ja.sort((a, b) => b[0].length - a[0].length);
-    reversePhrase = [en, ja];
+    lists.forEach((list)=>list.sort((a,b)=>b[0].length-a[0].length));
+    reversePhrase = lists;
     return reversePhrase;
   }
 
@@ -796,7 +792,8 @@
         const zh = list[i][1];
         if (trimmed === foreign) return raw.replace(trimmed, zh);
         const lead = trimmed.length - foreign.length;
-        if (lead > 0 && lead <= 2 && trimmed.endsWith(foreign)) return raw.replace(trimmed, trimmed.slice(0, trimmed.length - foreign.length) + zh);
+        const prefix = trimmed.slice(0, lead);
+        if (lead > 0 && lead <= 2 && !/[\p{L}\p{N}]/u.test(prefix) && trimmed.endsWith(foreign)) return raw.replace(trimmed, prefix + zh);
       }
     }
     return raw;
@@ -804,26 +801,26 @@
 
   function restoreChinese(node) {
     if (!node) return;
+    if(node.nodeType===1&&node.closest?.('[data-no-translate]'))return;
     if (node.nodeType === 1) {
       ['placeholder', 'title', 'aria-label'].forEach((attr) => {
         if (!node.getAttribute) return;
         const value = node.getAttribute(attr);
         if (!value) return;
-        const next = toChinese(value);
+        const prior=attributeSources.get(node)?.[attr];
+        const next = prior&&prior.output===value?prior.source:toChinese(value);
         if (next !== value) node.setAttribute(attr, next);
       });
-      if (node.matches && node.matches('textarea, input') && (node.dataset.live || node.dataset.custom)) {
-        const next = toChinese(node.value || '');
-        if (next !== node.value) node.value = next;
-      }
       if (node.matches && node.matches('textarea, script, style')) return;
     }
     const kids = node.childNodes ? [...node.childNodes] : [];
     kids.forEach((child) => {
       if (child.nodeType === 3) {
-        const skipContent = child.parentElement && child.parentElement.closest && child.parentElement.closest('textarea, .msg .body, #char-preview, .cast, .gallery, figcaption, .snippet, .entry > p, .rail-char');
+        const skipContent = child.parentElement && child.parentElement.closest && child.parentElement.closest('textarea, .msg .body, #char-preview, .cast, .gallery, figcaption, .snippet, .entry > p, .rail-char, .ai-idea-options .check, .ai-adopted-ideas p, .ai-creation-conversation p, .ai-target-list, .ai-diff, .ai-model-thought, .ai-finding, .ai-conversation p, .ai-source-panel h3');
         if (skipContent) return;
-        const next = toChinese(child.nodeValue);
+        const prior=textSources.get(child);
+        const next = prior&&prior.output===child.nodeValue?prior.source:toChinese(child.nodeValue);
+        textSources.delete(child);
         if (next !== child.nodeValue) child.nodeValue = next;
       } else if (child.nodeType === 1) restoreChinese(child);
     });
@@ -831,17 +828,21 @@
 
   function localize(node) {
     if (!node) return;
+    if(node.nodeType===1&&node.closest?.('[data-no-translate]'))return;
     if ((prefs.lang || 'zh') === 'zh') { restoreChinese(node); return; }
     if (node.nodeType === 1) {
       ['placeholder', 'title', 'aria-label'].forEach((attr) => {
         if (!node.getAttribute) return;
         const value = node.getAttribute(attr);
         if (!value) return;
-        const trimmed = value.trim();
+        let originals=attributeSources.get(node);if(!originals){originals={};attributeSources.set(node,originals);}
+        const original=originals[attr];
+        const source=original&&original.output===value?original.source:toChinese(value);
+        const trimmed = source.trim();
         const mapped = phraseOf(trimmed);
-        if (mapped) node.setAttribute(attr, value.replace(trimmed, mapped));
+        if (mapped) {const output=source.replace(trimmed,mapped);node.setAttribute(attr,output);originals[attr]={source,output};}
       });
-      if (node.matches && node.matches('textarea, input')) {
+      if (node.matches && node.matches('input[data-translate-value]')) {
         const current = node.value || '';
         const mappedValue = phraseOf(current.trim());
         if (mappedValue && current.trim() === current) node.value = mappedValue;
@@ -852,15 +853,12 @@
     const kids = node.childNodes ? [...node.childNodes] : [];
     kids.forEach((child) => {
       if (child.nodeType === 3) {
-        const raw = child.nodeValue;
+        const previous=textSources.get(child),current=child.nodeValue;
+        const raw = previous&&previous.output===current?previous.source:toChinese(current);
         const trimmed = raw.trim();
         if (!trimmed) return;
-        const skipContent = child.parentElement && child.parentElement.closest && child.parentElement.closest('textarea, .msg .body, #char-preview, .cast, .gallery, figcaption, .snippet, .entry > p, #studio-think-body');
-        if (skipContent) {
-          const only = phraseOf(trimmed);
-          if (only) child.nodeValue = raw.replace(trimmed, only);
-          return;
-        }
+        const skipContent = child.parentElement && child.parentElement.closest && child.parentElement.closest('textarea, .msg .body, #char-preview, .cast, .gallery, figcaption, .snippet, .entry > p, #studio-think-body, .ai-idea-options .check, .ai-adopted-ideas p, .ai-creation-conversation p, .ai-target-list, .ai-diff, .ai-model-thought, .ai-finding, .ai-conversation p, .ai-source-panel h3');
+        if (skipContent) return;
         let mapped = phraseOf(trimmed);
         const unitHost = child.parentElement && child.parentElement.matches && child.parentElement.matches('.muted, .field-label, .dark-muted, small, #prev-meta');
         if (!mapped && unitHost) {
@@ -886,15 +884,20 @@
             if (!next.includes(key) || !(PHRASE[key] && PHRASE[key][lang])) return;
             next = next.split(key).join(PHRASE[key][lang]);
           });
-          if (next !== raw) child.nodeValue = next;
+          if (next !== raw) {child.nodeValue = next;textSources.set(child,{source:raw,output:next});}
           return;
         }
         child.nodeValue = raw.replace(trimmed, mapped);
+        textSources.set(child,{source:raw,output:child.nodeValue});
       } else if (child.nodeType === 1) localize(child);
     });
   }
 
   apply();
-  function add(extra) { Object.assign(PHRASE, extra || {}); phraseKeys = null; reversePhrase = null; }
-  root.TAI18n = { t, load, save, apply, localize, add, get prefs() { return prefs; } };
+  function add(extra,templates) {
+    Object.entries(extra||{}).forEach(([key,row])=>{PHRASE[key]=Object.assign({},PHRASE[key]||{},row);});
+    Object.entries(templates||{}).forEach(([key,row])=>{TEMPLATES[key]=Object.assign({},TEMPLATES[key]||{},row);});
+    phraseKeys=null;reversePhrase=null;
+  }
+  root.TAI18n = { t, load, save, apply, localize, add, languages:LANGUAGES, catalog:()=>JSON.parse(JSON.stringify({phrases:PHRASE,templates:TEMPLATES})), get prefs() { return prefs; } };
 })(typeof globalThis !== 'undefined' ? globalThis : window);
