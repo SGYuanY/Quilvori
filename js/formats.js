@@ -154,6 +154,7 @@
         matchCharacterPersonality: false,
         matchScenario: false,
         matchCreatorNotes: false,
+        ...(entry.category ? { extensions: { realmweave_category: entry.category } } : {}),
       };
     });
     return { entries };
@@ -191,6 +192,7 @@
             exclude_recursion: false,
             prevent_recursion: false,
             delay_until_recursion: false,
+            ...(entry.category ? { realmweave_category: entry.category } : {}),
           },
         };
       }),
@@ -254,6 +256,7 @@
         selectiveLogic: Number(entry.selectiveLogic ?? entry.extensions?.selectiveLogic ?? 0),
         caseSensitive: entry.caseSensitive ?? null,
         matchWholeWords: entry.matchWholeWords ?? null,
+        ...((entry.category || entry.extensions?.realmweave_category) ? { category: entry.category || entry.extensions.realmweave_category } : {}),
       };
     });
   }

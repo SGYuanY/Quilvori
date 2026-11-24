@@ -1,3 +1,16 @@
 node_modules/
 dist/
 *.log
+
+# Local libraries, exports and credentials stay on this computer.
+/.runtime/
+/backups/
+/exports/
+/local-data/
+/characters/
+/worlds/
+/folders.json
+/nijan-model.json
+.env
+.env.*
+!.env.example

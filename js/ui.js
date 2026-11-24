@@ -1,11 +1,11 @@
 /* Shell, persistence, and small DOM helpers. Views live in views.js. */
 (function (root) {
   const ROUTES = [
-    { id: 'home', mark: '01', label: '总览', eyebrow: 'HOME', title: '总览', search: false, blurb: 'blurb.home' },
+    { id: 'home', mark: '01', label: '书桌', eyebrow: 'HOME', title: '书桌', search: false, blurb: 'blurb.home' },
     { id: 'studio', mark: '02', label: 'AI 创作', eyebrow: 'STUDIO', title: 'AI 创作', search: false, blurb: 'blurb.studio' },
     { id: 'sections', mark: '03', label: '段落预设', eyebrow: 'SECTIONS', title: '段落预设', search: false, blurb: 'blurb.sections' },
-    { id: 'characters', mark: '04', label: '角色卡工坊', eyebrow: 'CARD V2', title: '角色卡工坊', search: true, placeholder: '搜角色、标签', blurb: 'blurb.characters' },
-    { id: 'lore', mark: '05', label: '世界书看板', eyebrow: 'LORE', title: '世界书看板', search: true, placeholder: '搜条目、关键词', blurb: 'blurb.lore' },
+    { id: 'characters', mark: '04', label: '角色卡', eyebrow: 'CARD V2', title: '角色卡', search: true, placeholder: '搜角色、标签', blurb: 'blurb.characters' },
+    { id: 'lore', mark: '05', label: '世界书', eyebrow: 'LORE', title: '世界书', search: true, placeholder: '搜条目、关键词', blurb: 'blurb.lore' },
     { id: 'prompts', mark: '06', label: '提示词拼装', eyebrow: 'PROMPT', title: '提示词拼装', search: true, placeholder: '搜块名称', blurb: 'blurb.prompts' },
     { id: 'groups', mark: '07', label: '群聊卡司', eyebrow: 'CAST', title: '群聊卡司', search: true, placeholder: '搜群名', blurb: 'blurb.groups' },
     { id: 'chat', mark: '08', label: '聊天阅览', eyebrow: 'READING', title: '聊天阅览', search: true, placeholder: '搜聊天标题', blurb: 'blurb.chat' },
@@ -48,7 +48,7 @@
     if (!value.trim()) return;
     const t = (text) => root.TAI18n ? root.TAI18n.t(text) : text;
     const kind = options.kind || (/失败|错误|未能|不支持|超时/.test(value) ? 'error' : /^已|成功|完成/.test(value) ? 'success' : 'info');
-    const title = options.title || t({ success: '操作完成', error: '需要处理', warning: '请留意', info: '提示' }[kind] || '提示');
+    const title = options.title || t({ success: '好了', error: '出了点问题', warning: '请留意', info: '小提醒' }[kind] || '提示');
     const icon = root.TAWorkspace?.icon(kind === 'success' ? 'checkmark' : kind === 'error' ? 'tutorial' : 'studio') || '';
     const positions = () => new Map([...host.children].map((item) => [item, item.getBoundingClientRect().top]));
     const shift = (before) => before.forEach((top, item) => {
@@ -346,8 +346,10 @@
     if (!theme) return;
     const stored = theme.vars || {};
     const legacyNeutral = stored.bg === '#1c1c1c' && stored.lacquer === '#141414' && (!stored.accent || stored.accent === '#d0d0d0');
-    const vars = legacyNeutral ? Object.assign(stored, { bg: '#121319', lacquer: '#15161d', paper: '#1c1e27', ink: '#e8e6f0', accent: '#b9a6ec' }) : stored;
-    if (legacyNeutral) markDirty();
+    const previousDefault = stored.bg === '#121319' && stored.lacquer === '#15161d' && stored.accent === '#b9a6ec';
+    const stockTheme = legacyNeutral || previousDefault;
+    const vars = stockTheme ? Object.assign(stored, { bg: '#191b19', lacquer: '#151714', paper: '#212420', ink: '#e7e7dd', accent: '#d6b680' }) : stored;
+    if (stockTheme) markDirty();
     style.setProperty('--bg', vars.bg || '#1c1c1c');
     style.setProperty('--lacquer', vars.lacquer || '#141414');
     style.setProperty('--paper', vars.paper || '#2e2e2e');
@@ -467,7 +469,7 @@
     host.innerHTML = hits.slice(0, 12).map((hit) => `<a href="${esc(hit.href)}">${esc(hit.label)}</a>`).join('') || '<span>没有同时命中角色卡、世界书或正则。</span>';
   }
 
-  let folderPaths = null;
+  let folderPaths = null, folderReadPromise = null, triedAutoRead = false;
 
   function paintFolders() {
     const host = document.getElementById('folders');
@@ -480,6 +482,11 @@
       host.querySelector('#pick-cards').onclick = () => pickFolder('cards');
       host.querySelector('#pick-worlds').onclick = () => pickFolder('worlds');
       host.querySelector('#read-folders').onclick = () => readFolders(paths);
+      host.querySelector('#read-folders').disabled = !!folderReadPromise;
+      if (root.nijanDesktop && paths.cards && !state.lib.characters.length && !triedAutoRead && !folderReadPromise) {
+        triedAutoRead = true;
+        readFolders(paths, { cardsOnly: true });
+      }
     };
     if (folderPaths) { draw(folderPaths); return; }
     if (root.nijanDesktop) root.nijanDesktop.getPaths().then(draw);
@@ -497,22 +504,64 @@
     toast('文件夹读写在桌面版里。运行 npm start。');
   }
 
-  async function readFolders(paths) {
-    if (!root.nijanDesktop) { toast('请用 npm start 打开桌面版，才能读取这两个文件夹。'); return; }
-    const cards = await root.nijanDesktop.list(paths.cards);
-    const worlds = await root.nijanDesktop.list(paths.worlds);
-    for (const file of worlds) {
-      if (!/\.json$/i.test(file.name)) continue;
-      const bytes = await root.nijanDesktop.read(file.full);
-      const text = new TextDecoder().decode(bytes);
-      try {
-        const entries = root.TAFormats.worldInfoToEntries(JSON.parse(text));
-        state.lib.worldBooks.unshift({ id: `book_${file.name}`, name: file.name.replace(/\.json$/i, ''), description: '', entries: entries.map((entry) => Object.assign({ id: `lore_${Math.random().toString(16).slice(2)}`, secondaryKeys: [], constant: false, selective: true, order: 100, position: 'before_char', enabled: true, depth: 4, outletName: '' }, entry)) });
-      } catch (error) { /* 跳过不是世界书的文件 */ }
-    }
-    markDirty();
-    toast(`读到人物卡文件 ${cards.length} 个，世界书 ${worlds.length} 个。`);
-    renderStage();
+  async function readFolders(paths, options = {}) {
+    if (folderReadPromise) return folderReadPromise;
+    if (!root.nijanDesktop) { toast('请用桌面版读取已设置的文件夹，或点击“导入角色卡”选择文件。'); return; }
+    const sourcePaths = paths || folderPaths || await root.nijanDesktop.getPaths();
+    if (folderReadPromise) return folderReadPromise;
+    if (!sourcePaths.cards && !sourcePaths.worlds) { toast('先设置角色卡或世界书的文件夹。'); return; }
+    const button = document.querySelector('#read-folders');
+    if (button) button.disabled = true;
+    const task = (async () => {
+      toast('正在读取文件夹，读完就会出现在列表里。', { id: 'folder-import', kind: 'info', duration: 15000 });
+      const snapshot = (value) => JSON.stringify(Object.assign({}, value, { meta: Object.assign({}, value.meta, { updatedAt: undefined }) }));
+      const before = snapshot(state.lib);
+      const makeAvatar = async (bytes) => {
+        const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/png' }));
+        try {
+          const ratio = Math.min(1, 192 / bitmap.width, 256 / bitmap.height);
+          const canvas = document.createElement('canvas'); canvas.width = Math.max(1, Math.round(bitmap.width * ratio)); canvas.height = Math.max(1, Math.round(bitmap.height * ratio));
+          const context = canvas.getContext('2d'); context.fillStyle = '#212420'; context.fillRect(0, 0, canvas.width, canvas.height); context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+          const dataUrl = canvas.toDataURL('image/jpeg', .8);
+          return { dataUrl, mime: 'image/jpeg', bytes: Math.ceil(dataUrl.length * .75) };
+        } finally { bitmap.close(); }
+      };
+      const result = await root.TAFolderImport.importAll(state.lib, sourcePaths, root.nijanDesktop, Object.assign({ makeAvatar }, options));
+      // Wait for importing to finish without replacing edits made in the meantime.
+      if (snapshot(state.lib) !== before) throw new Error('读取期间稿子有变化。请再点一次读取，当前改动已保留。');
+      clearTimeout(state.timer);
+      const commit = () => {
+        root.TAStore.save(result.library);
+        state.lib = result.library; state.save = 'saved';
+      };
+      try { commit(); }
+      catch (error) {
+        if (error.name !== 'QuotaExceededError' && error.code !== 22 && error.code !== 'quota') throw error;
+        const oldAssets = new Set(state.lib.assets.map((item) => item.id));
+        const importedAvatars = new Set(result.library.assets.filter((item) => !oldAssets.has(item.id)).map((item) => item.id));
+        result.library.assets = result.library.assets.filter((item) => !importedAvatars.has(item.id));
+        result.library.characters.forEach((card) => { if (importedAvatars.has(card.avatarAssetId)) { card.avatarAssetId = null; result.report.avatarsOmitted++; } });
+        commit();
+      }
+      const report = result.report;
+      if (report.firstCardId) { state.sel.character ||= report.firstCardId; state.sel.checkChar ||= report.firstCardId; }
+      if (report.firstBookId) state.sel.book ||= report.firstBookId;
+      const message = (root.TAI18n ? root.TAI18n.t('folder.readResult', report) : `已导入 ${report.cards} 张角色卡、${report.books} 本世界书；${report.unchanged} 个文件已读过。`);
+      toast(message, { id: 'folder-import', kind: report.failed.length ? 'warning' : 'success', duration: 10000 });
+      renderStage();
+      if (report.failed.length || report.avatarsOmitted) {
+        const info = document.createElement('details'); info.className = 'paper folder-import-report';
+        const summary = document.createElement('summary'); summary.textContent = state.lib.characters.length ? '文件夹读取详情' : '有些文件没能读进来'; info.append(summary);
+        if (report.avatarsOmitted) { const note = document.createElement('p'); note.textContent = '为节省空间，较大的头像没有收进来，角色卡文字已保留。'; info.append(note); }
+        report.failed.forEach((failure) => { const line = document.createElement('p'); line.dataset.noTranslate = ''; line.textContent = `${failure.name}：${root.TAI18n ? root.TAI18n.t(failure.reason) : failure.reason}`; info.append(line); });
+        document.getElementById('stage').prepend(info); root.TAI18n?.localize(info);
+      }
+      return report;
+    })();
+    folderReadPromise = task;
+    try { return await task; }
+    catch (error) { toast(root.TAI18n ? root.TAI18n.t('folder.readFailed', { error: root.TAI18n.t(error.message) }) : `文件夹读取失败：${error.message}`, { id: 'folder-import', kind: 'error', duration: 12000 }); return null; }
+    finally { folderReadPromise = null; const current = document.querySelector('#read-folders'); if (current) current.disabled = false; }
   }
 
   function go(id) {
@@ -534,6 +583,8 @@
     if (search) search.value = '';
     const slip = document.getElementById('export-slip');
     if (slip) slip.innerHTML = '';
+    const stage = document.getElementById('stage');
+    if (stage) stage.scrollTop = 0;
     renderStage();
   }
 
@@ -834,18 +885,18 @@
     const writing = ['sections', 'prompts', 'graph', 'check'];
     app.innerHTML = `<div class="shell">
       <aside class="nav">
-        <div class="brand"><img class="mark" src="img/mark.svg" alt=""><span><strong data-product>织境</strong><em>REALMWEAVE</em></span></div>
+        <div class="brand"><img class="mark" src="img/mark.svg" alt=""><span><strong data-product>织境</strong><em>角色卡 · 世界书</em></span></div>
         <div class="nav-import">
           <button type="button" class="btn" data-shell="import-card">导入角色卡</button>
           <button type="button" class="btn" data-shell="import-book">导入世界书</button>
         </div>
-        <nav class="nav-list" aria-label="主要导航"><div class="nav-section-label">创作空间</div>${primary.map((id) => navButton(ROUTES.find((route) => route.id === id))).join('')}<div class="nav-section-label">设定与打磨</div>${writing.map((id) => navButton(ROUTES.find((route) => route.id === id))).join('')}<details class="nav-tools"${[...primary, ...writing].includes(document.body.dataset.page || location.hash.slice(1) || 'home') ? '' : ' open'}><summary>${icon('more')}<span>更多工具</span>${icon('chevron')}</summary>${ROUTES.filter((route) => ![...primary, ...writing].includes(route.id)).map(navButton).join('')}</details></nav>
+        <nav class="nav-list" aria-label="主要导航"><div class="nav-section-label">写东西</div>${primary.map((id) => navButton(ROUTES.find((route) => route.id === id))).join('')}<div class="nav-section-label">理一理</div>${writing.map((id) => navButton(ROUTES.find((route) => route.id === id))).join('')}<details class="nav-tools"${[...primary, ...writing].includes(document.body.dataset.page || location.hash.slice(1) || 'home') ? '' : ' open'}><summary>${icon('more')}<span>更多工具</span>${icon('chevron')}</summary>${ROUTES.filter((route) => ![...primary, ...writing].includes(route.id)).map(navButton).join('')}</details></nav>
         <div class="rail-label">人物</div>
         <div id="rail-cast" class="rail-cast"></div>
         <div class="nav-foot">
           <button type="button" class="btn" data-shell="settings">设置</button>
           <details class="nav-library"><summary>库管理</summary><p class="note">示例会替换当前库。清空只删这台浏览器里的稿。</p><button type="button" class="btn" data-shell="demo">载入示例</button><button type="button" class="btn btn-danger" data-shell="clear">清空库</button></details>
-          <div class="nav-local"><i></i><span>本地创作 · 自动保存</span></div>
+          <div class="nav-local"><i></i><span>存放在本机</span></div>
         </div>
       </aside>
       <div class="main">
@@ -1033,6 +1084,6 @@
     safeName, assetById, charById, selected, matchQuery, markDirty, flush, applyTheme, ensureTheme, go, renderStage, show, flyPlane,
     field, fold, mountFolds, area, text, bindFields, picker, bindPicker, empty, confirmLoadDemo, confirmClear, mount,
     t: (key, vars) => (root.TAI18n ? root.TAI18n.t(key, vars) : key),
-    estimateLength, mountLengths, showExport, fillLesson, enhanceSelect,
+    estimateLength, mountLengths, showExport, fillLesson, enhanceSelect, readFolders,
   };
 })(typeof globalThis !== 'undefined' ? globalThis : window);

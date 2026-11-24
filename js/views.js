@@ -200,26 +200,27 @@
 
   function home(stage) {
     const lib = UI.state.lib, icon = root.TAWorkspace.icon;
-    const entries = lib.worldBooks.reduce((sum, book) => sum + book.entries.length, 0);
-    const latest = [...lib.characters].sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')))[0];
-    const stats = [['角色卡', lib.characters.length, 'characters'], ['世界书', lib.worldBooks.length, 'lore'], ['世界书条目', entries, 'lore'], ['素材', lib.assets.length, 'assets']];
-    const characters = [...lib.characters].sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''))).slice(0, 5);
-    stage.innerHTML = `<div class="ws-home"><section class="ws-hero">
-      <div class="ws-hero-copy"><span class="ws-kicker">REALMWEAVE / CREATIVE SPACE</span><h2>把灵感，<span>写成一个世界。</span></h2><p>塑造人物，编织设定，与 AI 一起打磨每一处细节。</p><div class="row"><button type="button" class="btn btn-primary" data-go="studio">${icon('studio')}打开 AI 创作${icon('arrow')}</button><button type="button" class="btn" data-go="characters">角色卡工坊</button></div></div>
-      <div class="ws-hero-art" aria-hidden="true"><svg class="ws-orbit" viewBox="0 0 300 230" fill="none"><ellipse cx="150" cy="116" rx="142" ry="82" transform="rotate(-23 150 116)" stroke="#9b87c6" stroke-opacity=".18"/><ellipse cx="150" cy="116" rx="130" ry="106" transform="rotate(27 150 116)" stroke="#9b87c6" stroke-opacity=".1"/><path d="M15 155 74 33 255 54 284 178 115 213Z" stroke="#9b87c6" stroke-opacity=".11"/><circle cx="74" cy="33" r="3" fill="#ab94da"/><circle cx="284" cy="178" r="2" fill="#ab94da"/><circle cx="24" cy="122" r="2" fill="#8fa99f"/></svg><div class="ws-art-card">${icon('lore')}<b>人物<br>与世界</b><small>CHARACTERS & WORLDS</small></div><div class="ws-art-note"><span>${icon('studio')}<span>灵感正在生长</span></span><p data-no-translate>${UI.esc(latest ? latest.name : '下一个故事，从这里开始。')}</p></div></div>
-    </section><div class="ws-home-stats">${stats.map(([label, count, route]) => `<button type="button" class="ws-home-stat" data-go="${route}"><span class="ws-stat-icon">${icon(route)}</span><span><strong>${count}</strong><small>${UI.t(label)}</small></span></button>`).join('')}</div>
-    <div class="ws-home-columns"><section><div class="ws-section-heading"><div><h2>我的角色</h2><p>每个人物，都有自己的故事。</p></div><button type="button" data-go="characters">查看全部${icon('arrow')}</button></div><div class="ws-character-grid">${characters.map((character) => {
+    const sorted = [...lib.characters].sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
+    const characters = sorted.slice(0, 5), latest = sorted[0];
+    const face = (character, className = '') => {
       const avatar = UI.assetById(character.avatarAssetId);
-      return `<article class="ws-character-card"><button type="button" class="ws-character-open" data-open-card="${UI.esc(character.id)}"><div class="ws-character-face">${avatar ? `<img src="${UI.esc(avatar.dataUrl)}" alt="">` : `<span class="ws-character-glyph" data-no-translate>${UI.esc((character.name || '名').slice(0, 1))}</span>`}</div><div class="ws-character-info" data-no-translate><strong>${UI.esc(character.name || '未命名')}</strong><p>${UI.esc(character.description || character.personality || '')}</p><div class="ws-character-tags">${(character.tags || []).slice(0, 3).map((tag) => `<span>${UI.esc(tag)}</span>`).join('')}</div></div></button><button type="button" class="ws-card-peek" data-peek-card="${UI.esc(character.id)}" aria-label="${UI.t('原文预览')}">${icon('eye')}</button></article>`;
-    }).join('')}<button type="button" class="ws-new-card" data-new-character>${icon('plus')}新建角色</button></div></section>
-    <section><div class="ws-section-heading"><div><h2>我的世界书</h2><p>让世界的每一处设定，都有迹可循。</p></div><button type="button" data-go="lore">查看全部${icon('arrow')}</button></div><div class="ws-book-list">${lib.worldBooks.slice(0, 5).map((book) => `<button type="button" class="ws-book-card" data-open-book="${UI.esc(book.id)}"><span class="ws-book-symbol">${icon('lore')}</span><span class="ws-book-info"><strong data-no-translate>${UI.esc(book.name || '未命名')}</strong><small>${book.entries.length} ${UI.t('条')} · ${UI.t('世界书')}</small></span>${icon('chevron')}</button>`).join('') || `<div class="ws-empty-library">${UI.t('新建一本，或导入酒馆导出的世界信息 JSON。')}</div>`}</div><div class="ws-workflow-tip"><strong>${icon('check')}每一步修改，都由你确认</strong><p>选中条目，与 AI 沟通，对照原文确认修改。应用后仍可撤销。</p></div>
-    ${characters.length ? `<div class="ws-recent-list"><div class="ws-section-heading"><h2>最近编辑</h2>${icon('clock')}</div>${characters.slice(0, 3).map((character) => `<button type="button" class="ws-recent-row" data-open-card="${UI.esc(character.id)}">${icon('characters')}<span data-no-translate>${UI.esc(character.name)}</span><small>${UI.t('角色卡')}</small>${icon('arrow')}</button>`).join('')}</div>` : ''}</section></div></div>`;
+      return avatar ? `<img class="${className}" src="${UI.esc(avatar.dataUrl)}" alt="">` : `<span class="${className} desk-initial" data-no-translate>${UI.esc((character.name || '名').slice(0, 1))}</span>`;
+    };
+    stage.innerHTML = `<div class="ws-home desk-home">
+      <header class="desk-heading"><div><h2>${UI.t(latest ? '接着写' : '写点什么吧')} <span class="desk-emoji" aria-hidden="true">✍️</span></h2><p>卡、设定和没写完的稿子，都在这儿。</p></div><div class="row"><button type="button" class="btn btn-primary" data-new-character>${icon('plus')}新建角色</button><button type="button" class="btn" data-go="studio">找 AI 搭把手</button></div></header>
+      ${latest ? `<button type="button" class="desk-resume" data-open-card="${UI.esc(latest.id)}">${face(latest, 'desk-resume-face')}<span class="desk-resume-copy"><span class="desk-file-label">${UI.t('最近修改 · 角色卡')}</span><strong data-no-translate>${UI.esc(latest.name || '未命名')}</strong><span class="desk-resume-excerpt" data-no-translate>${UI.esc(String(latest.description || latest.personality || '').replace(/\s+/g, ' ').slice(0, 130))}</span></span><span class="desk-resume-action">${UI.t('继续编辑')}${icon('arrow')}</span></button>` : `<div class="desk-empty-intro"><span class="desk-empty-icon">${icon('characters')}</span><div><h3>第一张卡，从这里开始。</h3><p>自己写，或者找 AI 聊聊都行。已有的 JSON、PNG 也能直接导入。</p></div><button type="button" class="btn" data-import-card>导入角色卡</button></div>`}
+      <div class="ws-home-columns"><section><div class="ws-section-heading"><h2>${UI.t('角色卡')}<small class="desk-count">${lib.characters.length}</small></h2><button type="button" data-go="characters">去看看${icon('arrow')}</button></div><div class="ws-character-grid">${characters.map((character) => `<article class="ws-character-card"><button type="button" class="ws-character-open" data-open-card="${UI.esc(character.id)}"><div class="ws-character-face">${face(character, 'ws-character-image')}</div><div class="ws-character-info" data-no-translate><strong>${UI.esc(character.name || '未命名')}</strong><p>${UI.esc(character.description || character.personality || '')}</p><div class="ws-character-tags">${(character.tags || []).slice(0, 3).map((tag) => `<span>${UI.esc(tag)}</span>`).join('')}</div></div></button><button type="button" class="ws-card-peek" data-peek-card="${UI.esc(character.id)}" aria-label="${UI.t('原文预览')}">${icon('eye')}</button></article>`).join('')}<button type="button" class="ws-new-card" data-new-character>${icon('plus')}再写一个角色</button></div></section>
+      <aside class="desk-side"><section><div class="ws-section-heading"><h2>${UI.t('世界书')}<small class="desk-count">${lib.worldBooks.length}</small></h2><button type="button" data-go="lore">去整理${icon('arrow')}</button></div><div class="ws-book-list">${lib.worldBooks.slice(0, 5).map((book) => `<button type="button" class="ws-book-card" data-open-book="${UI.esc(book.id)}"><span class="ws-book-symbol">${icon('lore')}</span><span class="ws-book-info"><strong data-no-translate>${UI.esc(book.name || '未命名')}</strong><small>${book.entries.length} ${UI.t('条设定')}</small></span>${icon('chevron')}</button>`).join('') || `<div class="ws-empty-library"><p>${UI.t('地名、人物关系、小规矩，都能记在世界书里。')}</p><button type="button" class="btn btn-small" data-go="lore">${UI.t('建一本世界书')}</button></div>`}</div></section>
+      <section class="desk-note"><div><span class="desk-emoji" aria-hidden="true">📝</span><h3>突然想到一个桥段？</h3></div><p>先记在时间线里，回头再慢慢补。</p><button type="button" class="desk-text-button" data-go="timeline">记一笔${icon('arrow')}</button></section>
+      <section class="desk-tools"><h3>顺手用的小工具</h3><div>${[['assets', '找素材'], ['prompts', '整理提示词'], ['backup', '导出与备份']].map(([route, label]) => `<button type="button" data-go="${route}">${icon(route)}<span>${UI.t(label)}</span>${icon('chevron')}</button>`).join('')}</div></section>
+      </aside></div></div>`;
     stage.querySelectorAll('[data-go]').forEach((button) => { button.onclick = () => UI.go(button.dataset.go); });
     stage.querySelectorAll('[data-open-card]').forEach((button) => { button.onclick = () => root.TAWorkspace.openEntity({ kind: 'character', id: button.dataset.openCard }); });
     stage.querySelectorAll('[data-open-book]').forEach((button) => { button.onclick = () => root.TAWorkspace.openEntity({ kind: 'book', id: button.dataset.openBook }); });
-    stage.querySelector('[data-new-character]').onclick = () => {
+    stage.querySelectorAll('[data-new-character]').forEach((button) => { button.onclick = () => {
       const character = blankCharacter(); lib.characters.unshift(character); UI.state.sel.character = character.id; UI.state.cardView = 'edit'; UI.markDirty(); UI.go('characters');
-    };
+    }; });
+    stage.querySelector('[data-import-card]')?.addEventListener('click', () => document.querySelector('[data-shell="import-card"]').click());
   }
 
   function characters(stage) {
@@ -240,7 +241,7 @@
       <label class="dark-muted">导出时附带<select id="attach-book"><option value="">不附带世界书</option>${books.map((book) => `<option value="${UI.esc(book.id)}">${UI.esc(book.name)}</option>`).join('')}</select></label>
       <button type="button" class="btn btn-primary" data-act="json" ${character ? '' : 'disabled'}>导出 JSON</button>
       <button type="button" class="btn btn-primary" data-act="png" ${character ? '' : 'disabled'}>导出 PNG</button>
-      ${hint(galleryOn ? '点卡片进入编辑。复制会另存一张，原来的还在。工具栏的导出作用于当前选中的卡。' : '点「画廊」看全部卡片，或点上方名字切换。新建、导入 JSON 或 PNG（也可拖进来），或复制一张再改。导出前可选附带世界书，选中的书会放进 character_book。')}
+      ${hint(galleryOn ? '点卡片就能编辑。复制会另存一份。' : '选一张卡继续写。导出时，可以顺手带上一本世界书。')}
     </div>
     ${UI.picker(list, character && character.id, (item) => (item.tags || []).slice(0, 3).join(' · '))}
     <div id="card-ai"></div>
@@ -460,6 +461,9 @@
     const book = UI.selected(lib.worldBooks, UI.state.sel.book);
     UI.state.sel.book = book.id;
     const entries = book.entries.filter((entry) => UI.matchQuery([entry.comment, entry.content, ...(entry.keys || []), ...(entry.secondaryKeys || [])].join('\n')));
+    const directoryGroups = UI.state.loreGroupBy === 'category'
+      ? [...Object.entries(root.NIJANOrganize.CATEGORIES).map(([id, label]) => ({ id, label, entries: entries.filter((item) => item.category === id) })), { id: '', label: '未分类', entries: entries.filter((item) => !Object.hasOwn(root.NIJANOrganize.CATEGORIES, item.category)) }]
+      : F.POSITIONS.map((position) => Object.assign({}, position, { entries: entries.filter((item) => item.position === position.id) }));
     const entry = entries.find((item) => item.id === UI.state.sel.entry) || entries[0] || null;
     if (entry) UI.state.sel.entry = entry.id;
     UI.state.openFold ||= {};
@@ -477,9 +481,11 @@
       <button type="button" class="btn" id="rename-book">改书名</button>
       <button type="button" class="btn btn-primary" id="new-entry">新建条目</button>
       <button type="button" class="btn" id="import-book">导入 JSON</button>
+      <button type="button" class="btn" id="organize-book">${root.TAWorkspace.icon('sections')}AI 整理条目</button>
+      <label class="dark-muted">目录分组<select id="lore-group-by"><option value="position"${UI.state.loreGroupBy !== 'category' ? ' selected' : ''}>按注入位置</option><option value="category"${UI.state.loreGroupBy === 'category' ? ' selected' : ''}>按内容分类</option></select></label>
       <button type="button" class="btn btn-primary" id="export-book">导出世界书</button>
       <button type="button" class="btn btn-danger" id="del-book">删除此书</button>
-      ${hint('左侧选择条目，右侧编辑正文。可搜索名称、关键词和内容，或交给 AI 协作。')}
+      ${hint('点左边的条目就能改，想找哪条可以直接搜。')}
     </div>
     <details class="ws-assist-details"><summary>${root.TAWorkspace.icon('check')}触发测试与逻辑检查</summary><div class="paper lore-try">
       <label class="field"><span class="field-label">试一句</span><textarea id="lore-sample" rows="2" data-nolen placeholder="贴一句聊天或开场白">${UI.esc(UI.state.loreSample || '')}</textarea></label>
@@ -491,13 +497,14 @@
       <div id="lore-ai"></div>
     </div></details>
     <div class="board-layout">
-      <div class="board"><div class="ws-list-header"><span>条目目录</span><small>${entries.length} ${UI.t('条')}</small></div><label class="ws-directory-search">${root.TAWorkspace.icon('search')}<input type="search" id="lore-filter" placeholder="查找条目或正文…" value="${UI.esc(UI.state.loreFilter || '')}" aria-label="查找条目或正文…"></label>${F.POSITIONS.map((position) => {
-        const group = entries.filter((item) => item.position === position.id);
+      <div class="board"><div class="ws-list-header"><span>条目目录</span><small>${entries.length} ${UI.t('条')}</small></div><label class="ws-directory-search">${root.TAWorkspace.icon('search')}<input type="search" id="lore-filter" placeholder="查找条目或正文…" value="${UI.esc(UI.state.loreFilter || '')}" aria-label="查找条目或正文…"></label>${directoryGroups.map((position) => {
+        const group = position.entries;
         return group.length ? `<section class="column"><h3><span>${UI.t(position.label)}</span><small>${group.length}</small></h3>${group.map((item) => `<article class="entry${item.id === (entry && entry.id) ? ' on' : ''}${item.enabled ? '' : ' off'}" data-id="${UI.esc(item.id)}" data-search="${UI.esc(`${item.comment} ${item.content} ${(item.keys || []).join(' ')}`.toLowerCase())}" tabindex="0" aria-label="${UI.esc(item.comment || '未命名')}"><b data-no-translate>${UI.esc(item.comment || '未命名')}</b><button type="button" class="btn btn-small" data-toggle="${UI.esc(item.id)}">${item.enabled ? UI.t('启用') : UI.t('停用')}</button><span class="ws-entry-snippet" data-no-translate>${UI.esc(String(item.content || '').replace(/\s+/g, ' ').slice(0, 90))}</span><button type="button" class="ws-entry-peek" data-peek-entry="${UI.esc(item.id)}" data-book="${UI.esc(book.id)}" aria-label="${UI.t('原文预览')}">${root.TAWorkspace.icon('eye')}</button></article>`).join('')}</section>` : '';
       }).join('')}<div class="ws-filter-empty" hidden>没有找到匹配的内容</div></div>
       <div id="lore-editor"></div>
     </div>`;
     const editor = stage.querySelector('#lore-editor');
+    stage.querySelector('#lore-group-by').onchange = (event) => { UI.state.loreGroupBy = event.target.value; UI.renderStage(); };
     stage.querySelector('#book-select').onchange = (event) => { UI.state.sel.book = event.target.value; UI.state.sel.entry = null; UI.renderStage(); };
     stage.querySelector('#new-book').onclick = () => addBook();
     stage.querySelector('#new-entry').onclick = () => {
@@ -521,6 +528,7 @@
       UI.showExport(filename, pack ? `世界书 JSON，只记录表情包「${pack.name}」，不含图片。放到酒馆 worlds 目录后从世界信息导入。` : '世界书 JSON。放到酒馆 worlds 目录，或在世界信息里导入。');
     };
     stage.querySelector('#import-book').onclick = () => importBook();
+    stage.querySelector('#organize-book').onclick = () => root.NIJANOrganizePanel.open({ kind: 'world', bookId: book.id });
     stage.querySelector('#del-book').onclick = async () => {
       const answer = await UI.ask({ title: `删除「${book.name}」`, body: '书里的条目会一起删除。', actions: [{ id: 'yes', label: '删除', kind: 'btn-danger' }, { id: 'no', label: '留下' }] });
       if (answer !== 'yes') return;
@@ -553,7 +561,8 @@
         editor.innerHTML = '<div class="paper empty"><h3>选一条</h3><p class="muted">左边是按注入位置分的看板。点开一条来改。</p></div>';
         return;
       }
-      editor.innerHTML = `<div class="paper stack folds"><header class="ws-editor-heading"><div><p class="ws-address" data-no-translate>${UI.esc(book.name)}</p><h3 data-no-translate>${UI.esc(current.comment || '未命名')}</h3></div><button type="button" class="btn btn-small" id="lore-ai-edit">${root.TAWorkspace.icon('studio')}AI 协作</button></header>
+      editor.innerHTML = `<div class="paper stack folds"><header class="ws-editor-heading"><div><p class="ws-address" data-no-translate>${UI.esc(book.name)}</p><h3 data-no-translate>${UI.esc(current.comment || '未命名')}</h3></div><div class="row"><button type="button" class="btn btn-small" id="lore-ai-organize">${root.TAWorkspace.icon('sections')}整理这条</button><button type="button" class="btn btn-small" id="lore-ai-edit">${root.TAWorkspace.icon('studio')}让 AI 帮忙改</button></div></header>
+        ${UI.fold('category', '分类', `<select data-field="category"><option value="">未分类</option>${Object.entries(root.NIJANOrganize.CATEGORIES).map(([value, label]) => `<option value="${value}"${current.category === value ? ' selected' : ''}>${UI.t(label)}</option>`).join('')}</select>`)}
         ${UI.fold('comment', '条目名', UI.text('comment', current.comment))}
         ${UI.fold('content', '内容', UI.area('content', current.content, 8))}
         ${UI.fold('keys', '主关键词', '<div id="keys" class="chips"></div>')}
@@ -566,6 +575,7 @@
         <div class="row"><button type="button" class="btn" id="dup-entry">复制条目</button><button type="button" class="btn btn-danger" id="del-entry">删除条目</button></div>
       </div>`;
       editor.querySelector('#lore-ai-edit').onclick = () => root.NIJANStudio.openFor({ kind: 'world', bookId: book.id, entryId: current.id });
+      editor.querySelector('#lore-ai-organize').onclick = () => root.NIJANOrganizePanel.open({ kind: 'world', bookId: book.id, entryId: current.id });
       UI.mountFolds(editor, 'lore');
       UI.bindFields(editor, current, (key) => {
         if (!editor.dataset.snapped) { snapLore(); editor.dataset.snapped = '1'; }
@@ -573,7 +583,7 @@
           const title = stage.querySelector(`.entry[data-id="${CSS.escape(current.id)}"] b`);
           if (title) title.textContent = current.comment || '未命名';
         }
-        if (key === 'position' || key === 'enabled' || key === 'constant') UI.renderStage();
+        if (key === 'position' || key === 'enabled' || key === 'constant' || key === 'category') UI.renderStage();
       });
       mountChips(editor.querySelector('#keys'), current.keys, '主关键词', () => {});
       mountChips(editor.querySelector('#keys2'), current.secondaryKeys, '次关键词', () => {});
@@ -1582,10 +1592,10 @@
     const bookId = UI.state.sel.checkBook === undefined ? (lib.worldBooks[0]?.id || '') : UI.state.sel.checkBook;
     if (character) UI.state.sel.checkChar = character.id;
     stage.innerHTML = `<div class="toolbar">
-      <label class="dark-muted">角色<select id="check-char">${lib.characters.map((item) => `<option value="${UI.esc(item.id)}"${character && item.id === character.id ? ' selected' : ''}>${UI.esc(item.name)}</option>`).join('')}</select></label>
+      <label class="dark-muted">角色<select id="check-char" ${lib.characters.length ? '' : 'disabled'}>${lib.characters.length ? '' : '<option value="">还没有角色卡</option>'}${lib.characters.map((item) => `<option value="${UI.esc(item.id)}"${character && item.id === character.id ? ' selected' : ''}>${UI.esc(item.name)}</option>`).join('')}</select></label>
       <label class="dark-muted">对照世界书<select id="check-book"><option value="">不对照</option>${lib.worldBooks.map((item) => `<option value="${UI.esc(item.id)}"${item.id === bookId ? ' selected' : ''}>${UI.esc(item.name)}</option>`).join('')}</select></label>
-      <button type="button" class="btn" id="run-check">本地规则检查</button>
-      <button type="button" class="btn btn-primary" id="semantic-check">AI 逻辑与人设检查</button>
+      <button type="button" class="btn" id="run-check" ${character ? '' : 'disabled'}>本地规则检查</button>
+      <button type="button" class="btn btn-primary" id="semantic-check" ${character ? '' : 'disabled'}>AI 逻辑与人设检查</button>
       <button type="button" class="btn" id="export-check">导出报告</button>
       ${hint('本地规则检查与 AI 审查分开展示。AI 意见须有原文证据，所有检查都只生成报告。')}
     </div><p class="model-progress" id="check-progress" role="status"></p><div id="check-lesson"></div><div id="model-check"></div><div id="findings"></div>`;
@@ -1598,7 +1608,9 @@
       const host = stage.querySelector('#findings');
       const reportHost = stage.querySelector('#model-check');
       if (!context.card) {
-        host.innerHTML = '<div class="paper empty"><h3>没有角色可查</h3></div>';
+        host.innerHTML = `<div class="paper empty"><h3>还没有角色卡可检查</h3><p>${root.nijanDesktop ? '从设置好的文件夹读取，或导入一张 JSON、PNG 角色卡。' : '这里显示当前浏览器已导入的角色卡。先导入一张，或回到原来保存资料的入口。'}</p><div class="row"><button type="button" class="btn btn-primary" data-check-import>导入角色卡</button>${root.nijanDesktop ? '<button type="button" class="btn" data-check-folder>读取角色卡文件夹</button>' : ''}</div></div>`;
+        host.querySelector('[data-check-import]').onclick = () => document.querySelector('[data-shell="import-card"]').click();
+        host.querySelector('[data-check-folder]')?.addEventListener('click', () => UI.readFolders());
         reportHost.innerHTML = '';
         UI.state.lastFindings = null;
         return;
@@ -2209,19 +2221,7 @@
 
   async function fillGaps(character) {
     if (!character) { UI.toast('先有一张角色卡'); return; }
-    if (!root.NIJANModel || !root.NIJANModel.configured()) { UI.toast('先在设置里连接模型，并选一个。'); return; }
-    const fields = ['description', 'personality', 'scenario', 'first_mes', 'mes_example', 'system_prompt', 'creator_notes'];
-    const empty = fields.filter((key) => !String(character[key] || '').trim());
-    if (!empty.length) { UI.toast('这张卡的栏都有字'); return; }
-    const context = { card: root.NIJANStudio.cardContent(character), fields: empty };
-    const result = await root.NIJANModel.runTask('organize', context, { label: '从已有文字归类空栏' });
-    const plan = root.NIJANAI.proposal(UI.state.lib, 'organize', result, context);
-    if (!plan.operations.length) { UI.toast('现有文字没有可归入空栏的内容，保持留白。'); return; }
-    const answer = await UI.ask({ title: '缺栏归类预览', body: plan.operations.map((op) => `${root.NIJANAI.CARD_FIELDS[op.field]}：${op.after}`).join('\n\n'), actions: [{ id: 'no', label: '放弃' }], swipe: '滑开写入角色卡' });
-    if (answer !== 'yes') return;
-    root.NIJANAI.commit(UI.state.lib, plan);
-    UI.markDirty();
-    UI.renderStage();
+    root.NIJANOrganizePanel.open({ kind: 'character', cardId: character.id });
   }
 
   function mountAiBar(stage, page) {
@@ -2230,7 +2230,7 @@
     host.className = 'paper stack ai-toolbar';
     const cards = UI.state.lib.characters || [];
     const books = UI.state.lib.worldBooks || [];
-    host.innerHTML = `<div class="row"><label class="field"><span class="field-label">${UI.t('角色卡')}</span><select data-logic-card>${cards.map((item) => `<option value="${UI.esc(item.id)}"${item.id === UI.state.sel.character ? ' selected' : ''}>${UI.esc(item.name || '未命名')}</option>`).join('')}</select></label><label class="field"><span class="field-label">${UI.t('世界书')}</span><select data-logic-book>${books.map((item) => `<option value="${UI.esc(item.id)}"${item.id === UI.state.sel.book ? ' selected' : ''}>${UI.esc(item.name || '未命名')}</option>`).join('')}</select></label></div><div class="row"><button type="button" class="btn" data-ai="persona">${UI.t('本地规则检查')}</button><button type="button" class="btn" data-ai="logic">${UI.t('AI 逻辑与人设检查')}</button><button type="button" class="btn" data-ai="gaps">${UI.t('缺栏归类')}</button></div><p class="model-progress"></p><div class="ai-check-grid" data-ai-out></div>`;
+    host.innerHTML = `<div class="row"><label class="field"><span class="field-label">${UI.t('角色卡')}</span><select data-logic-card>${cards.map((item) => `<option value="${UI.esc(item.id)}"${item.id === UI.state.sel.character ? ' selected' : ''}>${UI.esc(item.name || '未命名')}</option>`).join('')}</select></label><label class="field"><span class="field-label">${UI.t('世界书')}</span><select data-logic-book>${books.map((item) => `<option value="${UI.esc(item.id)}"${item.id === UI.state.sel.book ? ' selected' : ''}>${UI.esc(item.name || '未命名')}</option>`).join('')}</select></label></div><div class="row"><button type="button" class="btn" data-ai="persona">${UI.t('本地规则检查')}</button><button type="button" class="btn" data-ai="logic">${UI.t('AI 逻辑与人设检查')}</button><button type="button" class="btn" data-ai="gaps">${UI.t(page === 'book' ? 'AI 整理条目' : '整理分栏')}</button></div><p class="model-progress"></p><div class="ai-check-grid" data-ai-out></div>`;
     const toolbar = stage.querySelector('.toolbar');
     if (toolbar) toolbar.insertAdjacentElement('afterend', host);
     else stage.prepend(host);
@@ -2257,8 +2257,12 @@
       runLogic(out, card, book).catch((error) => { progress.textContent = ''; UI.toast(error.message); });
     };
     host.querySelector('[data-ai="gaps"]').onclick = () => {
-      progress.textContent = UI.t('正在归类…');
-      fillGaps(chosenCard()).then(() => { progress.textContent = UI.t('归类写完了'); }).catch((error) => { progress.textContent = ''; UI.toast(error.message); });
+      progress.textContent = '';
+      if (page === 'book') {
+        const book = chosenBook();
+        if (book) root.NIJANOrganizePanel.open({ kind: 'world', bookId: book.id });
+        else UI.toast('先选一本世界书');
+      } else fillGaps(chosenCard()).catch((error) => UI.toast(error.message));
     };
   }
 

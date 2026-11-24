@@ -43,8 +43,9 @@ ipcMain.handle('folders:pick', async (event, kind) => {
   return writePaths(paths);
 });
 ipcMain.handle('folders:list', (event, folder) => {
-  if (!folder || !fs.existsSync(folder)) return [];
-  return fs.readdirSync(folder).filter((name) => /\.(json|png)$/i.test(name)).map((name) => ({ name, full: path.join(folder, name) }));
+  if (!folder) return [];
+  if (!fs.existsSync(folder) || !fs.statSync(folder).isDirectory()) throw new Error('文件夹不存在，请重新选择。');
+  return fs.readdirSync(folder, { withFileTypes: true }).filter((item) => item.isFile() && /\.(json|png)$/i.test(item.name)).map((item) => ({ name: item.name, full: path.join(folder, item.name) }));
 });
 ipcMain.handle('folders:read', (event, file) => fs.readFileSync(file));
 ipcMain.handle('folders:writeExpressions', (event, { folder, character, files }) => {
