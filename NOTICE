@@ -1,0 +1,30 @@
+Quilvori — a local collection room and writing workspace for SillyTavern
+Copyright (c) 2026 Quilvori contributors.
+
+Unless a file or directory expressly states otherwise, this version of Quilvori
+is free software: you may redistribute it and/or modify it under the terms of
+the GNU General Public License, version 3 only, as published by the Free
+Software Foundation.
+
+SPDX-License-Identifier: GPL-3.0-only
+
+Quilvori is distributed in the hope that it will be useful, but WITHOUT ANY
+WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+A PARTICULAR PURPOSE. See the GNU General Public License for more details.
+
+A copy of the GNU General Public License is provided in LICENSE. The official
+text is also available at https://www.gnu.org/licenses/gpl-3.0.html.
+
+Preserve applicable copyright and license notices when redistributing this
+software. Contributors and third-party authors retain their copyrights.
+
+Third-party material has separate terms:
+- Sarasa UI fonts: fonts/OFL-Sarasa.txt and fonts/README.md.
+- Resource-directory artwork: img/resources/ATTRIBUTION.md and the respective
+  original authors' terms. These previews are not relicensed under GPLv3 by
+  this repository.
+- npm dependencies: their respective licenses and notices.
+
+See LICENSING.md for the project's license scope and explanatory guidance.
+Earlier revisions licensed under MIT retain the permissions already granted
+for those revisions; this notice does not retroactively revoke them.

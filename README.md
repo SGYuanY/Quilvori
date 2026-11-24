@@ -215,7 +215,7 @@ Use **Open original post** to read the author's instructions and obtain the curr
 - **Wallpapers:** choose an original PNG, JPEG, or WebP file or paste its HTTPS attachment URL. SVG, HTML, and UI theme files are not accepted. The input is limited to 12 MB, 8192 pixels per edge, and 40 megapixels. The saved local copy is reduced to at most 1600 pixels on its longest edge and 500 KB; this is not an archival 4K download. Obtain full-resolution originals from the author.
 - **Before saving:** review the preview and source information. Imported cards, books, and wallpapers retain sanitized author and original-post metadata. The local editors show this information in collapsed source details; character/world-book exports preserve it in the `quilvori_source` extension. Temporary download signatures and account tokens are not retained in public attribution.
 
-An “unknown” usage status is not permission to redistribute. Public visibility does not place a work under this repository's MIT license. Follow the original creator's terms and support them in the original post's comments if you enjoy their work; Quilvori does not post messages or comments on your behalf.
+An “unknown” usage status is not permission to redistribute. Public visibility does not place a work under this repository's GPLv3 license. Follow the original creator's terms and support them in the original post's comments if you enjoy their work; Quilvori does not post messages or comments on your behalf.
 
 ## Storage, backups, and updates
 
@@ -268,6 +268,10 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) for setup, validation, translation keys,
 
 ## License
 
-The project uses the English [MIT License](LICENSE): **Copyright (c) 2026 Quilvori contributors**. Bundled Sarasa fonts have a separate [font license](fonts/OFL-Sarasa.txt).
+Quilvori is licensed under the **GNU General Public License, version 3 only** — SPDX identifier **GPL-3.0-only**. Read the complete [LICENSE](LICENSE), the scope and history in [LICENSING.md](LICENSING.md), and the attribution and third-party notices in [NOTICE](NOTICE).
 
-Third-party resource previews are **not covered by MIT**. No general external redistribution license was found in the reviewed posts. See [resource preview attribution](img/resources/ATTRIBUTION.md) for creator credits, original posts, and the recorded status. Referenced works retain their own terms; the source-code license does not grant rights to redistribute them.
+You may use, modify, and redistribute the application, including commercially. When you distribute covered modified versions, the covered derivative work must remain under GPLv3; retain the required notices and provide the Corresponding Source as required by the license. Private modifications do not create a general obligation to post source code publicly. No additional noncommercial restriction is imposed.
+
+Earlier revisions distributed under MIT retain their original grants; this license change does not revoke those rights. The current release uses GPL-3.0-only, not an “or later” option. See [licensing history](LICENSING.md) for the distinction.
+
+Third-party fonts, artwork, and referenced resource works keep their own terms. Bundled Sarasa fonts have a separate [font license](fonts/OFL-Sarasa.txt). Resource preview images are **not licensed under the application's GPLv3 license**, and no general external redistribution license was found in the reviewed author posts. See [resource preview attribution](img/resources/ATTRIBUTION.md) for creator credits, original posts, and recorded status. The project license does not grant additional rights to redistribute those works.
