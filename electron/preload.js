@@ -5,5 +5,7 @@ contextBridge.exposeInMainWorld('nijanDesktop', {
   pick: (kind) => ipcRenderer.invoke('folders:pick', kind),
   list: (folder) => ipcRenderer.invoke('folders:list', folder),
   read: (file) => ipcRenderer.invoke('folders:read', file),
+  downloadLink: (payload) => ipcRenderer.invoke('links:download', payload),
+  cancelLink: (id) => ipcRenderer.invoke('links:cancel', id),
   writeExpressions: (payload) => ipcRenderer.invoke('folders:writeExpressions', payload),
 });

@@ -1,7 +1,8 @@
 /* Shell, persistence, and small DOM helpers. Views live in views.js. */
 (function (root) {
   const ROUTES = [
-    { id: 'home', mark: '01', label: '书桌', eyebrow: 'HOME', title: '书桌', search: false, blurb: 'blurb.home' },
+    { id: 'home', mark: '01', label: '收藏室', eyebrow: 'HOME', title: '收藏室', search: false, blurb: 'blurb.home' },
+    { id: 'resources', mark: '19', label: '资源目录', eyebrow: 'RESOURCES', title: '资源目录', search: false, blurb: '' },
     { id: 'studio', mark: '02', label: 'AI 创作', eyebrow: 'STUDIO', title: 'AI 创作', search: false, blurb: 'blurb.studio' },
     { id: 'sections', mark: '03', label: '段落预设', eyebrow: 'SECTIONS', title: '段落预设', search: false, blurb: 'blurb.sections' },
     { id: 'characters', mark: '04', label: '角色卡', eyebrow: 'CARD V2', title: '角色卡', search: true, placeholder: '搜角色、标签', blurb: 'blurb.characters' },
@@ -341,26 +342,22 @@
   }
 
   function applyTheme() {
-    const theme = (state.lib.themes || []).find((item) => item.id === state.lib.activeThemeId);
-    const style = document.documentElement.style;
-    if (!theme) return;
-    const stored = theme.vars || {};
-    const legacyNeutral = stored.bg === '#1c1c1c' && stored.lacquer === '#141414' && (!stored.accent || stored.accent === '#d0d0d0');
-    const previousDefault = stored.bg === '#121319' && stored.lacquer === '#15161d' && stored.accent === '#b9a6ec';
-    const stockTheme = legacyNeutral || previousDefault;
-    const vars = stockTheme ? Object.assign(stored, { bg: '#191b19', lacquer: '#151714', paper: '#212420', ink: '#e7e7dd', accent: '#d6b680' }) : stored;
-    if (stockTheme) markDirty();
-    style.setProperty('--bg', vars.bg || '#1c1c1c');
-    style.setProperty('--lacquer', vars.lacquer || '#141414');
-    style.setProperty('--paper', vars.paper || '#2e2e2e');
-    style.setProperty('--foam', vars.ink || '#e8e8e8');
-    style.setProperty('--ink', vars.ink || '#e8e8e8');
-    style.setProperty('--brass', vars.accent || '#d0d0d0');
-    style.setProperty('--brass-2', vars.accent || '#f2f2f2');
-    style.setProperty('--font-scale', String(vars.fontScale || 1));
-    style.setProperty('--radius', `${vars.radius || 18}px`);
-    style.setProperty('--bubble-radius', `${Math.max(8, Number(vars.radius || 18) - 2)}px`);
+    const theme = (state.lib.themes || []).find(item => item.id === state.lib.activeThemeId);
+    const resolved = root.TARoomTheme.resolve(state.route, theme?.vars || {}, theme?.useRoomPalette);
+    const style = document.documentElement.style, vars = resolved.colors;
+    document.body.classList.add('room-theme');
+    document.body.classList.toggle('collection-custom-theme', !resolved.useRooms);
+    document.body.dataset.room = resolved.room;
+    document.body.dataset.route = state.route;
+    for (const [key,value] of Object.entries({
+      bg:vars.bg,lacquer:vars.lacquer,paper:vars.paper,'paper-2':resolved.raised,
+      foam:vars.ink,ink:vars.ink,brass:vars.accent,'brass-2':vars.accent,
+      'on-accent':resolved.onAccent,'surface-ink':resolved.onSurface,
+      'font-scale':String(resolved.fontScale),radius:`${resolved.radius}px`,
+      'bubble-radius':`${Math.max(8,resolved.radius-2)}px`,
+    })) style.setProperty(`--${key}`,value);
   }
+
 
   function routeMeta() {
     return ROUTES.find((route) => route.id === state.route) || ROUTES[0];
@@ -381,6 +378,8 @@
   }
 
   function paintChrome() {
+    document.body.classList.toggle('collection-page', state.route === 'home');
+    applyTheme();
     const meta = routeMeta();
     document.querySelectorAll('[data-nav]').forEach((button) => {
       button.classList.toggle('on', button.dataset.nav === state.route);
@@ -649,7 +648,7 @@
 
   function picker(items, currentId, subtitle) {
     if (!items.length) return '';
-    return `<div class="picker">${items.map((item) => `<button type="button" class="pick${item.id === currentId ? ' on' : ''}" data-id="${esc(item.id)}"><b>${esc(item.name || '未命名')}</b><small>${esc(subtitle ? subtitle(item) : '')}</small></button>`).join('')}</div>`;
+    return `<div class="picker">${items.map((item) => `<button type="button" class="pick${item.id === currentId ? ' on' : ''}" data-id="${esc(item.id)}"><b data-no-translate>${esc(item.name || root.TAI18n?.t('未命名') || '未命名')}</b><small>${esc(subtitle ? subtitle(item) : '')}</small></button>`).join('')}</div>`;
   }
 
   function bindPicker(rootNode, assign) {
@@ -701,7 +700,7 @@
 
   function openSettings() {
     const previousFocus = document.activeElement;
-    const prefs = root.TAI18n ? root.TAI18n.prefs : { lang: 'zh', teach: true, scale: 1, density: 'comfortable' };
+    const prefs = root.TAI18n ? root.TAI18n.prefs : { lang: 'en', teach: true, scale: 1, density: 'comfortable' };
     const tr = (text, vars) => (root.TAI18n ? root.TAI18n.t(text, vars) : text);
     const host = document.getElementById('modal-root');
     host.classList.add('show');
@@ -732,7 +731,7 @@
       <label class="check stretch"><input id="set-adult" type="checkbox"> 允许成人内容。模型倾向为审核严时，打开也不会写进提示。</label>
       <p class="help">AI 建议先预览，点击应用后保存到对应栏位。可以撤销上一次应用。</p>
       <p class="field-label">主题</p>
-      <label class="field"><span class="field-label">背景</span><input id="set-bg" type="color"></label>
+      <label class="check"><input id="set-room-palette" type="checkbox"><span>按功能分区配色</span></label><p class="help">各页面使用专属色调；调整下方颜色后使用自定义配色。</p><label class="field"><span class="field-label">背景</span><input id="set-bg" type="color"></label>
       <label class="field"><span class="field-label">纸色</span><input id="set-paper" type="color"></label>
       <label class="field"><span class="field-label">墨色</span><input id="set-ink" type="color"></label>
       <label class="field"><span class="field-label">强调色</span><input id="set-accent" type="color"></label>
@@ -744,7 +743,7 @@
       </label>
       <div class="row"><button type="button" class="btn btn-primary" id="set-close">${tr('关闭')}</button></div>
     </div>`;
-    host.querySelector('#set-lang').value = prefs.lang || 'zh';
+    host.querySelector('#set-lang').value = prefs.lang || 'en';
     host.querySelector('#set-teach').checked = prefs.teach !== false;
     host.querySelector('#set-json').checked = !!prefs.jsonMode;
     const model = root.NIJANModel ? root.NIJANModel.load() : { baseUrl: '', model: '', key: '', profile: 'default' };
@@ -768,12 +767,23 @@
     host.querySelector('#set-adult').checked = !!prefs.adult;
     const theme = ensureTheme();
     const vars = theme.vars;
-    host.querySelector('#set-bg').value = vars.bg || '#07090d';
-    host.querySelector('#set-paper').value = vars.paper || '#101820';
-    host.querySelector('#set-ink').value = vars.ink || '#e9fff8';
-    host.querySelector('#set-accent').value = vars.accent || '#d6ff3f';
-    host.querySelector('#set-radius').value = String(Number(vars.radius ?? 18));
+    const themeChoice = host.querySelector('#set-room-palette');
+    const syncThemeInputs = () => {
+      const active = root.TARoomTheme.resolve(state.route, vars, theme.useRoomPalette);
+      themeChoice.checked = active.useRooms;
+      for (const key of ['bg','paper','ink','accent']) host.querySelector(`#set-${key}`).value = active.colors[key];
+      host.querySelector('#set-radius').value = String(active.radius);
+    };
+    syncThemeInputs();
+    themeChoice.onchange = () => { theme.useRoomPalette = themeChoice.checked; applyTheme(); syncThemeInputs(); markDirty(); };
     const paintTheme = (key, value) => {
+      if (key !== 'radius') {
+        // Start custom editing from the colors actually displayed, preserving the other choices.
+        const active = root.TARoomTheme.resolve(state.route, vars, theme.useRoomPalette);
+        if (active.useRooms) Object.assign(vars, active.colors);
+        theme.useRoomPalette = false;
+        themeChoice.checked = false;
+      }
       vars[key] = key === 'radius' ? Number(value) : value;
       applyTheme();
       markDirty();
@@ -879,13 +889,14 @@
     state.persistent = loaded.persistent;
     state.fresh = loaded.fresh;
     const app = document.getElementById('app');
+    const tr = (key) => root.TAI18n ? root.TAI18n.t(key) : key;
     const icon = (name) => root.TAWorkspace ? root.TAWorkspace.icon(name) : '';
     const navButton = (route) => `<button type="button" class="nav-btn" data-nav="${route.id}" title="${esc(route.label)}" aria-label="${esc(route.label)}">${icon(route.id)}<span data-label>${route.label}</span></button>`;
-    const primary = ['home', 'studio', 'characters', 'lore'];
+    const primary = ['home', 'resources', 'studio', 'characters', 'lore'];
     const writing = ['sections', 'prompts', 'graph', 'check'];
     app.innerHTML = `<div class="shell">
       <aside class="nav">
-        <div class="brand"><img class="mark" src="img/mark.svg" alt=""><span><strong data-product>织境</strong><em>角色卡 · 世界书</em></span></div>
+        <div class="brand"><img class="mark" src="img/emblem.svg?v=quilvori-1" alt=""><span><strong data-product>叙翎集</strong><em data-product-secondary data-no-translate>Quilvori</em></span></div>
         <div class="nav-import">
           <button type="button" class="btn" data-shell="import-card">导入角色卡</button>
           <button type="button" class="btn" data-shell="import-book">导入世界书</button>
@@ -904,7 +915,7 @@
           <div class="top-title"><button type="button" class="ws-icon-button" data-workspace="sidebar" aria-label="展开或收起导航" title="展开或收起导航" aria-expanded="true">${icon('sidebar')}</button><div><p class="eyebrow" id="eyebrow">HOME</p><h1 id="title">总览</h1><p class="note" id="blurb"></p></div></div>
           <div class="top-actions">
             <label class="search"><input id="search" type="search" placeholder="搜索角色、世界书、正则" autocomplete="off"><span class="note" id="search-note">跨页搜索，不改库。</span><div id="search-results"></div></label>
-            <button type="button" class="ws-command-trigger" data-workspace="command" aria-label="搜索或跳转" title="搜索或跳转 · Ctrl+K">${icon('search')}<kbd class="ws-key">Ctrl K</kbd></button>
+            <button type="button" class="ws-command-trigger" data-workspace="command" aria-label="${esc(tr('搜索或跳转'))}" title="${esc(tr('搜索或跳转'))} · Ctrl+K">${icon('search')}<kbd class="ws-key">Ctrl K</kbd></button>
             <button type="button" class="ws-icon-button" data-workspace="focus" aria-label="专注模式" title="专注模式" aria-pressed="false">${icon('focus')}</button>
             <button type="button" class="ws-icon-button" data-workspace="settings" aria-label="设置" title="设置">${icon('settings')}</button>
             <span class="save-wrap"><span id="save-pill" class="pill"><i></i>已保存</span><span class="note">改动自动写入这台浏览器。</span></span>

@@ -37,6 +37,7 @@
     checkmark: '<path d="m5 12 4 4L19 6"/>',
     more: '<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',
   };
+  paths.resources = paths.assets;
   function icon(name) {
     return `<svg class="ws-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || paths.sections}</svg>`;
   }
@@ -187,6 +188,47 @@
       grid.appendChild(handle);
     } else panel.appendChild(handle);
   }
+  let attributionObserver = null;
+  function sourceDetails(source, ownerId) {
+    const value = root.TAResourceSource?.clean(source);
+    if (!value) return null;
+    const details = document.createElement('details');
+    details.className = 'ws-resource-source'; details.dataset.sourceOwner = String(ownerId);
+    const licenseLabel = { unknown:'请查看原帖说明', personal:'仅限个人使用', redistributable:'允许转载' }[value.license.status] || '请查看原帖说明';
+    details.innerHTML = `<summary>${icon('lore')}<span>${tr('作者')}</span><strong data-no-translate>${esc(value.author.name)}</strong>${icon('chevron')}</summary><div class="ws-resource-source-body"><div class="ws-resource-source-links">${value.author.profileUrl ? `<a href="${esc(value.author.profileUrl)}" target="_blank" rel="noopener noreferrer">${tr('作者主页')}${icon('arrow')}</a>` : ''}<a href="${esc(value.postUrl)}" target="_blank" rel="noopener noreferrer">${tr('打开原帖')}${icon('arrow')}</a></div><p class="ws-resource-license">${tr(licenseLabel)}</p>${value.license.note ? `<p data-no-translate>${esc(value.license.note)}</p>` : ''}<p class="ws-resource-support">${tr('请尽量支持原作者。喜欢这份作品的话，请到原帖评论区，毫不吝啬地留下您的赞赏。您的赞赏，才是他们最大的动力。')}</p></div>`;
+    return details;
+  }
+  function enhanceAttribution(stage) {
+    attributionObserver?.disconnect(); attributionObserver = null;
+    const lib = UI().state.lib, route = UI().state.route;
+    if (route === 'characters') {
+      const form = stage.querySelector('#char-form'), card = lib.characters.find(item => item.id === UI().state.sel.character);
+      const details = form && card && sourceDetails(card.source, card.id);
+      if (details && !form.querySelector('.ws-resource-source')) {
+        const heading = form.querySelector('.ws-form-heading');
+        if (heading) heading.insertAdjacentElement('afterend', details); else form.prepend(details);
+      }
+    } else if (route === 'lore') {
+      const board = stage.querySelector('.board-layout'), book = lib.worldBooks.find(item => item.id === UI().state.sel.book);
+      const details = board && book && sourceDetails(book.source, book.id);
+      if (details && !stage.querySelector('.ws-resource-source')) board.before(details);
+    } else if (route === 'assets') {
+      const side = stage.querySelector('#asset-side'); if (!side) return;
+      const paintSource = () => {
+        const asset = lib.assets.find(item => item.id === UI().state.sel.asset), panel = side.querySelector('.paper');
+        if (!panel) return;
+        const old = panel.querySelector('.ws-resource-source');
+        if (old?.dataset.sourceOwner === asset?.id) return;
+        old?.remove();
+        const details = asset && sourceDetails(asset.source, asset.id);
+        if (details) panel.prepend(details);
+      };
+      paintSource();
+      // The asset editor replaces this direct child when another thumbnail is chosen.
+      attributionObserver = new MutationObserver(paintSource);
+      attributionObserver.observe(side, { childList: true });
+    }
+  }
   function enhance(stage) {
     stage.dataset.route = UI().state.route;
     const resources = stage.querySelector('#sticker-host');
@@ -232,6 +274,7 @@
     stage.querySelectorAll('[data-context-remove]').forEach((button) => {
       button.onclick = () => { const target = [...stage.querySelectorAll('[data-target]')].find((input) => input.dataset.target === button.dataset.contextRemove); if (target) { target.checked = false; target.dispatchEvent(new Event('change', { bubbles: true })); } };
     });
+    enhanceAttribution(stage);
   }
   function mount() {
     if (mounted) return; mounted = true;

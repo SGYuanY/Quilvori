@@ -1,220 +1,273 @@
-![Realmweave](img/mark.svg)
+<p align="center"><img src="img/emblem.svg" width="184" alt="Quilvori · 叙翎集"></p>
 
-# Realmweave · 织境
+# Quilvori · 叙翎集
 
-写角色、搭世界，也把散乱的设定整理成能继续用的稿子。✍️
+A local collection room and writing workspace for SillyTavern characters and worlds.
 
-**中文** · [English](README.en.md) · [日本語](README.ja.md) · [Русский](README.ru.md) · [한국어](README.ko.md) · [ไทย](README.th.md)
+**English** · [中文](README.zh.md) · [日本語](README.ja.md) · [Русский](README.ru.md) · [한국어](README.ko.md) · [ไทย](README.th.md)
 
-Realmweave 是为 SillyTavern 素材准备的本地写作工作台。你可以编辑角色卡、整理世界书、连接自己的模型一起改稿，再导出到 SillyTavern。手动编辑、导入、检查和备份等本地功能可以独立使用；AI 功能需要另行配置模型服务。
+Quilvori prepares material for SillyTavern. Edit character cards and world books, work with a model you configure, and export the results to SillyTavern. Manual editing, importing, local checks, and backups work independently; AI features require a separate model service.
 
-## 可以用它做什么
+## What you can do
 
-- 编辑角色的描述、性格、情景、开场白、对话示例和扮演指令，并实时查看预览。
-- 把角色卡中混在一起的资料按原文片段整理分栏，保留细节、已有内容和可选留白。
-- 为世界书中的未命名条目补名称、分类和主关键词，核对常驻与关键词触发方式。
-- 让 AI 只改选中的栏位、条目或文字；先看前后对照，再选择应用，并可撤销。
-- 在创作过程中采用灵感、补充要求、讨论安排，继续修改当前样稿。
-- 检查人物、事实与时间线，得到带条目名、栏位地址和原文依据的可读报告。
-- 管理提示词、正则、快捷回复、关系图、时间线和 HTML 记忆，导出适用的文件。
+- Browse your collection as a portrait and book-cover gallery, with a distinct color palette for each workspace.
+- Discover public-source cards, world books, and wallpapers with creator credit and links to the original posts.
+- Edit descriptions, personality, scenarios, greetings, example dialogue, and role instructions with a live preview.
+- Move mixed character notes into appropriate fields while retaining the original wording and existing destination content.
+- Name untitled world entries, classify them, and suggest precise primary keywords without rewriting their bodies.
+- Ask AI to edit selected fields, entries, or a text selection; compare the result before applying it, with undo support.
+- Adopt ideas, discuss choices, and continue revising the current draft instead of starting over.
+- Review facts, characterization, and timelines with source quotations and readable addresses.
+- Work with prompts, regex, quick replies, relationship graphs, timelines, and HTML memory.
 
-## 快速开始
+## Collection gallery and page colors
 
-先下载仓库，或使用 Git：
+The **Collection** home page displays large character portraits and decorative world-book covers, with search, type filters, original-text previews, and quiet **Write a character card** / **Write a world book** actions. Missing portraits use a title cover; the gallery does not generate replacement artwork or change the stored character image.
+
+Pages share typography and controls but use different muted palettes: mist purple for the collection, blue-violet for AI creation, rose gray for characters, sage for world books, champagne for writing tools, slate blue for structural tools, warm brown for reading, plum for narrative planning, smoky pink for assets and resources, and graphite for utilities. The collection adds bookplate scrollwork, corner ornaments, and a colophon seal.
+
+In **Settings → Appearance & language**, use **Use colors by workspace** to follow these palettes, or adjust the colors for a custom theme. Saved custom colors remain available. Sarasa UI fonts, a quill cursor, text size, spacing, and reduced-motion support complete the shared interface.
+
+Fresh profiles start in **English**. A saved, supported language choice is preserved when you update. Chinese, English, Japanese, Russian, Korean, and Thai are available; switching the interface language never translates your authored cards, world books, or source attribution.
+
+## Quick start
+
+Download the repository, or clone it:
 
 ```bash
-git clone https://github.com/ShangguanQian/sillytavernworks.git
-cd sillytavernworks
+git clone https://github.com/ShangguanQian/Quilvori.git
+cd Quilvori
 ```
 
-### 网页版
+### Web app
 
-需要 Python 3 和现代浏览器。网页本身不需要安装 npm 依赖，也没有构建步骤。
+Requires Python 3 and a modern browser. The web app needs no npm dependencies or build step.
 
 ```bash
 python3 -m http.server 8765 --bind 127.0.0.1
 ```
 
-Windows 也可以使用：
+On Windows, you can use:
 
 ```powershell
 py -m http.server 8765 --bind 127.0.0.1
 ```
 
-在浏览器打开 [http://127.0.0.1:8765/](http://127.0.0.1:8765/)，使用期间保持这个服务运行。若端口被占用，可以换一个端口；不同端口的浏览器资料库相互独立。
+Open [http://127.0.0.1:8765/](http://127.0.0.1:8765/) and keep the server running. You may use another port if needed, but each port has a separate browser library.
 
-也能直接双击 `index.html`。如果浏览器限制文件页面的本地存储或接口请求，请改用本地 HTTP 服务。离开无法保存的页面前，先导出整库备份。
+Opening `index.html` directly also works in browsers that allow the required file-page storage and API requests. Use the local HTTP server if those features are restricted. Export a full backup before leaving a session that cannot save.
 
-### 桌面版
+### Desktop app
 
-需要 Node.js LTS 和 npm。在仓库根目录执行：
+Use Node.js 22 or 24 and npm. From the repository root:
 
 ```bash
-npm install
+npm ci
 npm start
 ```
 
-Electron 会打开同一套界面，无须同时启动 Python 服务。桌面版额外支持选择本机文件夹并读取现有角色卡、世界书。本仓库目前提供源码运行方式，没有打包好的 Windows 安装程序。
+On Windows, after installing dependencies, you can also double-click [Start-Quilvori.cmd](Start-Quilvori.cmd). It locates the project relative to itself, so it also works when invoked from another working directory. It closes the console after the Electron process is successfully spawned and keeps errors visible when startup fails.
 
-## 第一次使用
+`npm start` uses [scripts/start.mjs](scripts/start.mjs) and stays attached to the terminal; Ctrl+C stops that launched process. Both entry points require Node.js 22 or newer and the project's installed Electron. Missing dependencies produce a clear `npm ci` remedy; the launcher does not download packages automatically or fall back to a global Electron. Repeated launches restore the existing desktop window.
 
-1. 首次打开会载入「听雨楼」示例。可以先试试编辑、检查和导出；「未名客」是故意留有空栏的草稿。
-2. 从侧栏导入角色卡 JSON／PNG 或世界书 JSON。也可以把文件拖到对应页面。
-3. 打开角色卡的「整理分栏」，或世界书的「AI 整理条目」，先把资料理顺。
-4. 需要改写时，进入「AI 创作 → 修改已有」，选择准确范围，再写要求。
-5. 检查预览，应用需要的建议，最后导出到 SillyTavern，并留一份整库备份。
+Electron opens the same interface; a Python server is not required. The desktop app can also read existing cards and books from folders you select. This repository provides a source-based launch; a packaged Windows installer is not included.
 
-载入示例和清空库都会要求确认。导入自己的资料之后，再载入示例会替换当前库，请先备份。
+## Your first session
 
-## 接入 AI 模型
+1. A fresh library loads the Tingyu House demo. Try editing, checking, and exporting; the unnamed traveler is an intentionally incomplete draft.
+2. Import character-card JSON/PNG or world-book JSON from the sidebar, or drop files onto the relevant page.
+3. Use **Organize fields** on a character or **Organize entries with AI** on a world book to sort existing material.
+4. For rewriting, open **AI creation → Edit existing**, select a precise scope, and describe the change.
+5. Review suggestions, apply what you want, export to SillyTavern, and keep a full-library backup.
 
-在「设置 → 模型接入」里配置：
+Loading the demo and clearing the library require confirmation. Loading the demo replaces the current library, so back up your own work first.
 
-1. 填写服务商的 API 根地址，例如 `https://api.openai.com/v1`，不要填某次请求的完整端点。
-2. 填写自己的 API 密钥，选择接口协议，然后点「连接」。
-3. 从接口返回的列表选择模型；可以先用「测试一句」检查连通性。
-4. 按需选择推理强度。默认跟随模型，不额外发送推理参数；其他档位是否可用取决于模型和接口。
+## Connect an AI model
 
-支持 OpenAI 兼容的 **Responses** 和 **Chat Completions**。自动模式优先尝试 Responses，在端点不支持时切换；只支持 Chat Completions 的服务可以直接选该协议。鉴权失败、格式错误等情况不会被当成成功。
+Open **Settings → Model connection**:
 
-推理强度越高，通常耗时越长。接口若不支持选中的档位，会显示错误，可以改回默认或换档。模型服务的可用性、输出质量与费用由你使用的服务决定。
+1. Enter your provider's API base URL, such as `https://api.openai.com/v1`, rather than a complete request endpoint.
+2. Enter your API key, choose a protocol, and connect.
+3. Select a model from the list returned by the service. Use the short message test to verify connectivity.
+4. Optionally select reasoning effort. The default sends no extra reasoning parameter; supported levels depend on the service and model.
 
-手动工作可以离线完成。点击 AI 生成、整理、讨论或检查时，请求中选用的原文、参考资料、要求与相关对话会发送到你配置的接口；模型密钥保存在当前浏览器或桌面版的本地存储中，不写入角色卡或整库备份。
+Both OpenAI-compatible **Responses** and **Chat Completions** are supported. Automatic mode tries Responses first and switches when the endpoint is unsupported. Choose Chat Completions explicitly for services that only support it. Authentication failures and invalid responses are reported as errors.
 
-## 三种 AI 工作方式
+Higher reasoning effort usually takes longer. If a level is unsupported, select the model default or a supported level. Availability, output quality, and fees depend on your model provider.
 
-### 修改已有
+Manual work can stay offline. When you request AI generation, organization, discussion, or review, the selected source text, references, instructions, and relevant conversation are sent to your configured endpoint. The API key stays in local browser or desktop storage and is not included in character exports or full-library backups.
 
-选角色卡或世界书，再勾选具体栏位或条目。可以在原文中选中一段，只改这一段。其他资料用作参考，建议会展示修改前后对照。
+## AI workflows
 
-未返回的字段保持原值；清空已有内容需要明确勾选允许清空。模型追问、输出不完整、返回未开放的栏位，或等待期间原稿发生变化时，不会直接写入原稿。应用后可撤销；已有后续手工修改时，撤销会阻止覆盖。
+### Edit existing material
 
-### 新建创作
+Choose a character or world book, then select its editable fields or entries. A text selection can limit an edit to one passage. Other material is reference context, and suggestions show a before/after comparison.
 
-写下想做什么，勾选需要的模块。可以先让 AI 提问，或生成几个灵感方向；只有勾选采用的灵感会进入后续创作。
+Omitted fields retain their values. Clearing existing content requires explicit permission. Clarification requests, incomplete output, out-of-scope fields, or source changes made during a request do not silently overwrite your draft. Applied edits can be undone; undo refuses to overwrite subsequent manual changes.
 
-「边聊边改」会带上当前稿件和已采用的灵感。可以先讨论，也可以提出要求更新样稿；生成途中补充要求会停止当前输出，并保留已完成的稿子。角色卡和世界书样稿还支持只改其中的部分栏位或条目。
+### Create and continue a draft
 
-生成结果先进入预览，确认后才加入资料库。群聊、剧本、关系图若引用新生成的角色，需要先应用对应角色卡。
+Describe your goal and choose the modules to create. You can first answer necessary questions or request ideas; only adopted ideas become constraints for subsequent generation.
 
-### 检查逻辑与人设
+The creation conversation includes current drafts and adopted ideas. Discuss an approach or ask for a revision. Sending new requirements during generation stops the current output while keeping completed drafts. Character and world-book previews also support revising only selected parts.
 
-本地规则检查和 AI 审查分开展示。AI 报告按「简单说／为什么／建议怎么处理」解释问题，并给出角色卡栏位，或「世界书 → 条目 → 栏位 → 行数」地址。
+Results enter a preview before joining the library. Apply a generated character before applying a group, script, or relationship graph that references it.
 
-可点击「定位原文」查看依据，再返回报告。报告保留生成时的原文地址；原稿改变后会提示重新检查。可选空栏只作提示，证据不足的差异应作为需要确认的情况。检查本身不会改写稿件。
+### Review logic and characterization
 
-大世界书可以按选中条目分批检查；部分检查会注明范围。任务记录分别保存状态、接口返回的思考和结果，模型未返回思考时会明确说明。
+Local rules and AI reviews appear separately. Reports explain the conclusion, why it may be a problem, and a possible next step. Quotations include character-field addresses or **world book → entry → field → line** locations.
 
-## 角色卡：整理分栏
+Open a source quotation and return to the report afterward. Reports preserve their source addresses and are marked outdated when relevant text changes. Optional blank fields are notes, and differences with insufficient evidence should be treated as questions to confirm. Review itself does not rewrite the draft.
 
-在角色卡编辑区点击「整理分栏」，可补充分类偏好，再让 AI 生成整理建议。
+Large books can be reviewed in selected batches, with the scope stated in the report. Task records separate status, reasoning returned by the service, and results; missing reasoning is reported explicitly.
 
-- 从描述、性格、情景、主开场白、对话示例、系统提示、历史后指令和创作者备注中识别适合搬移的原文片段。
-- 每项展示原栏、目标栏、搬移理由以及分栏前后对照。
-- 原文逐字搬移并追加到目标栏；目标栏已有内容保留，未勾选或无法判断的片段留在原处。
-- 移出和移入成对应用，避免只删掉一边。无法匹配原文、片段重叠或原稿已经改变时，建议不会应用。
+## Organize character fields
 
-这项功能负责整理已有资料，不补写缺少的经历。分类仍需你核对，可选栏位不必填满。
+Click **Organize fields** in the character editor. Add optional preferences and request a preview.
 
-## 世界书：名称、分类与关键词
+- The organizer considers description, personality, scenario, first greeting, dialogue examples, system prompt, post-history instructions, and creator notes.
+- Each suggestion names its source, destination, and reason, with a before/after field comparison.
+- Original fragments are moved verbatim and appended to existing destination content. Unselected or uncertain material remains where it was.
+- Removing from the source and adding to the destination apply together. Unmatched quotations, overlapping fragments, and changed source text block application.
 
-「AI 整理条目」可以处理当前条目、未命名或缺少触发词的条目，或当前世界书全部条目。单条编辑区也有「整理这条」。
+This workflow organizes existing material; it does not invent missing history. Review the proposed classifications, and leave optional fields blank when appropriate.
 
-- 分类包括人物、关系、地点、组织、规则、历史、物品、剧情和其他，目录可切换为「按内容分类」。
-- 默认只补未命名或新条目的名称。调整已有名称需勾选允许项。
-- 建议主关键词取自该条正文或原名称；应用时追加新词，保留原主关键词和全部次关键词。
-- 常驻条目可以没有关键词。只有勾选「允许建议调整常驻方式」，模型才可建议在常驻和关键词触发之间调整。
-- 切换到关键词触发时至少需要一个主关键词。正文、启用状态、选择性条件、注入位置、深度和顺序不由整理任务重置。
+## Organize world-book metadata
 
-每条建议都带原文依据和理由，可逐条选择应用、撤销。分类通过 `realmweave_category` 扩展字段随世界书或内嵌角色书导出，不替代 SillyTavern 的触发设置。
+Use **Organize entries with AI** for the current entry, untitled entries or entries missing trigger words, or the entire current book. **Organize this entry** is also available in the entry editor.
 
-## 页面与工具
+- Categories cover characters, relationships, locations, factions, rules, history, items, plot, and other material. The directory can group entries by content category.
+- By default, only untitled/new entries receive names. Renaming an existing title requires a separate option.
+- Suggested primary keywords come from the entry body or original title. Applying them appends new words and preserves all existing primary and secondary keys.
+- Always-on entries may have no keywords. Changing activation mode requires enabling the separate permission option.
+- Switching to keyword activation requires at least one primary key. Body text, enabled state, selective conditions, injection position, depth, and order are not reset by organization.
 
-| 页面 | 用途 |
+Every suggestion includes evidence and a reason. Apply selected entries and undo as needed. Categories are exported through the `realmweave_category` extension field in world books and embedded character books; they do not replace SillyTavern activation settings.
+
+## Pages and tools
+
+| Page | Purpose |
 | --- | --- |
-| 书桌 | 最近修改的稿件、角色卡、世界书和常用入口。 |
-| 角色卡 | 编辑 SillyTavern 角色卡字段，导入／导出 JSON、带卡数据的 PNG。 |
-| 世界书 | 编辑条目、关键词和注入配置，测试触发，按位置或内容分类查看。 |
-| AI 创作 | 定向修改、新建创作、沟通和检查，预览后应用。 |
-| 段落预设 | 组合文风、视角、关系、边界与输出格式等写作设置。 |
-| 提示词拼装 | 排序和开关提示词块，导出便于对照的配置。 |
-| 群聊卡司 | 选择角色，配置情景、话多程度和发言方式。 |
-| 聊天阅览 | 读取聊天 JSONL 或消息数组，搜索、书签和复制。 |
-| 素材库 | 管理头像、表情与背景；图片随资料库保存。 |
-| 正则脚本 | 编辑和导出 SillyTavern Regex 扩展格式。 |
-| 快捷回复 | 编辑按钮和消息，导出 Quick Reply v2。 |
-| 作者注与情景时间线 | 按楼层记录作者注和情节节拍。 |
-| 角色关系图 | 编辑关系节点和连线，导出为世界书。 |
-| 人设一致性检查 | 查看本地规则与 AI 报告，并定位原文。 |
-| 群聊剧本 | 按顺序编排角色台词、旁白和触发词。 |
-| HTML 记忆 | 制作和导出可导入酒馆助手的 HTML 记忆。 |
-| 整库备份 | 导出完整本地库，恢复时选择替换或合并。 |
-| 使用教学 | 查看操作说明和导出文件的放置方法。 |
+| Collection | Portrait and book-cover gallery, search, previews, and new-work actions. |
+| Resource catalog | Curated original-source cards, world books, and wallpapers with attribution and import previews. |
+| Character cards | Edit SillyTavern card fields and import/export JSON or card PNG. |
+| World books | Edit entries and injection settings, test triggers, group by position or category. |
+| AI creation | Scoped edits, new drafts, conversation, review, and application previews. |
+| Writing sections | Combine style, viewpoint, relationships, boundaries, and output format. |
+| Prompt assembly | Order and enable prompt blocks for comparison with a SillyTavern preset. |
+| Group cast | Select characters and set scenarios, talkativeness, and speaking behavior. |
+| Chat reader | Read JSONL or message arrays; search, bookmark, and copy. |
+| Assets | Manage avatars, expressions, and backgrounds saved with the library. |
+| Regex scripts | Edit and export SillyTavern Regex extension data. |
+| Quick replies | Edit buttons and messages; export Quick Reply v2. |
+| Author notes and timeline | Place notes and story beats by chat floor. |
+| Relationship graph | Edit nodes and links and export a world book. |
+| Consistency checks | Read local/AI reports and navigate to their sources. |
+| Group script | Arrange character lines, narration, and triggers. |
+| HTML memory | Create HTML memory for JS-Slash-Runner. |
+| Full-library backup | Export the local library; restore by replacing or merging. |
+| Guide | Instructions and destinations for exported files. |
 
-外观、语言、文风和模型配置在设置里。中文界面使用本地更纱黑体资源；界面支持六种语言，切换不会翻译或改写已经输入的正文。
+Appearance, language, writing preferences, and models live in Settings. The Chinese interface uses bundled Sarasa fonts. Six interface languages are available; changing the interface does not translate existing authored text.
 
-## 导入导出与 SillyTavern
+## Import, export, and SillyTavern
 
-| 内容 | 格式与使用方式 |
+| Material | Format and destination |
 | --- | --- |
-| 角色卡 | JSON，或含 `chara`／`ccv3` 卡数据的 PNG。建议使用酒馆角色列表的导入功能；导出时可附带一本世界书。 |
-| 世界书 | 酒馆 World Info JSON，也支持角色书 `entries` 数组。在世界信息面板导入。 |
-| 正则 | JSON 数组，通过 Regex 扩展导入。 |
-| 快捷回复 | Quick Reply v2 JSON，通过对应扩展导入。 |
-| 表情图片 | 放入相应角色的 `expressions` 文件夹；世界书只记录套名，不包含图片文件。 |
-| 提示词 | 用作与酒馆预设对照的块配置，并非覆盖模型、温度等设置的完整 API 预设。 |
-| 群聊卡司 | 导出名单供建群参考；需先在酒馆导入角色，不能作为通用群文件直接导入。 |
-| 聊天阅览／时间线／剧本 | 工坊自己的阅读或编排文件，不会直接写回酒馆聊天目录。 |
-| HTML 记忆 | 在酒馆助手／JS-Slash-Runner 中新建 HTML 脚本并导入。 |
-| 整库备份 | Realmweave 自身的资料库 JSON，并非 SillyTavern 全站备份。 |
+| Character card | JSON or PNG with `chara`/`ccv3` data. Use SillyTavern's character import; optionally embed a world book on export. |
+| World book | World Info JSON, including support for character-book `entries` arrays. Import in World Info. |
+| Regex | JSON array, imported through the Regex extension. |
+| Quick replies | Quick Reply v2 JSON, imported through that extension. |
+| Expressions | Image files in the character's `expressions` folder. A world book records the pack name, not the images. |
+| Prompts | Block configuration for reference, not a complete API preset that replaces model or temperature settings. |
+| Group cast | A roster for creating a group after importing its characters, not a universal group import file. |
+| Chat reader/timeline/script | Workshop reading or planning files; they are not written directly to SillyTavern chat storage. |
+| HTML memory | Import as an HTML script in JS-Slash-Runner. |
+| Full-library backup | Quilvori library JSON, not a full SillyTavern server backup. |
 
-### 从本机文件夹读取
+### Read local folders
 
-桌面版展开「本地文件夹」，选择角色卡目录和世界书目录，再点「读取已有文件」。读取的是选定目录顶层的角色卡 JSON／PNG 与世界书 JSON，导入时会带入卡内嵌的角色书。
+In the desktop app, expand **Local folders**, select the card and world-book directories, and read existing files. It reads top-level character JSON/PNG and world-book JSON, including books embedded in imported cards.
 
-重复文件会跳过；来源文件更新时另存新版，保留本地已改稿。单个坏文件不会阻断其他文件，详情会列出失败项。大头像会缩小，空间不足时可省略新增头像以保存文字。读取过程不改写原始角色卡或世界书；桌面版显式导出表情文件时会写入所选目标目录。
+Duplicates are skipped. A changed source is imported as another version, preserving local edits. A bad file does not stop the other imports, and failures appear in the details. Large avatars are reduced; newly imported avatars may be omitted if storage is full so text can be saved. Reading folders does not modify source cards or books. Explicit desktop expression exports write to the chosen destination.
 
-## 数据、备份与更新
+### Import character cards and world books from links
 
-资料库保存在当前浏览器／桌面版的 `localStorage` 中，不会自动提交到 GitHub。浏览器配置文件、不同端口、`localhost` 和 `127.0.0.1`、文件页面与桌面版可能各有独立资料库。请固定使用同一个入口；迁移时通过「整库备份」导出和恢复。
+Choose **Import from link** on the world-book page and read a public HTTPS URL. Supported sources include world-book JSON, specific GitHub file pages, and JSON/PNG character cards with embedded books. Card sources contribute only their world book.
 
-Windows 桌面版沿用 `%APPDATA%\nijan` 存放用户资料和 `folders.json` 目录配置。`nijan` 是保留兼容性的内部目录名，项目显示名为 Realmweave／织境。
+The character-card page also offers **Import from link** for card JSON and PNG files containing card data. Preview the avatar, field text, and alternate greetings, then choose whether to include the embedded world book. Optional blank fields are retained, and PNG avatars are resized for storage. The included book is selected in the export control. You can import only the card first and later read the same URL to add its book while keeping your edited text.
 
-整库备份包含角色、世界书、图片等创作资料，应自行妥善保存。准备更换电脑、浏览器、端口或更新代码时，先导出一份。项目的忽略规则覆盖常见本地资料目录，但仍应在提交 Git 前检查暂存文件，避免把个人作品或密钥加入源码。
+Preview the title, entries, always-on count, and untitled count; search the source text and edit the local name before importing. Duplicates open the existing version with local edits preserved. Updated content from the same source is saved as a separate book. The import notification offers undo, which refuses to discard later edits.
 
-本地没有待处理代码改动时，可这样更新：
+Cards also skip duplicates and save source updates separately. Undo can remove the card, avatar, and book added by that import; later edits or references prevent undo from discarding subsequent work.
+
+For Discord, copy the JSON/PNG attachment download URL. Resolving a post or channel requires separate server authorization and a bot integration. Attachment links can expire; copy a fresh one from the original post. No Discord account token or AI call is needed for attachment imports.
+
+Files are limited to 12 MB, with cancellation and timeout handling. Desktop reads public HTTPS files and uses the system proxy for GitHub and Discord CDN attachments when available; web imports depend on the source CORS configuration. If blocked, use desktop or download and import the file. Stored source records omit query parameters, so temporary download signatures are not saved in your library.
+
+## Resource directory and creator attribution
+
+**Resource catalog** is a curated directory of character cards, world books, and wallpapers. Browse creator-supplied preview images, filter by type, search titles/authors/tags, open a full image, and follow related works. Each entry names its author, links to the original post, and displays the recorded usage information. It is a source directory, not a mirror of your private library or an automatic Discord search service.
+
+Use **Open original post** to read the author's instructions and obtain the current attachment link. Discord may require your account and server membership. The directory cannot bypass those requirements or resolve arbitrary post links into files. Expiring attachment URLs must be copied again from the original post.
+
+- **Cards and world books:** the directory opens the existing link-import preview. When a work has no confirmed redistribution permission, the catalog has no bundled downloadable file: paste an attachment URL you obtained from the original source. Card PNG/JSON and world-book JSON downloads are limited to 12 MB. The browser is subject to source-site CORS rules; desktop imports may work where browser imports do not.
+- **Wallpapers:** choose an original PNG, JPEG, or WebP file or paste its HTTPS attachment URL. SVG, HTML, and UI theme files are not accepted. The input is limited to 12 MB, 8192 pixels per edge, and 40 megapixels. The saved local copy is reduced to at most 1600 pixels on its longest edge and 500 KB; this is not an archival 4K download. Obtain full-resolution originals from the author.
+- **Before saving:** review the preview and source information. Imported cards, books, and wallpapers retain sanitized author and original-post metadata. The local editors show this information in collapsed source details; character/world-book exports preserve it in the `quilvori_source` extension. Temporary download signatures and account tokens are not retained in public attribution.
+
+An “unknown” usage status is not permission to redistribute. Public visibility does not place a work under this repository's MIT license. Follow the original creator's terms and support them in the original post's comments if you enjoy their work; Quilvori does not post messages or comments on your behalf.
+
+## Storage, backups, and updates
+
+Your library lives in the current browser or desktop app's `localStorage`; it is not automatically committed to GitHub. Browser profiles, ports, `localhost` versus `127.0.0.1`, file pages, and Electron can each have separate libraries. Use a consistent entry point and move data with full-library export/restore.
+
+The Windows desktop app retains `%APPDATA%\nijan` for its profile and `folders.json`. This internal directory name preserves compatibility; the displayed project name is Quilvori / 叙翎集.
+
+Backups contain your cards, books, images, and other authored material. Keep them somewhere you control, and export before changing computers, browsers, ports, or code versions. Ignore rules cover common local data folders; still inspect staged files before committing so personal work and keys stay out of source control.
+
+With no unresolved local code changes, update using:
 
 ```bash
 git pull --ff-only
-npm install
+npm ci
 ```
 
-然后重启桌面版或刷新网页。只运行网页时无需执行 `npm install`；有本地代码修改时，先保存并处理这些修改。
+Restart the desktop app or refresh the web page. Web-only users do not need `npm ci`. Save and resolve local code edits before updating.
 
-## 常见问题
+## Troubleshooting
 
-**角色列表为空？** 先确认是否打开了原来的浏览器、端口或桌面入口。网页版通过文件导入资料；桌面版可读取已配置文件夹。选择了文件夹并不代表其他浏览器也能访问这份库。
+**The desktop app does not start.** Check `node --version` (22 or newer), then run `npm ci` from the repository root. Launch with `npm start`, or use `Start-Quilvori.cmd` on Windows. Installing Electron globally is unnecessary. A successful process spawn is not proof that a later application error cannot occur; if the window closes unexpectedly, use `npm start` to keep the terminal output available.
 
-**PNG 不能导入？** 普通图片不是角色卡。文件需要包含有效的卡数据；也可使用酒馆导出的 JSON。
+**The character list is empty.** Check that you opened the same browser, port, or desktop app. Import files in the web app, or read configured folders in Electron. Selecting a folder does not share the library with another browser.
 
-**接口连接或生成失败？** 检查地址、密钥、模型和协议。只支持 Chat Completions 的服务请选对应协议；浏览器跨域限制取决于服务端配置。输出截断或内容过大时缩小范围，分批处理。
+**A PNG will not import.** A normal image is not a card. It must contain valid character data; alternatively, use character JSON exported by SillyTavern.
 
-**推理强度报错？** 选回「跟随模型」，或使用接口支持的档位。并非所有模型都接受相同参数。
+**Connection or generation fails.** Check the base URL, key, model, and protocol. Choose Chat Completions for services that require it. Browser cross-origin access depends on the provider. If output is truncated or context is too large, reduce the selected scope and work in batches.
 
-**保存空间不足？** 先导出备份，再减少大型图片。不要通过清理浏览器数据来修复问题，除非已经确认能从备份恢复。
+**Reasoning effort is rejected.** Use the model default or a supported level; models do not all accept the same parameters.
 
-**为什么没有自动写回酒馆？** Realmweave 的资料库和酒馆文件分开保存。完成后导出，再通过酒馆的对应入口导入。
+**Storage is full.** Export a backup before reducing large images. Do not clear browser data unless you have verified that your backup can restore the library.
 
-## 验证与源码
+**Why is there no automatic write-back to SillyTavern?** Quilvori's local library and SillyTavern files are separate. Export your finished material and import it through the corresponding SillyTavern interface.
+
+## Tests and source layout
 
 ```bash
-npm test
+npm run validate
 ```
 
-测试使用示例数据和模拟接口，不调用真实付费模型。覆盖导入导出、文件夹去重、原文分栏、元数据整理、字段范围、留白、过期预览、应用与撤销、检查依据、协议传输、推理参数和多语言。
+`npm run check` checks JavaScript syntax; `npm test` runs the behavior tests. CI runs these checks on Node.js 22 and 24 on Ubuntu and Windows.
 
-`js/` 放界面、资料模型与 AI 工作流；`electron/` 是桌面文件桥；`css/` 是样式；`test/` 是自动化检查。网页使用普通脚本，不需要打包工具。
+Tests use sample data and mock interfaces rather than paid model calls. They cover format round trips, folder deduplication, lossless moves, metadata organization, editable scope, optional blanks, stale previews, apply/undo, evidence, transport protocols, reasoning parameters, locales, page palettes, attribution sanitization, resource catalogs, and bounded wallpaper imports.
 
-## 许可证
+`js/` contains the interface, library model, and AI workflows; `electron/` supplies the desktop file bridge; `css/` contains styles; `test/` contains automated checks. The web app uses regular scripts without a bundler.
 
-项目采用英文 [MIT License](LICENSE)，版权标注为 **Copyright (c) 2026 Realmweave contributors**。随附的更纱黑体有独立的 [字体许可证](fonts/OFL-Sarasa.txt)，请同时遵守。
+## Contributing
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md) for setup, validation, translation keys, data-preservation expectations, and resource attribution. Commit messages and pull-request titles/descriptions are written in English.
+
+## License
+
+The project uses the English [MIT License](LICENSE): **Copyright (c) 2026 Quilvori contributors**. Bundled Sarasa fonts have a separate [font license](fonts/OFL-Sarasa.txt).
+
+Third-party resource previews are **not covered by MIT**. No general external redistribution license was found in the reviewed posts. See [resource preview attribution](img/resources/ATTRIBUTION.md) for creator credits, original posts, and the recorded status. Referenced works retain their own terms; the source-code license does not grant rights to redistribute them.

@@ -42,8 +42,11 @@
     return [];
   }
 
+  const resourceSource = value => root.TAResourceSource?.clean(value) || null;
+
   function characterToCard(character, book) {
     const talk = String(character.talkativeness ?? 0.5);
+    const source = resourceSource(character.source);
     const data = {
       name: character.name || '',
       description: character.description || '',
@@ -63,6 +66,7 @@
         fav: false,
         world: book ? (book.name || '') : '',
         depth_prompt: { depth: 4, prompt: '', role: 'system' },
+        ...(source ? { quilvori_source: source } : {}),
       },
     };
     if (book && book.entries && book.entries.length) data.character_book = bookToCharacterBook(book);
@@ -92,6 +96,7 @@
     if (json && json.character && json.character.data) json = json.character;
     const data = (json && json.data && typeof json.data === 'object') ? json.data : (json || {});
     const extensions = data.extensions || {};
+    const source = resourceSource(extensions.quilvori_source);
     return {
       name: data.name ?? json.name ?? '',
       description: data.description ?? json.description ?? '',
@@ -108,6 +113,7 @@
       character_version: data.character_version ?? '',
       talkativeness: Number(extensions.talkativeness ?? json.talkativeness ?? 0.5) || 0.5,
       book: data.character_book || null,
+      ...(source ? { source } : {}),
     };
   }
 
@@ -157,17 +163,19 @@
         ...(entry.category ? { extensions: { realmweave_category: entry.category } } : {}),
       };
     });
-    return { entries };
+    const source = resourceSource(book.source);
+    return { entries, ...(source ? { extensions: { quilvori_source: source } } : {}) };
   }
 
   function bookToCharacterBook(book) {
+    const source = resourceSource(book.source);
     return {
       name: book.name || '',
       description: book.description || '',
       scan_depth: 2,
       token_budget: 512,
       recursive_scanning: false,
-      extensions: {},
+      extensions: source ? { quilvori_source: source } : {},
       entries: (book.entries || []).map((entry, index) => {
         const position = positionById(entry.position);
         return {
@@ -259,6 +267,24 @@
         ...((entry.category || entry.extensions?.realmweave_category) ? { category: entry.category || entry.extensions.realmweave_category } : {}),
       };
     });
+  }
+
+  function worldInfoToBook(json, fallbackName = '') {
+    const input = Array.isArray(json) && json.length === 1 && (json[0]?.data?.character_book || json[0]?.character?.data) ? json[0] : json;
+    const wrapped = input?.character?.data ? input.character : input;
+    const embedded = wrapped?.data?.character_book || wrapped?.character_book;
+    const spec = embedded
+      || (wrapped?.data?.entries ? wrapped.data : wrapped);
+    // A world-book envelope can keep metadata beside data.entries. Card metadata
+    // must never be mistaken for the attribution of its embedded companion book.
+    const source = resourceSource(spec?.extensions?.quilvori_source)
+      || (!embedded ? resourceSource(wrapped?.extensions?.quilvori_source) : null);
+    return {
+      name: typeof spec?.name === 'string' && spec.name.trim() ? spec.name : String(fallbackName || ''),
+      description: typeof spec?.description === 'string' ? spec.description : '',
+      entries: worldInfoToEntries(spec),
+      ...(source ? { source } : {}),
+    };
   }
 
   function blankRegex(partial) {
@@ -566,7 +592,7 @@
   function themeToCss(theme) {
     const vars = theme.vars || {};
     return [
-      `/* 织境主题「${theme.name || '未命名'}」`,
+      `/* 叙翎集主题「${theme.name || '未命名'}」`,
       '   SillyTavern 的自定义 CSS 选择器不同，把变量抄进你的主题后再改选择器。 */',
       ':root {',
       `  --bg: ${vars.bg || '#07090d'};`,
@@ -591,7 +617,7 @@
 
   function backupLibrary(json) {
     if (!json || json.atelier !== 'tavern-atelier' || !json.library) {
-      throw new Error('这不是织境的整库备份');
+      throw new Error('这不是叙翎集的整库备份');
     }
     return json.library;
   }
@@ -1211,6 +1237,7 @@
     bookToWorldInfo,
     bookToCharacterBook,
     worldInfoToEntries,
+    worldInfoToBook,
     regexToExport,
     regexFromImport,
     regexFromString,
