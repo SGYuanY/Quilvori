@@ -120,7 +120,15 @@ Keep canonical source URLs free of authentication material, temporary signatures
 
 Retain source information when a resource is imported, edited, or exported. Character-card and world-book attribution uses the `quilvori_source` extension; imported backgrounds keep a cleaned source record. This metadata is separate from an author's editable `creator_notes` or the story itself.
 
-The [MIT license](LICENSE) covers this project's code. It does not relicense third-party artwork, resource files, or fonts. Sarasa's license is in [fonts/OFL-Sarasa.txt](fonts/OFL-Sarasa.txt). Existing third-party preview credits and their explicit non-MIT status are documented in [img/resources/ATTRIBUTION.md](img/resources/ATTRIBUTION.md); that file notes that no general external redistribution license was found in the reviewed posts.
+## Licensing contributions
+
+Provide contributions to the project's code under the **GNU General Public License, version 3 only (GPL-3.0-only)**. Contribute work you have the authority to license, retain its required copyright and license notices, and identify third-party code or assets separately. This guide does not introduce a contributor license agreement or a copyright assignment.
+
+The license allows use, modification, redistribution, and commercial use. When distributing covered modified versions, keep the covered derivative work under GPLv3 and provide the Corresponding Source and required notices in accordance with the license. Keeping modifications private does not create a general obligation to publish them publicly. Do not add a noncommercial restriction to GPL-covered contributions.
+
+Read the complete [LICENSE](LICENSE), the license scope and history in [LICENSING.md](LICENSING.md), and [NOTICE](NOTICE). Earlier revisions distributed under MIT retain those original grants; they are not retroactively withdrawn by this change. The current project license is version 3 only, not an “or later” option.
+
+The project license does not relicense third-party artwork, resource files, or fonts. Sarasa's separate terms are in [fonts/OFL-Sarasa.txt](fonts/OFL-Sarasa.txt). Existing third-party previews are excluded from the application's GPLv3 grant: [img/resources/ATTRIBUTION.md](img/resources/ATTRIBUTION.md) records their authors, original posts, and that no general external redistribution license was found in the reviewed posts. Attribution alone does not supply redistribution permission.
 
 ## Issues, commits, and pull requests
 
