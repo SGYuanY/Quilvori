@@ -198,6 +198,8 @@
     } else if (task === "discuss") {
       instruction =
         '你是织境的创作搭档。围绕用户当前创作目标 brief、已采用灵感 ideas、回答 answers、已有稿 previousDrafts 和对话 history，用用户指定的语言或当前界面语言回应本轮 instruction。具体说清建议怎样影响人物、世界书或叙事，有疑问直接问用户，别假装已经修改或应用稿件。最新用户要求优先。只讨论，不返回创作模块或修改清单。返回 {"reply":"简短、直接、容易继续沟通的答复"}。';
+    } else if (task.startsWith("organize:")) {
+      instruction = root.NIJANOrganize.prompt(task);
     } else if (task === "organize") {
       instruction = `只从 card 已有文字提取内容，归入 fields 中的空栏。不得编造、扩写或清空。找不到依据的字段省略。返回 {"fields":{"字段名":"从已有文字提取的内容"}}。${CARD_GUIDE}`;
     } else if (task === "questions") {
@@ -356,6 +358,8 @@
           );
         }
       });
+    } else if (task.startsWith("organize:")) {
+      root.NIJANOrganize.validate(task, result, context);
     } else if (task === "organize") {
       checkFields(result.fields, CARD_FIELDS);
       const source = Object.values(context.card || {})
@@ -688,6 +692,7 @@
   }
   function proposal(lib, task, raw, context = {}) {
     const result = validate(task, raw, context);
+    if (task.startsWith("organize:")) return root.NIJANOrganize.proposal(lib, task, result, context);
     const operations = [];
     const add = (path, value, label) =>
       operations.push({
@@ -1036,6 +1041,14 @@
       (op) => chosen.has(op.key) && !op.applied,
     );
     need(operations.length, "没有选中可应用的修改。");
+    // A text move must remove and append together; world metadata applies per entry.
+    operations.forEach((op) => {
+      if (op.group) need(plan.operations.filter((item) => item.group === op.group && !item.applied).every((item) => chosen.has(item.key)), "同一项整理需要一起应用，避免只移走原文却没有放入目标栏。");
+    });
+    (plan.guards || []).filter((guard) => operations.some((op) => op.group === guard.group)).forEach((guard) => {
+      const dest = destination(lib, guard);
+      need(dest && guard.fields.every((field) => same(dest[field], guard.value[field])), "原稿在预览后发生了变化，请重新生成整理建议。");
+    });
     const characterIds = new Set(lib.characters.map((item) => item.id));
     const nodeIds = new Set(lib.graph.nodes.map((item) => item.id));
     operations

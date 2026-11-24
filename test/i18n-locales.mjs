@@ -22,6 +22,7 @@ for (const file of [
   "ui-workflow-phrases",
   "locales-ru-ko-th",
   "workspace-phrases",
+  "organize-phrases",
 ])
   vm.runInContext(
     fs.readFileSync(new URL(`../js/${file}.js`, import.meta.url), "utf8"),
@@ -82,6 +83,14 @@ test("parameterized messages are filled correctly in each new language", () => {
     const text = I.t("creation.adopted", { count: 3 });
     assert.ok(text.includes("3"));
     assert.ok(!text.includes("{count}"));
+  }
+});
+test("folder read results show translated counts in every language", () => {
+  for (const lang of ["zh", "en", "ja", "ru", "ko", "th"]) {
+    I.save({ lang });
+    const text = I.t("folder.readResult", { cards: 30, books: 17, unchanged: 1 });
+    assert.ok(text.includes("30") && text.includes("17") && text.includes("1"));
+    assert.ok(!text.includes("folder.readResult") && !text.includes("{cards}"));
   }
 });
 class Input {

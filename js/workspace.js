@@ -7,7 +7,7 @@
   const esc = (s) => UI().esc(s);
   const paths = {
     home: '<rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/>',
-    studio: '<path d="m12 3 2.3 6.7L21 12l-6.7 2.3L12 21l-2.3-6.7L3 12l6.7-2.3Z"/><path d="M20 2v4m-2-2h4"/>',
+    studio: '<path d="M21 11a8 8 0 0 1-8 8H6l-4 3V10a8 8 0 0 1 13-6"/><path d="m17 3 4 4m-9 5 7-9 3 3-8 8-3 1Z"/>',
     characters: '<rect x="4" y="3" width="16" height="18" rx="3"/><circle cx="12" cy="9" r="3"/><path d="M7 18c0-5 10-5 10 0"/>',
     lore: '<path d="M12 6c-3-3-7-3-10-2v15c4-1 7-1 10 2 3-3 6-3 10-2V4c-3-1-7-1-10 2Zm0 0v15"/>',
     sections: '<path d="M5 4h14M5 10h14M5 16h8M5 22h8"/>',
@@ -213,8 +213,9 @@
     if (directory) resizeHandle(directory, directory.querySelector('.board'), 'directory', '调整目录宽度');
     const form = stage.querySelector('#char-form');
     if (form && !form.querySelector('.ws-form-heading')) {
-      const heading = document.createElement('header'); heading.className = 'ws-form-heading'; heading.innerHTML = `<div><span class="ws-kicker">${tr('角色卡')}</span><h3>${tr('人物设定')}</h3></div><button type="button" class="btn btn-small" data-card-collaborate>${icon('studio')}${tr('AI 协作')}</button>`;
-      heading.querySelector('button').onclick = () => editWithAI({ kind: 'character', id: UI().state.sel.character }); form.prepend(heading);
+      const heading = document.createElement('header'); heading.className = 'ws-form-heading'; heading.innerHTML = `<div><span class="ws-kicker">${tr('角色卡')}</span><h3>${tr('人物设定')}</h3></div><div class="row"><button type="button" class="btn btn-small" data-card-organize>${icon('sections')}${tr('整理分栏')}</button><button type="button" class="btn btn-small" data-card-collaborate>${icon('studio')}${tr('让 AI 帮忙改')}</button></div>`;
+      heading.querySelector('[data-card-collaborate]').onclick = () => editWithAI({ kind: 'character', id: UI().state.sel.character });
+      heading.querySelector('[data-card-organize]').onclick = () => root.NIJANOrganizePanel.open({ kind: 'character', cardId: UI().state.sel.character }); form.prepend(heading);
     }
     const filter = stage.querySelector('#lore-filter');
     if (filter && !filter.dataset.bound) {
