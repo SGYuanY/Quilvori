@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">Quilvori · 叙翎集</title>
+  <desc id="desc">A quill forms the tail of a Q above an open book, surrounded by a fine bookplate frame and an ink drop.</desc>
+  <rect width="256" height="256" rx="57" fill="#191d18"/>
+  <rect x="14" y="14" width="228" height="228" rx="45" fill="none" stroke="#535a46" stroke-width="1.2"/>
+  <g fill="none" stroke="#9ca284" stroke-width="1.2" stroke-linecap="round">
+    <path d="M34 73V59C34 45 45 34 59 34H73M183 34H197C211 34 222 45 222 59V73M34 183V197C34 211 45 222 59 222H73M183 222H197C211 222 222 211 222 197V183"/>
+    <path d="M38 116V140M218 116V140M116 30H140"/>
+  </g>
+  <g fill="#cdb17d">
+    <circle cx="38" cy="128" r="2.1"/>
+    <circle cx="218" cy="128" r="2.1"/>
+    <path d="M128 24 132 30 128 36 124 30Z"/>
+  </g>
+  <g fill="none" stroke="#d7bb86" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M172 151A62 62 0 1 1 187 109" stroke-width="7.2"/>
+    <path d="M150 137C124 136 102 111 93 77C126 82 157 107 150 137Z" fill="#2b3325" stroke-width="2.8"/>
+    <path d="M100 85 184 171M116 101 114 87M129 115 129 98M139 125 154 125M121 107 136 107" stroke-width="2.6"/>
+    <path d="M183 170 170 165 177 158Z" fill="#d7bb86" stroke-width="1"/>
+    <path d="M174 100C170 107 166 112 166 117A7.5 7.5 0 0 0 181 117C181 112 177 107 174 100Z" fill="#b5bf99" stroke="#b5bf99" stroke-width="1"/>
+  </g>
+  <g transform="translate(0 9)" fill="none" stroke="#c7b98f" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M128 179C109 163 81 158 53 162V193C82 190 108 198 128 212C148 198 174 190 203 193V162C175 158 147 163 128 179Z" fill="#191d18"/>
+    <path d="M128 179V212M64 173C83 171 101 176 115 185M64 183C83 181 101 186 115 195M142 185C155 176 173 171 192 173M142 195C151 189 158 186 166 184"/>
+    <path d="M174 166V197L182 192 190 197V164" fill="#454b35" stroke="#a7b58b" stroke-width="1.8"/>
+    <path d="M53 204C80 201 104 211 119 221M137 221C153 211 177 201 203 204" stroke-width="1.4"/>
+  </g>
+</svg>

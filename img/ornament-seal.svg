@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+  <circle cx="64" cy="64" r="54" stroke-width=".8"/>
+  <circle cx="64" cy="64" r="48" stroke-width=".6" stroke-dasharray="1 5"/>
+  <path d="M30 95C13 76 17 51 30 36M98 95C115 76 111 51 98 36"/>
+  <path d="M24 45C16 42 16 34 20 29C26 33 28 39 24 45ZM20 61C12 58 11 51 14 46C20 49 23 55 20 61ZM21 78C13 77 10 71 12 65C20 66 24 72 21 78ZM27 91C18 93 13 88 13 82C21 81 26 84 27 91ZM104 45C112 42 112 34 108 29C102 33 100 39 104 45ZM108 61C116 58 117 51 114 46C108 49 105 55 108 61ZM107 78C115 77 118 71 116 65C108 66 104 72 107 78ZM101 91C110 93 115 88 115 82C107 81 102 84 101 91Z" fill="currentColor" stroke="none"/>
+  <path d="M64 88C54 80 40 77 31 79V94C42 93 55 97 64 104C73 97 86 93 97 94V79C86 77 73 81 64 88ZM64 88v16M38 85c8 0 15 3 21 6m10 0c6-3 13-6 21-6"/>
+  <path d="M57 73C41 62 40 43 46 28C65 31 81 48 74 64C70 74 63 77 57 73Z" stroke-width="1.8"/>
+  <path d="m47 33 34 47M54 43l-8 1m17 9 12-2m-19 5-10 2m20 6 10 1M77 74l8 3-1 8-7-11Z"/>
+  <path d="m64 13 3 5-3 5-3-5ZM36 106l3 3-3 3-3-3ZM92 106l3 3-3 3-3-3Z" fill="currentColor" stroke="none"/>
+</svg>

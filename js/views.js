@@ -65,11 +65,9 @@
 
   function adoptCharacterBook(spec, ownerName) {
     if (!spec || !Array.isArray(spec.entries) || !spec.entries.length) return null;
-    const book = {
-      id: Store.uid('book'),
-      name: spec.name || `${ownerName || '角色'}·角色书`,
-      description: spec.description || '随角色卡导入',
-      entries: F.worldInfoToEntries({ entries: spec.entries }).map((entry) => Object.assign(blankEntry(), entry, { id: Store.uid('lore') })),
+    const imported = F.worldInfoToBook(spec, `${ownerName || '角色'}·角色书`);
+    const book = { ...imported, id: Store.uid('book'), description: imported.description || '随角色卡导入',
+      entries: imported.entries.map(entry => Object.assign(blankEntry(), entry, { id: Store.uid('lore') })),
     };
     UI.state.lib.worldBooks.push(book);
     return book;
@@ -199,29 +197,70 @@
   }
 
   function home(stage) {
-    const lib = UI.state.lib, icon = root.TAWorkspace.icon;
-    const sorted = [...lib.characters].sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
-    const characters = sorted.slice(0, 5), latest = sorted[0];
-    const face = (character, className = '') => {
-      const avatar = UI.assetById(character.avatarAssetId);
-      return avatar ? `<img class="${className}" src="${UI.esc(avatar.dataUrl)}" alt="">` : `<span class="${className} desk-initial" data-no-translate>${UI.esc((character.name || '名').slice(0, 1))}</span>`;
+    const lib = UI.state.lib, icon = root.TAWorkspace.icon, esc = UI.esc, tr = UI.t;
+    const prefs = UI.state.collectionView ||= { kind: 'all', query: '' };
+    const cards = [...lib.characters].sort((a, b) => String(b.updatedAt || b.createdAt || '').localeCompare(String(a.updatedAt || a.createdAt || '')));
+    const books = [...lib.worldBooks];
+    // Interleave the two collections without changing their stored order.
+    const collection = [];
+    for (let i = 0; i < Math.max(cards.length, books.length); i++) {
+      if (cards[i]) collection.push({ kind: 'character', item: cards[i] });
+      if (books[i]) collection.push({ kind: 'book', item: books[i] });
+    }
+    const latest = cards.find(card => card.updatedAt);
+    const tint = id => [...String(id || '')].reduce((sum, char) => sum + char.codePointAt(0), 0) % 4;
+    stage.innerHTML = `<section class="collection-home" aria-labelledby="collection-heading">
+      <header class="collection-heading">
+        <div class="collection-heading-copy"><span class="collection-imprint" aria-hidden="true"><img src="img/emblem.svg" alt=""><span>QUILVORI<span class="collection-imprint-rule"></span></span></span><div class="collection-title-row"><span class="collection-title-vine" aria-hidden="true"></span><h2 id="collection-heading">${tr('收藏室')}</h2><span class="collection-title-vine" aria-hidden="true"></span></div><p>${tr('把喜欢的人物与世界，安放在这里。')}</p></div>
+        <div class="collection-create"><button type="button" class="btn" data-collection-create="character">${icon('plus')}<span>${tr('写角色卡')}</span></button><button type="button" class="btn" data-collection-create="book">${icon('plus')}<span>${tr('写世界书')}</span></button></div>
+      </header>
+      <div class="collection-toolbar"><div class="collection-filters" role="group" aria-label="${esc(tr('收藏目录'))}">${[['all','全部藏品',collection.length],['character','角色卡',cards.length],['book','世界书',books.length]].map(([kind,label,count]) => `<button type="button" data-collection-kind="${kind}" aria-pressed="${prefs.kind === kind}"><span>${tr(label)}</span><small>${count}</small></button>`).join('')}</div><label class="collection-search">${icon('search')}<input type="search" data-collection-search aria-label="${esc(tr('搜索藏品、作者、标签'))}" placeholder="${esc(tr('搜索藏品、作者、标签'))}" value="${esc(prefs.query)}" autocomplete="off"></label></div>
+      <div class="collection-divider" aria-hidden="true"><span class="collection-divider-wing"></span><span class="collection-divider-jewel"></span><span class="collection-divider-wing is-right"></span></div>
+      <div class="collection-gallery" data-collection-gallery></div>
+      <div class="collection-colophon" aria-hidden="true"><span class="collection-divider-wing"></span><span class="collection-colophon-seal"><span class="collection-seal"></span><small>EX LIBRIS · QUILVORI</small></span><span class="collection-divider-wing is-right"></span></div>
+      <footer class="collection-foot"><span data-collection-count role="status" aria-live="polite"></span><span class="collection-foot-mark" aria-hidden="true">QUILVORI <i>✦</i> EX LIBRIS</span></footer>
+    </section>`;
+    const host = stage.querySelector('.collection-home'), grid = host.querySelector('[data-collection-gallery]');
+    const paint = () => {
+      const term = prefs.query.trim().toLocaleLowerCase();
+      const visible = collection.filter(({kind,item}) => (prefs.kind === 'all' || prefs.kind === kind) && (!term || [item.name,item.creator,item.description,...(item.tags || [])].filter(Boolean).join(' ').toLocaleLowerCase().includes(term)));
+      host.querySelectorAll('[data-collection-kind]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.collectionKind === prefs.kind)));
+      host.querySelector('[data-collection-count]').textContent = `${visible.length} ${tr('件藏品')}`;
+      grid.innerHTML = visible.map(({kind,item}) => {
+        const character = kind === 'character', name = item.name || tr('未命名'), avatar = character && UI.assetById(item.avatarAssetId);
+        const recent = character && latest?.id === item.id;
+        const author = typeof item.creator === 'string' && item.creator.trim() ? item.creator : '';
+        const title = esc(name), id = esc(item.id);
+        return `<article class="collection-item collection-${kind} collection-tone-${tint(item.id)}">
+          <div class="collection-display"><button type="button" class="collection-open" data-collection-open="${id}" data-collection-type="${kind}" aria-label="${esc(tr('打开编辑'))} · ${title}">
+            <span class="collection-cover ${avatar ? 'collection-has-portrait' : ''}">
+              ${avatar ? `<img class="collection-portrait" src="${esc(avatar.dataUrl)}" alt="" loading="lazy" decoding="async"><span class="collection-portrait-shade"></span><span class="collection-portrait-caption" data-no-translate>${title}</span>` : `<span class="collection-book-frame" aria-hidden="true"></span><span class="collection-cover-top">${tr(character ? '角色卡' : '世界书')}</span><span class="collection-cover-emblem" aria-hidden="true"><img src="img/emblem.svg" alt=""></span><span class="collection-cover-title" data-no-translate>${title}</span><span class="collection-cover-flourish" aria-hidden="true">✦</span><span class="collection-cover-bottom" aria-hidden="true">QUILVORI</span>`}
+              <span class="collection-spine" aria-hidden="true"></span><span class="collection-cover-ornament" aria-hidden="true"></span>
+              ${recent ? `<span class="collection-bookmark" aria-label="${esc(tr('最近编辑'))}">${icon('clock')}</span>` : ''}
+            </span><span class="collection-open-hint">${tr('打开编辑')}${icon('arrow')}</span>
+          </button><button type="button" class="collection-peek" data-collection-peek="${id}" data-collection-type="${kind}" aria-label="${esc(tr('原文预览'))} · ${title}">${icon('eye')}</button></div>
+          <div class="collection-caption"><span class="collection-category">${tr(character ? '角色卡' : '世界书')}${recent ? `<span class="collection-recent">${tr('最近编辑')}</span>` : ''}</span><h3 data-no-translate>${title}</h3><p>${author ? `<span data-no-translate>${esc(author)}</span>` : character ? tr('未署名') : `${(item.entries || []).length} ${tr('条设定')}`}</p>${character && item.tags?.length ? `<div class="collection-tags" data-no-translate>${item.tags.slice(0,2).map(tag => `<span>${esc(tag)}</span>`).join('')}</div>` : ''}</div>
+        </article>`;
+      }).join('') || `<div class="collection-empty"><img src="img/emblem.svg" alt=""><h3>${tr(collection.length ? '没有找到这件藏品' : '收藏从这里开始')}</h3><p>${tr(collection.length ? '换个关键词，或看看其他分类。' : '导入角色卡或世界书，也可以写下你的第一份作品。')}</p><div class="row">${collection.length ? `<button type="button" class="btn" data-collection-reset>${tr('清除筛选')}</button>` : `<button type="button" class="btn" data-collection-import="card">${tr('导入角色卡')}</button><button type="button" class="btn" data-collection-import="book">${tr('导入世界书')}</button>`}</div></div>`;
     };
-    stage.innerHTML = `<div class="ws-home desk-home">
-      <header class="desk-heading"><div><h2>${UI.t(latest ? '接着写' : '写点什么吧')} <span class="desk-emoji" aria-hidden="true">✍️</span></h2><p>卡、设定和没写完的稿子，都在这儿。</p></div><div class="row"><button type="button" class="btn btn-primary" data-new-character>${icon('plus')}新建角色</button><button type="button" class="btn" data-go="studio">找 AI 搭把手</button></div></header>
-      ${latest ? `<button type="button" class="desk-resume" data-open-card="${UI.esc(latest.id)}">${face(latest, 'desk-resume-face')}<span class="desk-resume-copy"><span class="desk-file-label">${UI.t('最近修改 · 角色卡')}</span><strong data-no-translate>${UI.esc(latest.name || '未命名')}</strong><span class="desk-resume-excerpt" data-no-translate>${UI.esc(String(latest.description || latest.personality || '').replace(/\s+/g, ' ').slice(0, 130))}</span></span><span class="desk-resume-action">${UI.t('继续编辑')}${icon('arrow')}</span></button>` : `<div class="desk-empty-intro"><span class="desk-empty-icon">${icon('characters')}</span><div><h3>第一张卡，从这里开始。</h3><p>自己写，或者找 AI 聊聊都行。已有的 JSON、PNG 也能直接导入。</p></div><button type="button" class="btn" data-import-card>导入角色卡</button></div>`}
-      <div class="ws-home-columns"><section><div class="ws-section-heading"><h2>${UI.t('角色卡')}<small class="desk-count">${lib.characters.length}</small></h2><button type="button" data-go="characters">去看看${icon('arrow')}</button></div><div class="ws-character-grid">${characters.map((character) => `<article class="ws-character-card"><button type="button" class="ws-character-open" data-open-card="${UI.esc(character.id)}"><div class="ws-character-face">${face(character, 'ws-character-image')}</div><div class="ws-character-info" data-no-translate><strong>${UI.esc(character.name || '未命名')}</strong><p>${UI.esc(character.description || character.personality || '')}</p><div class="ws-character-tags">${(character.tags || []).slice(0, 3).map((tag) => `<span>${UI.esc(tag)}</span>`).join('')}</div></div></button><button type="button" class="ws-card-peek" data-peek-card="${UI.esc(character.id)}" aria-label="${UI.t('原文预览')}">${icon('eye')}</button></article>`).join('')}<button type="button" class="ws-new-card" data-new-character>${icon('plus')}再写一个角色</button></div></section>
-      <aside class="desk-side"><section><div class="ws-section-heading"><h2>${UI.t('世界书')}<small class="desk-count">${lib.worldBooks.length}</small></h2><button type="button" data-go="lore">去整理${icon('arrow')}</button></div><div class="ws-book-list">${lib.worldBooks.slice(0, 5).map((book) => `<button type="button" class="ws-book-card" data-open-book="${UI.esc(book.id)}"><span class="ws-book-symbol">${icon('lore')}</span><span class="ws-book-info"><strong data-no-translate>${UI.esc(book.name || '未命名')}</strong><small>${book.entries.length} ${UI.t('条设定')}</small></span>${icon('chevron')}</button>`).join('') || `<div class="ws-empty-library"><p>${UI.t('地名、人物关系、小规矩，都能记在世界书里。')}</p><button type="button" class="btn btn-small" data-go="lore">${UI.t('建一本世界书')}</button></div>`}</div></section>
-      <section class="desk-note"><div><span class="desk-emoji" aria-hidden="true">📝</span><h3>突然想到一个桥段？</h3></div><p>先记在时间线里，回头再慢慢补。</p><button type="button" class="desk-text-button" data-go="timeline">记一笔${icon('arrow')}</button></section>
-      <section class="desk-tools"><h3>顺手用的小工具</h3><div>${[['assets', '找素材'], ['prompts', '整理提示词'], ['backup', '导出与备份']].map(([route, label]) => `<button type="button" data-go="${route}">${icon(route)}<span>${UI.t(label)}</span>${icon('chevron')}</button>`).join('')}</div></section>
-      </aside></div></div>`;
-    stage.querySelectorAll('[data-go]').forEach((button) => { button.onclick = () => UI.go(button.dataset.go); });
-    stage.querySelectorAll('[data-open-card]').forEach((button) => { button.onclick = () => root.TAWorkspace.openEntity({ kind: 'character', id: button.dataset.openCard }); });
-    stage.querySelectorAll('[data-open-book]').forEach((button) => { button.onclick = () => root.TAWorkspace.openEntity({ kind: 'book', id: button.dataset.openBook }); });
-    stage.querySelectorAll('[data-new-character]').forEach((button) => { button.onclick = () => {
-      const character = blankCharacter(); lib.characters.unshift(character); UI.state.sel.character = character.id; UI.state.cardView = 'edit'; UI.markDirty(); UI.go('characters');
-    }; });
-    stage.querySelector('[data-import-card]')?.addEventListener('click', () => document.querySelector('[data-shell="import-card"]').click());
+    host.querySelector('[data-collection-search]').oninput = event => { prefs.query = event.target.value; paint(); };
+    host.onclick = event => {
+      const button = event.target.closest('button'); if (!button || !host.contains(button)) return;
+      if (button.hasAttribute('data-collection-kind')) { prefs.kind = button.dataset.collectionKind; paint(); }
+      if (button.hasAttribute('data-collection-reset')) { prefs.kind = 'all'; prefs.query = ''; host.querySelector('[data-collection-search]').value = ''; paint(); }
+      if (button.hasAttribute('data-collection-open')) root.TAWorkspace.openEntity({ kind: button.dataset.collectionType, id: button.dataset.collectionOpen });
+      if (button.hasAttribute('data-collection-peek')) root.TAWorkspace.showPeek({ kind: button.dataset.collectionType, id: button.dataset.collectionPeek }, button, true);
+      if (button.hasAttribute('data-collection-import')) document.querySelector(`[data-shell="import-${button.dataset.collectionImport}"]`)?.click();
+      if (button.hasAttribute('data-collection-create')) {
+        const character = button.dataset.collectionCreate === 'character';
+        const item = character ? blankCharacter() : { id: Store.uid('book'), name: tr('新世界书'), description: '', entries: [] };
+        (character ? lib.characters : lib.worldBooks).unshift(item); UI.markDirty();
+        root.TAWorkspace.openEntity({ kind: character ? 'character' : 'book', id: item.id });
+      }
+    };
+    paint();
   }
+
 
   function characters(stage) {
     const lib = UI.state.lib;
@@ -246,6 +285,8 @@
     ${UI.picker(list, character && character.id, (item) => (item.tags || []).slice(0, 3).join(' · '))}
     <div id="card-ai"></div>
     <div id="char-body"></div>`;
+    const cardLinkButton = document.createElement('button'); cardLinkButton.type = 'button'; cardLinkButton.className = 'btn'; cardLinkButton.dataset.cardLinkImport = ''; cardLinkButton.textContent = UI.t('链接导入');
+    cardLinkButton.onclick = () => root.TALinkImportPanel.open({ kind: 'character' }); stage.querySelector('[data-act="import"]').insertAdjacentElement('afterend', cardLinkButton);
     mountAiBar(stage.querySelector('#card-ai') || stage, 'card');
     const checks = stage.querySelector('#card-ai');
     if (checks) {
@@ -297,6 +338,7 @@
       UI.renderStage();
     };
     const bookOf = () => lib.worldBooks.find((book) => book.id === stage.querySelector('#attach-book').value) || null;
+    if (character.source?.embeddedBookId && lib.worldBooks.some((book) => book.id === character.source.embeddedBookId)) stage.querySelector('#attach-book').value = character.source.embeddedBookId;
     stage.querySelector('[data-act="json"]').onclick = () => {
       const filename = `${UI.safeName(character.name)}.json`;
       const card = F.characterToCard(character, bookOf());
@@ -450,12 +492,17 @@
       const file = event.dataTransfer.files && event.dataTransfer.files[0];
       if (file) importBook(file);
     };
+    const mountLinkImport = () => {
+      const button = document.createElement('button'); button.type = 'button'; button.className = 'btn'; button.dataset.linkImport = ''; button.textContent = UI.t('链接导入');
+      button.onclick = () => root.TALinkImportPanel.open(); stage.querySelector('#import-book').insertAdjacentElement('afterend', button);
+    };
     if (!lib.worldBooks.length) {
       stage.innerHTML = `<div class="dropwell"><div><strong>把世界书拖到这里</strong><span>酒馆世界信息的 JSON。</span></div><button type="button" class="btn btn-primary" id="book-drop-btn">选择文件</button></div><div id="sticker-host"></div><div id="json-host"></div><div class="toolbar"><button type="button" class="btn btn-primary" id="new-book">新建世界书</button><button type="button" class="btn" id="import-book">导入 JSON</button>${hint('新建一本，或导入酒馆导出的世界信息 JSON。')}</div>`;
       stage.appendChild(UI.empty('还没有世界书', '新建一本，或导入酒馆导出的世界信息 JSON。', '', null));
       stage.querySelector('#new-book').onclick = () => addBook();
       stage.querySelector('#import-book').onclick = () => importBook();
       stage.querySelector('#book-drop-btn').onclick = () => importBook();
+      mountLinkImport();
       return;
     }
     const book = UI.selected(lib.worldBooks, UI.state.sel.book);
@@ -528,6 +575,7 @@
       UI.showExport(filename, pack ? `世界书 JSON，只记录表情包「${pack.name}」，不含图片。放到酒馆 worlds 目录后从世界信息导入。` : '世界书 JSON。放到酒馆 worlds 目录，或在世界信息里导入。');
     };
     stage.querySelector('#import-book').onclick = () => importBook();
+    mountLinkImport();
     stage.querySelector('#organize-book').onclick = () => root.NIJANOrganizePanel.open({ kind: 'world', bookId: book.id });
     stage.querySelector('#del-book').onclick = async () => {
       const answer = await UI.ask({ title: `删除「${book.name}」`, body: '书里的条目会一起删除。', actions: [{ id: 'yes', label: '删除', kind: 'btn-danger' }, { id: 'no', label: '留下' }] });
@@ -721,8 +769,9 @@
       if (!file) return;
       try {
         const json = await parseJsonFile(file);
-        const entries = F.worldInfoToEntries(json).map((entry) => Object.assign(blankEntry(), entry, { id: Store.uid('lore') }));
-        const created = { id: Store.uid('book'), name: file.name.replace(/\.json$/i, ''), description: '', entries };
+        const imported = F.worldInfoToBook(json, file.name.replace(/\.json$/i, ''));
+        const entries = imported.entries.map(entry => Object.assign(blankEntry(), entry, { id: Store.uid('lore') }));
+        const created = { ...imported, id: Store.uid('book'), entries };
         lib.worldBooks.unshift(created);
         UI.state.sel.book = created.id;
         UI.state.bookImportId = created.id;
@@ -1795,7 +1844,7 @@
     }
     stage.querySelector('#save-backup').onclick = () => {
       const date = new Date().toISOString().slice(0, 10);
-      const filename = `织境-备份-${date}.json`;
+      const filename = `叙翎集-备份-${date}.json`;
       UI.downloadJson(filename, F.backupOf(lib));
       UI.toast('整库已导出');
       UI.showExport(filename, '整库 JSON。回到「整库备份」，拖进来再选替换或合并。');
@@ -1871,7 +1920,7 @@
 
     let preset = lib.promptPresets.find((item) => item.id === SECTION_PRESET);
     if (!preset) {
-      preset = { id: SECTION_PRESET, name: '织境段落', blocks: [] };
+      preset = { id: SECTION_PRESET, name: '叙翎集段落', blocks: [] };
       lib.promptPresets.unshift(preset);
     }
     [
@@ -1885,7 +1934,7 @@
 
     let book = lib.worldBooks.find((item) => item.id === SECTION_BOOK);
     if (!book) {
-      book = { id: SECTION_BOOK, name: '织境段落', description: '段落预设写入的条目', entries: [] };
+      book = { id: SECTION_BOOK, name: '叙翎集段落', description: '段落预设写入的条目', entries: [] };
       lib.worldBooks.push(book);
     }
     const nsfwLore = NSFW_LORE[sections.nsfw.preset] || NSFW_LORE.tease;
@@ -2134,8 +2183,8 @@
     const steps = [
       ['安装扩展', '在 SillyTavern 打开扩展页。若还没有 JS-Slash-Runner（酒馆助手），用扩展管理器安装并启用。已经装过就只要启用。'],
       ['打开面板', '点聊天页上的酒馆助手按钮，进入脚本。'],
-      ['导入文件', '新建一条脚本，类型选 HTML。点导入，选择织境导出的 HTML 记忆文件；如果导入只收 JSON，就把文件内容粘进脚本正文。'],
-      ['启用面板', '保存并勾选启用。聊天旁边会出现这块 HTML 记忆面板。以后在织境改完，重新导出，再替换同一条脚本的内容。'],
+      ['导入文件', '新建一条脚本，类型选 HTML。点导入，选择叙翎集导出的 HTML 记忆文件；如果导入只收 JSON，就把文件内容粘进脚本正文。'],
+      ['启用面板', '保存并勾选启用。聊天旁边会出现这块 HTML 记忆面板。以后在叙翎集改完，重新导出，再替换同一条脚本的内容。'],
     ];
     stage.innerHTML = `<div class="stack">
       <section class="paper stack">
@@ -2181,7 +2230,7 @@
       } catch (error) { UI.toast(error.message || '这份记忆读不了'); }
     };
     stage.querySelector('#memory-export').onclick = () => {
-      const filename = '织境-html-memory.html';
+      const filename = '叙翎集-html-memory.html';
       UI.downloadText(filename, area.value || '', 'text/html');
       UI.showExport(filename, 'HTML 记忆文件。按本页步骤放进 SillyTavern 的酒馆助手。');
     };
@@ -2302,6 +2351,6 @@
   }
 
   UI.mount({
-    home, studio, characters, lore, prompts, groups, chat, assets, regex, quick, timeline, graph, check, script, backup, sections, memory, tutorial,
+    home, resources: stage => root.TAResourcePanel.render(stage), studio, characters, lore, prompts, groups, chat, assets, regex, quick, timeline, graph, check, script, backup, sections, memory, tutorial,
   });
 })(typeof globalThis !== 'undefined' ? globalThis : window);

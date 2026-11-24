@@ -2,6 +2,7 @@
 (function (root) {
   const KEY = 'nijan-ui';
   const LANGUAGES = {zh:'中文',en:'English',ja:'日本語',ru:'Русский',ko:'한국어',th:'ไทย'};
+  const DEFAULT_LANGUAGE = 'en';
   const textSources=new WeakMap(),attributeSources=new WeakMap();
   const PHRASE = {
     '总览': { en: 'Overview', ja: '概要' },
@@ -96,9 +97,9 @@
     '先从角色同步人物，再拖圆点。右侧选起点终点并写上关系。': { en: 'Sync people from characters, then drag the dots. On the right, pick both ends and name the relation.', ja: 'まずキャラから人物を同期し、点を拖ります。右で起点と終点を選び、関係を書きます。' },
     '选定角色，可选一本世界书对照。重新检查会刷新结果，导出报告不改卡。': { en: 'Pick a character and optionally a world book. Run check refreshes the result. Exporting the report does not edit the card.', ja: 'キャラを選び、必要ならワールドブックも。再チェックで結果が更新されます。報告の書き出しはカードを変えません。' },
     '选说话的人再写句子。触发词可留空。上移、下移改顺序，右侧是预览。': { en: 'Pick who speaks, then write the line. The trigger can stay empty. Move up or down to reorder. The right side is the preview.', ja: '話す人を選んで文を書きます。きっかけ語は空でもよい。上へ下へで順を変え、右がプレビューです。' },
-    '改色会马上作用在织境上。点「使用此主题」才记住这套。CSS 需自己贴进酒馆。': { en: 'Color changes apply to Realmweave immediately. Use this theme to keep the set. Paste the CSS into SillyTavern yourself.', ja: '色はすぐ织境に効きます。「このテーマを使う」でこのセットを覚えます。CSS は自分で SillyTavern に貼ります。' },
+    '改色会马上作用在叙翎集上。点「使用此主题」才记住这套。CSS 需自己贴进酒馆。': { en: 'Color changes apply to Quilvori immediately. Use this theme to keep the set. Paste the CSS into SillyTavern yourself.', ja: '色はすぐ叙翎集に効きます。「このテーマを使う」でこのセットを覚えます。CSS は自分で SillyTavern に貼ります。' },
     '导出一份带日期的 JSON。恢复时可把文件拖进来，再选替换或合并。': { en: 'Export a dated JSON file. To restore, drop the file here, then replace or merge.', ja: '日付入り JSON を書き出します。戻すときはファイルをドロップし、置き換えか統合を選びます。' },
-    '织境不代替 SillyTavern。角色、世界书、正则和一场聊天都留在这台浏览器里，导出的是酒馆认得的文件。': { en: 'Realmweave does not replace SillyTavern. Characters, world books, regex, and a chat stay in this browser. Exports are files SillyTavern can import.', ja: '织境は SillyTavern の代わりではありません。キャラ、ワールドブック、正規表現、チャットはこのブラウザに残り、書き出すのは SillyTavern が読めるファイルです。' },
+    '叙翎集不代替 SillyTavern。角色、世界书、正则和一场聊天都留在这台浏览器里，导出的是酒馆认得的文件。': { en: 'Quilvori does not replace SillyTavern. Characters, world books, regex, and a chat stay in this browser. Exports are files SillyTavern can import.', ja: '叙翎集は SillyTavern の代わりではありません。キャラ、ワールドブック、正規表現、チャットはこのブラウザに残り、書き出すのは SillyTavern が読めるファイルです。' },
   };
 
   const TEMPLATES = {
@@ -188,9 +189,9 @@
       ja: 'ナレーションやキャラの文を順に書き、任意できっかけ語を付けます。独自 JSON で書き出します。',
     },
     'blurb.theme': {
-      zh: '改的是织境自己的纸色和字号。酒馆要另贴 CSS，选择器不会自动对上。',
-      en: 'This changes Realmweave’s own colors and type size. SillyTavern needs its own CSS. Selectors will not match.',
-      ja: '変えるのは织境自身の色と文字サイズです。SillyTavern には別の CSS が要り、セレクタは一致しません。',
+      zh: '改的是叙翎集自己的纸色和字号。酒馆要另贴 CSS，选择器不会自动对上。',
+      en: 'This changes Quilvori’s own colors and type size. SillyTavern needs its own CSS. Selectors will not match.',
+      ja: '変えるのは叙翎集自身の色と文字サイズです。SillyTavern には別の CSS が要り、セレクタは一致しません。',
     },
     'blurb.backup': {
       zh: '一份 JSON 带走整库。恢复时可替换，或按编号合并。',
@@ -689,12 +690,25 @@
     },
   };
 
+  function language(value) {
+    return typeof value === 'string' && Object.prototype.hasOwnProperty.call(LANGUAGES, value) ? value : DEFAULT_LANGUAGE;
+  }
+
+  function preferenceObject(value) {
+    return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  }
+
+  function normalizePreferences(value) {
+    const result = { lang: DEFAULT_LANGUAGE, teach: true, scale: 1, density: 'comfortable', jsonMode: false, adult: false, liveImport: true, replyLength: 'medium', replyChars: 600, cursorSize: 32, ...preferenceObject(value) };
+    result.lang = language(result.lang);
+    return result;
+  }
+
   function load() {
-    const base = { lang: 'zh', teach: true, scale: 1, density: 'comfortable', jsonMode: false, adult: false, liveImport: true, replyLength: 'medium', replyChars: 600, cursorSize: 32 };
     try {
-      return Object.assign(base, JSON.parse(localStorage.getItem(KEY) || '{}'));
+      return normalizePreferences(JSON.parse(localStorage.getItem(KEY) || '{}'));
     } catch (error) {
-      return base;
+      return normalizePreferences();
     }
   }
 
@@ -707,7 +721,7 @@
   }
 
   function t(key, vars) {
-    const lang = prefs.lang || 'zh';
+    const lang = language(prefs.lang);
     const template = TEMPLATES[key];
     if (template) return fill(template[lang] || template.zh, vars);
     if (lang !== 'zh' && PHRASE[key] && PHRASE[key][lang]) return PHRASE[key][lang];
@@ -720,34 +734,37 @@
       const xml = `<svg xmlns="http://www.w3.org/2000/svg" width="${px}" height="${px}" viewBox="0 0 32 32">${body}</svg>`;
       return `url("data:image/svg+xml,${encodeURIComponent(xml)}")`;
     };
-    const shape = 'M4 2 4 26 11 19.5 15.5 28 19.2 26.2 14.6 17.6 23 17.2Z';
-    const accent = '<path fill="#ff4f9a" d="M14.4 23.6 16.4 27.2 18.2 26.2 16.2 22.8Z"/><circle fill="#7aa2ff" cx="8" cy="12" r="1.25"/>';
-    const rest = `<path fill="#f4f4f4" stroke="#141414" stroke-width="1.6" stroke-linejoin="round" d="${shape}"/>${accent}`;
-    const hot = `<path fill="#f7f8ff" stroke="#3d7dff" stroke-width="2.2" stroke-linejoin="round" d="${shape}"/>${accent}`;
-    const tipX = Math.max(0, Math.round((4 / 32) * px));
-    const tipY = Math.max(0, Math.round((2 / 32) * px));
+    const quill = (paper, ink, nib, tilt = 0) => `<g transform="rotate(${tilt} 3 29)" stroke-linecap="round" stroke-linejoin="round"><path d="M8 23.8C7.5 15.1 15 6.3 27.3 3.2C27.4 15.2 19.8 24.3 8 23.8Z" fill="${paper}" stroke="#192018" stroke-width="1.35"/><path d="M3 29 24 6.5" fill="none" stroke="#192018" stroke-width="3.1"/><path d="M3 29 24 6.5M11.5 19.9 11.5 15.3M15.4 15.5 15.8 11.2M19.4 11.3 20 8.2M11.5 19.9 17.6 19M15.4 15.5 21 14.4" fill="none" stroke="${ink}" stroke-width="1.1"/><path d="M3 29 6.2 22.8 8.1 24.5Z" fill="${nib}" stroke="#192018" stroke-width=".7"/></g>`;
+    const rest = quill('#eae3d0', '#8e836a', '#eae3d0');
+    const hot = quill('#f3e5c0', '#96743e', '#d6b680');
+    const pressed = quill('#dfc58f', '#785c32', '#d6b680', 3);
+    // The nib is the click point in every state and at every configured size.
+    const tipX = Math.round((3 / 32) * px);
+    const tipY = Math.round((29 / 32) * px);
     const rootNode = document.documentElement;
     rootNode.style.setProperty('--cursor', `${url(rest)} ${tipX} ${tipY}, auto`);
     rootNode.style.setProperty('--cursor-hot', `${url(hot)} ${tipX} ${tipY}, pointer`);
+    rootNode.style.setProperty('--cursor-pressed', `${url(pressed)} ${tipX} ${tipY}, pointer`);
   }
 
   function apply() {
-    const lang = prefs.lang || 'zh';
-    document.documentElement.lang = lang === 'zh' ? 'zh-CN' : (LANGUAGES[lang] ? lang : 'zh-CN');
+    const lang = language(prefs.lang);
+    document.documentElement.lang = lang === 'zh' ? 'zh-CN' : lang;
     document.documentElement.dataset.teach = prefs.teach === false ? 'off' : 'on';
     document.documentElement.dataset.density = prefs.density === 'compact' ? 'compact' : 'comfortable';
     document.documentElement.style.setProperty('--ui-scale', String(Number(prefs.scale) || 1));
     paintCursor(prefs.cursorSize);
-    const product = lang === 'zh' || lang === 'ja' ? '织境' : 'Realmweave';
+    const product = lang === 'zh' || lang === 'ja' ? '叙翎集' : 'Quilvori';
+    const secondaryProduct = lang === 'zh' || lang === 'ja' ? 'Quilvori' : '叙翎集';
     const tagline = t('从一个念头，写出人物与世界。');
-    document.title = product;
+    document.title = lang === 'zh' || lang === 'ja' ? '叙翎集 · Quilvori' : 'Quilvori';
     document.querySelectorAll('[data-product]').forEach((node) => { node.textContent = product; });
+    document.querySelectorAll('[data-product-secondary]').forEach((node) => { node.textContent = secondaryProduct; });
     document.querySelectorAll('[data-tagline]').forEach((node) => { node.textContent = tagline; });
   }
 
   function save(next) {
-    prefs = Object.assign(load(), next || {});
-    if(!LANGUAGES[prefs.lang])prefs.lang='zh';
+    prefs = normalizePreferences({ ...load(), ...preferenceObject(next) });
     localStorage.setItem(KEY, JSON.stringify(prefs));
     apply();
   }
@@ -755,7 +772,7 @@
   let phraseKeys = null;
 
   function phraseOf(text) {
-    const lang = prefs.lang || 'zh';
+    const lang = language(prefs.lang);
     if (!text || lang === 'zh') return '';
     if (PHRASE[text] && PHRASE[text][lang]) return PHRASE[text][lang];
     return '';
@@ -829,7 +846,7 @@
   function localize(node) {
     if (!node) return;
     if(node.nodeType===1&&node.closest?.('[data-no-translate]'))return;
-    if ((prefs.lang || 'zh') === 'zh') { restoreChinese(node); return; }
+    if (language(prefs.lang) === 'zh') { restoreChinese(node); return; }
     if (node.nodeType === 1) {
       ['placeholder', 'title', 'aria-label'].forEach((attr) => {
         if (!node.getAttribute) return;
@@ -878,7 +895,7 @@
         const numbered = !mapped && trimmed.match(/^(\d+\.\s*)(.+)$/);
         if (!mapped && numbered && phraseOf(numbered[2])) mapped = numbered[1] + phraseOf(numbered[2]);
         if (!mapped) {
-          const lang = prefs.lang;
+          const lang = language(prefs.lang);
           let next = raw;
           phraseKeyList().forEach((key) => {
             if (!next.includes(key) || !(PHRASE[key] && PHRASE[key][lang])) return;

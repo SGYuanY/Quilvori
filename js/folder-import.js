@@ -25,9 +25,10 @@
   }
   function makeBook(spec, fallback) {
     if (!spec || typeof spec !== 'object') throw new Error('这个文件没有世界书条目。');
+    const imported = root.TAFormats.worldInfoToBook(spec, fallback);
     return {
-      id: root.TAStore.uid('book'), name: spec.name || fallback, description: spec.description || '',
-      entries: root.TAFormats.worldInfoToEntries(spec).map((entry) => Object.assign({ secondaryKeys: [], constant: false, selective: true, order: 100, position: 'before_char', enabled: true, depth: 4, outletName: '' }, entry, { id: root.TAStore.uid('lore') })),
+      ...imported, id: root.TAStore.uid('book'),
+      entries: imported.entries.map((entry) => Object.assign({ secondaryKeys: [], constant: false, selective: true, order: 100, position: 'before_char', enabled: true, depth: 4, outletName: '' }, entry, { id: root.TAStore.uid('lore') })),
     };
   }
   async function importAll(library, paths, adapter, options = {}) {
