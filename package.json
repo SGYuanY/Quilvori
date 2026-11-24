@@ -2,7 +2,7 @@
   "name": "nijan",
   "private": true,
   "version": "0.1.0",
-  "description": "霓笺 desktop shell. The UI is the existing HTML.",
+  "description": "Realmweave, a local character-card and world-book workshop for SillyTavern.",
   "main": "electron/main.js",
   "scripts": {
     "start": "electron .",
