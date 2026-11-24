@@ -936,3 +936,11 @@ body.collection-page.collection-custom-theme {
 .collection-page.collection-custom-theme .workspace-peek { background:var(--paper); color:var(--ink); }
 .collection-page.collection-custom-theme .workspace-peek .ws-peek-content { color:var(--ink); }
 .collection-page.collection-custom-theme .workspace-peek .ws-peek-meta { color:var(--muted); }
+
+/* Keep the project source within reach without competing with collection actions. */
+.collection-project { flex-basis:100%; text-align:right; }
+.collection-repository { display:inline-flex; align-items:center; gap:6px; min-height:30px; padding:3px 5px; border-radius:4px; color:var(--muted); font-size:calc(12px * var(--ui-scale,1)); line-height:1.5; text-decoration:none; }
+.collection-repository .ws-icon { width:14px; height:14px; }
+.collection-repository:hover { color:var(--ink); text-decoration:underline; text-underline-offset:4px; }
+.collection-repository:focus-visible { outline:2px solid var(--brass); outline-offset:3px; }
+@container workspace (max-width:630px) { .collection-project { text-align:left; } }
