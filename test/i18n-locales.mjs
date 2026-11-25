@@ -10,6 +10,16 @@ const localeSources = [
   "organize-phrases",
   "link-import-phrases",
   "resource-phrases",
+  "workshop-phrases",
+  "context-phrases",
+  "search-phrases",
+  "bundle-phrases",
+  "collection-controls-phrases",
+  "model-status-phrases",
+  "authoring-phrases",
+  "journal-phrases",
+  "dialogue-phrases",
+  "recovery-phrases",
 ].map((file) => [file, fs.readFileSync(new URL(`../js/${file}.js`, import.meta.url), "utf8")]);
 function startup(saved, unavailable = false) {
   const storage = new Map(), reads = [], writes = [];

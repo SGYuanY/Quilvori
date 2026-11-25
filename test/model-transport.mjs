@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
 import { webcrypto } from "node:crypto";
+import http from "node:http";
+import { once } from "node:events";
 
 const storage = new Map([
   [
@@ -40,7 +42,7 @@ const ctx = vm.createContext({
   },
 });
 ctx.globalThis = ctx;
-for (const file of ["formats", "store", "ai-tasks", "model"])
+for (const file of ["formats", "store", "creative-dialogue", "ai-tasks", "creation-output", "model"])
   vm.runInContext(
     fs.readFileSync(new URL(`../js/${file}.js`, import.meta.url), "utf8"),
     ctx,
@@ -161,6 +163,13 @@ await test("manual Chat Completions selection and JSON responses work", async ()
     (await model.runTask("questions", { brief: "x" })).questions.length,
     0,
   );
+});
+await test('read-only brainstorms accept completed plain questions or numbered choices',async()=>{
+  ctx.fetch=async()=>json({choices:[{message:{content:'Which shelf?'},finish_reason:'stop'}]});
+  assert.equal((await model.runTask('questions',{brief:'A library'})).questions[0],'Which shelf?');
+  ctx.fetch=async()=>json({choices:[{message:{content:'1. An atlas\n2. A map'},finish_reason:'stop'}]});
+  assert.equal((await model.runTask('ideas',{brief:'A library'})).ideas.join('|'),'An atlas|A map');
+  await assert.rejects(()=>model.runTask('create:character',{brief:'A library'}));
 });
 await test("a clarification is a needs-input task, never a validated edit", async () => {
   ctx.fetch = async () =>
@@ -369,5 +378,183 @@ await test('an unsupported reasoning setting reports an error without silently r
   assert.equal(calls, 1);
   assert.equal(model.history().at(-1).status, 'error');
   model.save({ reasoningEffort: 'auto' });
+});
+// Drive virtual idle intervals while exercising real Web Response/ReadableStream readers.
+async function withClock(run) {
+  let now = 0, id = 0;
+  const timers = new Map();
+  ctx.setTimeout = (fn,delay) => { const key = ++id; timers.set(key,{at:now+delay,fn}); return key; };
+  ctx.clearTimeout = key => timers.delete(key);
+  ctx.Date = class extends Date { static now() { return 1780000000000+now; } };
+  const settle = () => new Promise(resolve=>setImmediate(resolve));
+  async function advance(ms) {
+    await settle();
+    const end = now+ms;
+    for (;;) {
+      const next = [...timers].sort((a,b)=>a[1].at-b[1].at)[0];
+      if (!next || next[1].at>end) break;
+      now=next[1].at;timers.delete(next[0]);next[1].fn();
+      await settle();
+    }
+    now=end;await settle();
+  }
+  try { await run({advance,settle}); }
+  finally {ctx.setTimeout=setTimeout;ctx.clearTimeout=clearTimeout;ctx.Date=Date;}
+}
+function heldResponse(type = 'text/event-stream', status = 200) {
+  let writer, cancelled = false;
+  const reader = new ReadableStream({start(controller) { writer = controller; },cancel() { cancelled=true; }});
+  return {
+    response:new Response(reader,{headers:{'content-type':type},status}),
+    send:text=>writer.enqueue(new TextEncoder().encode(text)),
+    close:()=>writer.close(),
+    get cancelled() {return cancelled;},
+  };
+}
+const chatData=(delta,finish=null) => 'data: '+JSON.stringify({choices:[{delta,finish_reason:finish}]})+'\n\n';
+const last=()=>model.history().at(-1);
+await test('long reasoning exceeds the old three-minute deadline and completes at the protocol boundary',async()=>{
+  model.save({protocol:'responses'});
+  await withClock(async({advance,settle})=>{
+    const wire=heldResponse();let calls=0,phases=[];
+    ctx.CustomEvent=class {constructor(name,init){this.type=name;this.detail=init.detail;}};
+    ctx.dispatchEvent=event=>{phases.push(event.detail.phase);};
+    ctx.fetch=async()=>{calls++;return wire.response;};
+    try {
+      const result=model.runTask('questions',{brief:'Draft'},{timeoutMs:90000});
+      await settle();assert.equal(last().phase,'waiting');assert.equal(last().httpStatus,200);
+      for(let n=0;n<3;n++){
+        await advance(65000);
+        wire.send('event: response.reasoning_summary_text.delta\r\ndata: {"delta":"想"}\r\n\r\n');
+      }
+      await advance(65000);
+      assert.equal(last().phase,'reasoning');
+      wire.send('data: '+JSON.stringify({type:'response.output_text.delta',delta:'{"questions":["Map?"]}'})+'\r\r');
+      await settle();assert.equal(last().phase,'writing');
+      wire.send('data: {"type":"response.completed","response":{"status":"completed","output":[]}}\r\r');
+      assert.deepEqual(Array.from((await result).questions),['Map?']);
+      assert.ok(wire.cancelled);assert.equal(calls,1);assert.ok(last().bytesReceived>0);
+      assert.equal(last().reasoning,'想想想');assert.ok(phases.includes('reasoning'));
+    } finally {delete ctx.CustomEvent;delete ctx.dispatchEvent;}
+  });
+});
+await test('a silent first body packet times out distinctly even after successful headers',async()=>{
+  model.save({protocol:'auto'});
+  await withClock(async({advance,settle})=>{
+    const wire=heldResponse();let calls=0;
+    ctx.fetch=async()=>{calls++;return wire.response;};
+    const rejected=assert.rejects(model.runTask('ideas',{brief:'x'},{timeoutMs:5000}),e=>e.name==='TimeoutError' && e.code==='first-byte-timeout' && /首个/.test(e.message));
+    await settle();assert.equal(last().httpStatus,200);
+    await advance(5001);await rejected;
+    assert.equal(last().status,'error');assert.equal(last().bytesReceived,0);assert.equal(calls,1);assert.ok(wire.cancelled);
+  });
+});
+await test('silent gaps after body data preserve the preview and differ from cancellation',async()=>{
+  model.save({protocol:'chat'});
+  await withClock(async({advance,settle})=>{
+    for(const cancelManually of [false,true]){
+      const source=heldResponse();const user=new AbortController();
+      ctx.fetch=async()=>source.response;
+      const rejected=assert.rejects(model.runTask('questions',{brief:'x'},{signal:user.signal,timeoutMs:6000}),e=>e.code===(cancelManually?'cancelled':'idle-timeout'));
+      await settle();source.send(chatData({reasoning_content:'Part of a thought'}));source.send(chatData({content:'{"questions":'}));
+      await settle();await advance(5500);
+      source.send(': heartbeat\n\n');await settle();await advance(5500);assert.equal(last().status,'running');
+      if(cancelManually) user.abort();else await advance(600);
+      await rejected;
+      assert.equal(last().output,'{"questions":');assert.equal(last().reasoning,'Part of a thought');
+      assert.equal(last().status,cancelManually?'cancelled':'error');assert.ok(source.cancelled);
+    }
+  });
+});
+await test('chunked nonstream JSON also renews the idle window and parses only complete data',async()=>{
+  await withClock(async({advance,settle})=>{
+    const source=heldResponse('application/json');ctx.fetch=async()=>source.response;
+    const pending=model.runTask('ideas',{brief:'x'},{timeoutMs:3000});
+    await settle();source.send('{"choices":[');await advance(2300);
+    source.send('{"message":{"content":"{\\"ideas\\":[\\"Atlas\\"]}"},');await advance(2300);
+    source.send('"finish_reason":"stop"}]}');source.close();
+    assert.deepEqual(Array.from((await pending).ideas),['Atlas']);
+    const broken=heldResponse('application/json');ctx.fetch=async()=>broken.response;
+    const rejected=assert.rejects(model.runTask('ideas',{brief:'x'}),/JSON/);
+    await settle();broken.send('{"choices":[');broken.close();await rejected;
+  });
+});
+await test('terminal Chat events resolve without EOF and explicit truncation still fails',async()=>{
+  for(const mode of ['finish','done','truncated']){
+    const stream=heldResponse();
+    ctx.fetch=async()=>stream.response;
+    const pending=model.runTask('questions',{brief:'x'});
+    const checked=mode==='truncated'?assert.rejects(pending,/截断/):pending;
+    stream.send(chatData({content:'{"questions":[]}'},mode==='truncated'?'length':mode==='finish'?'stop':null));
+    if(mode==='done')stream.send('data: [DONE]\n\n');
+    await checked;assert.ok(stream.cancelled || mode==='truncated');
+  }
+});
+await test('provider errors and invalid models do not repeat generation or disclose the key',async()=>{
+  model.save({protocol:'auto'});
+  for(const [status,detail] of [[404,'unknown model'],[429,'quota exceeded'],[503,'upstream offline']]){
+    let count=0;
+    ctx.fetch=async()=>{count++;return json({error:{message:detail+' test-secret',code:'invalid'}},status);};
+    await assert.rejects(model.runTask('questions',{brief:'x'}),e=>e.message.includes(detail) && e.message.includes(String(status)) && !e.message.includes('test-secret'));
+    assert.equal(count,1);
+  }
+  const abort=new AbortController();abort.abort();
+  let count=0;ctx.fetch=async()=>{count++;throw Error('should not be called');};
+  await assert.rejects(model.runTask('questions',{brief:'x'},{signal:abort.signal}),e=>e.code==='cancelled');assert.equal(count,0);
+});
+await test('idle minutes are profile specific with defaults for existing or malformed settings',()=>{
+  model.selectProfile('default');
+  assert.equal(model.load().idleMinutes,5);
+  model.save({idleMinutes:12});model.newProfile('Long writing');
+  assert.equal(model.load().idleMinutes,5);
+  model.save({idleMinutes:20});model.selectProfile('default');assert.equal(model.load().idleMinutes,12);
+  for(const invalid of [0,-1,61,NaN,'']) assert.equal(model.save({idleMinutes:invalid}).idleMinutes,5);
+});
+await test('a provider returning only reasoning keeps the diagnostic output out of the draft',async()=>{
+  model.save({protocol:'chat'});
+  ctx.fetch=async()=>json({choices:[{message:{content:[{type:'thinking',thinking:'thinking only'}]},finish_reason:'stop'}]});
+  await assert.rejects(model.runTask('ideas',{brief:'x'}),/只返回了推理/);
+  assert.equal(last().output,'');assert.equal(last().reasoning,'thinking only');assert.equal(last().status,'error');
+});
+
+await test('real fetch releases persistent SSE connections, distinguishes silent peers, and preserves gateway errors',async()=>{
+  const server=http.createServer();
+  const queue=[],seen=new Map();
+  server.on('request',(req,res)=>{
+    const item=queue.shift();
+    if (!item) {res.writeHead(500);res.end();return;}
+    seen.set(item.name,(seen.get(item.name)||0)+1);
+    req.resume();
+    res.writeHead(item.name==='gateway'?504:200,{'Content-Type':item.name==='gateway'?'application/json':'text/event-stream'});
+    res.flushHeaders();
+    if (item.name==='complete') res.write(chatData({content:'{"questions":["Ready?"]}'},'stop'));
+    if (item.name==='stall'||item.name==='cancel') res.write(chatData({reasoning_content:'Fixture thought'}));
+    if (item.name==='gateway') res.end('{"error":{"message":"upstream timeout"}}');
+    item.started();
+  });
+  const original=model.load();
+  server.listen(0,'127.0.0.1'); await once(server,'listening');
+  try {
+    model.save({baseUrl:'http://127.0.0.1:'+server.address().port+'/v1',model:'fixture',key:'local-test-only',protocol:'chat'});
+    ctx.fetch=globalThis.fetch;
+    for (const name of ['complete','silent','stall','cancel','gateway']) {
+      let started;
+      const called=new Promise(resolve=>{started=resolve;});
+      queue.push({name,started});
+      const user=new AbortController(), pending=model.runTask('questions',{brief:'Local test'},{signal:user.signal,timeoutMs:800});
+      const expected={silent:'first-byte-timeout',stall:'idle-timeout',cancel:'cancelled',gateway:'request-failed'};
+      const checked=name==='complete'?pending:assert.rejects(pending,e=>e.code===expected[name] && (name!=='gateway'||/504.*upstream timeout/.test(e.message)));
+      await called;
+      if (name==='cancel') user.abort();
+      const value=await checked;
+      if (name==='complete') assert.equal(value.questions[0],'Ready?');
+      if (name==='stall') assert.equal(last().reasoning,'Fixture thought');
+    }
+    assert.deepEqual([...seen.values()],[1,1,1,1,1]);
+  } finally {
+    model.save(original);
+    const closed=once(server,'close');
+    server.close(); server.closeAllConnections(); await closed;
+  }
 });
 console.log(`${count} model transport checks passed`);

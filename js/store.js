@@ -347,38 +347,128 @@
     };
   }
 
-  function normalize(input) {
+  // Only describe fields the workshop reads. Native ST settings and extension metadata pass through untouched.
+  const rowTypes = {
+    characters: {
+      text: ['name','description','personality','scenario','first_mes','mes_example','creator','creator_notes','system_prompt','post_history_instructions'],
+      textLists: ['tags','alternate_greetings'], idLists: ['expressionAssetIds'],
+    },
+    worldBooks: {text:['name','description'], children:['entries']},
+    'worldBooks.entries': {text:['comment','content','outletName'], textLists:['keys','secondaryKeys']},
+    promptPresets: {text:['name'], children:['blocks']},
+    'promptPresets.blocks': {text:['name','content','role','kind']},
+    groups: {text:['name','scenario','activation'], children:['members']},
+    'groups.members': {key:'characterId'},
+    chats: {text:['name','userName','characterName','sourceName'], children:['messages','bookmarks']},
+    'chats.messages': {key:null, text:['name','mes']},
+    'chats.bookmarks': {key:null, text:['excerpt','note'], indices:['index']},
+    assets: {text:['name','kind','mime','dataUrl']},
+    regexScripts: {text:['scriptName','findRegex','replaceString'], textLists:['trimStrings']},
+    quickReplySets: {text:['name'], children:['replies']},
+    'quickReplySets.replies': {text:['label','message','title','color']},
+    scripts: {text:['name'], children:['beats']},
+    'scripts.beats': {text:['speaker','line','trigger']},
+    stickerPacks: {text:['name'], children:['stickers']},
+    'stickerPacks.stickers': {key:null, text:['name','dataUrl']},
+    themes: {text:['name']},
+    'timeline.notes': {text:['title','body','messageStamp'], indices:['floor']},
+    'timeline.beats': {text:['title','summary','messageStamp'], indices:['floor']},
+    'graph.nodes': {text:['label']},
+    'graph.edges': {text:['label','note']},
+  };
+  const topRows = Object.keys(rowTypes).filter(key => !key.includes('.'));
+  const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value) &&
+    Object.prototype.toString.call(value) === '[object Object]';
+  const validId = value => (typeof value === 'string' && !!value.trim()) || Number.isSafeInteger(value);
+  const own = (value, field) => Object.hasOwn(value, field);
+  function invalid(path, message = '存档结构无效') {
+    throw new Error((root.TAI18n?.t(message) || message) + ' (' + path + ')');
+  }
+  function objectField(parent, key, path = key) {
+    if (!own(parent,key)) return {};
+    if (!isRecord(parent[key])) invalid(path);
+    return { ...parent[key] };
+  }
+  function listField(parent, key, path) {
+    if (!own(parent,key)) return [];
+    if (!Array.isArray(parent[key])) invalid(path);
+    return parent[key];
+  }
+  function checkedRows(parent,key,path=key) {
+    const rule = rowTypes[path];
+    const idField = own(rule,'key') ? rule.key : 'id';
+    const seen = new Set();
+    return Array.from(listField(parent,key,path), (value,index) => {
+      const location = path + '[' + index + ']';
+      if (!isRecord(value)) invalid(location);
+      const row = { ...value };
+      // ID-less messages, bookmarks and expression images existed in early libraries.
+      if (idField || (path === 'chats.bookmarks' && own(row,'id'))) {
+        const field = idField || 'id', id = row[field];
+        if (!own(row,field) || !validId(id) || seen.has(String(id)))
+          invalid(location + '.' + field, '编号缺失或重复，无法合并这份备份。');
+        seen.add(String(id));
+      }
+      for (const field of rule.text || []) {
+        if (own(row,field) && typeof row[field] !== 'string') invalid(location + '.' + field);
+      }
+      for (const field of rule.indices || []) {
+        if (own(row,field) && !(field === 'floor' && row[field] === null) &&
+          !(Number.isSafeInteger(row[field]) && row[field] >= 0)) invalid(location + '.' + field);
+      }
+      for (const field of [...(rule.textLists || []), ...(rule.idLists || [])]) {
+        // A few older word books kept this array under the native spelling.
+        const source = field === 'secondaryKeys' && !own(row,field) && own(row,'secondary_keys') ? 'secondary_keys' : field;
+        const list = listField(row,source,location + '.' + source);
+        const accepts = rule.idLists?.includes(field) ? validId : text => typeof text === 'string';
+        if (!Array.from(list).every(accepts)) invalid(location + '.' + source);
+        row[field] = list;
+      }
+      for (const child of rule.children || []) row[child] = checkedRows(row,child,path + '.' + child);
+      if (path === 'graph.nodes') {
+        for (const axis of ['x','y']) {
+          if (!own(row,axis)) row[axis] = axis === 'x' ? 400 : 280;
+          if (!Number.isFinite(row[axis])) invalid(location + '.' + axis);
+        }
+      }
+      if (path === 'regexScripts') {
+        if (!own(row,'placement')) row.placement = [2];
+        if (!Array.isArray(row.placement) || !Array.from(row.placement).every(Number.isSafeInteger)) invalid(location + '.placement');
+      }
+      if (path === 'themes') row.vars = objectField(row,'vars',location + '.vars');
+      return row;
+    });
+  }
+  function normalize(input = {}) {
+    if (!isRecord(input)) invalid('library');
     const base = emptyLibrary();
-    const lib = Object.assign(base, input || {});
-    lib.version = 1;
-    lib.meta = Object.assign({ name: '我的酒馆库', updatedAt: now(), seeded: false }, input && input.meta);
-    lib.timeline = Object.assign({ notes: [], beats: [] }, input && input.timeline);
-    lib.graph = Object.assign({ nodes: [], edges: [] }, input && input.graph);
-    lib.settings = Object.assign({ chatBackgroundAssetId: null }, input && input.settings);
-    ['characters', 'worldBooks', 'promptPresets', 'groups', 'chats', 'assets', 'regexScripts', 'quickReplySets', 'scripts', 'themes'].forEach((key) => {
-      if (!Array.isArray(lib[key])) lib[key] = [];
-    });
-    if (!Array.isArray(lib.timeline.notes)) lib.timeline.notes = [];
-    if (!Array.isArray(lib.timeline.beats)) lib.timeline.beats = [];
-    if (!Array.isArray(lib.graph.nodes)) lib.graph.nodes = [];
-    if (!Array.isArray(lib.graph.edges)) lib.graph.edges = [];
-    if (!Array.isArray(lib.stickerPacks)) lib.stickerPacks = [];
-    if (typeof lib.memoryHtml !== 'string') lib.memoryHtml = '';
-    const sectionDefaults = defaultSections();
-    const incomingSections = (input && input.sections) || {};
-    lib.sections = {};
-    Object.keys(sectionDefaults).forEach((key) => {
-      lib.sections[key] = Object.assign({}, sectionDefaults[key], incomingSections[key] || {});
-    });
-    lib.themes.forEach((theme) => {
-      const vars = theme && theme.vars;
-      if (!vars || theme.name !== '夜漆') return;
+    const lib = { ...base, ...input };
+    if (lib.version !== 1 || (own(lib,'memoryHtml') && typeof lib.memoryHtml !== 'string')) invalid('library');
+    lib.memoryHtml ??= '';
+    lib.meta = { ...base.meta, ...objectField(input,'meta') };
+    lib.settings = { ...base.settings, ...objectField(input,'settings') };
+    if (own(lib.settings,'folderImports')) lib.settings.folderImports = objectField(lib.settings,'folderImports','settings.folderImports');
+    for (const field of topRows) lib[field] = checkedRows(input,field);
+    for (const [key,fields] of [['graph',['nodes','edges']],['timeline',['notes','beats']]]) {
+      const group = objectField(input,key);
+      for (const field of fields) group[field] = checkedRows(group,field,key + '.' + field);
+      lib[key] = group;
+    }
+    lib.sections = objectField(input,'sections');
+    for (const [key,defaults] of Object.entries(base.sections)) {
+      const saved = objectField(lib.sections,key,'sections.' + key);
+      for (const field of Object.keys(defaults)) {
+        if (own(saved,field) && typeof saved[field] !== typeof defaults[field]) invalid('sections.' + key + '.' + field);
+      }
+      lib.sections[key] = { ...defaults, ...saved };
+    }
+    for (const theme of lib.themes) {
+      const vars = theme.vars;
+      if (theme.name !== '夜漆') continue;
       const neon = vars.bg === '#07090d' && vars.accent === '#d6ff3f';
       const oldWarm = vars.bg === '#140e0a' && vars.paper === '#f4e7d1' && vars.ink === '#1a120c' && vars.accent === '#c6a15a';
-      if (neon || oldWarm) {
-        theme.vars = Object.assign({}, vars, { bg: '#1c1c1c', lacquer: '#141414', paper: '#2e2e2e', ink: '#e8e8e8', accent: '#d0d0d0', radius: 10 });
-      }
-    });
+      if (neon || oldWarm) theme.vars = { ...vars, bg: '#1c1c1c', lacquer: '#141414', paper: '#2e2e2e', ink: '#e8e8e8', accent: '#d0d0d0', radius: 10 };
+    }
     return lib;
   }
 
@@ -393,60 +483,189 @@
     }
   }
 
+  const PREVIOUS = KEY + '.previous';
+  const databaseMarker = 'quilvori.library.indexeddb';
+  const databaseRedirect = 'quilvori-library:IndexedDB';
+  let lastRead, recoveryRequired = false;
+  function parseSaved(raw) { return verify(JSON.parse(raw)); }
+  function verify(data) {
+    if (!isRecord(data) || ![...topRows,'graph','timeline'].some(field => own(data,field))) invalid('library');
+    return normalize(data);
+  }
   function load() {
-    if (!storageOk()) return { library: demoLibrary(), fresh: true, persistent: false };
-    const raw = localStorage.getItem(KEY);
-    if (!raw) return { library: demoLibrary(), fresh: true, persistent: true };
+    let raw;
+    try { raw = localStorage.getItem(KEY); }
+    catch (_) { return { library: emptyLibrary(), fresh: false, persistent: false }; }
+    lastRead = raw;
+    recoveryRequired = false;
+    if (raw === null) return { library: normalize(demoLibrary()), fresh: true, persistent: storageOk() };
     try {
-      return { library: normalize(JSON.parse(raw)), fresh: false, persistent: true };
-    } catch (error) {
-      return { library: demoLibrary(), fresh: true, persistent: true, corrupt: true };
+      return { library: parseSaved(raw), fresh: false, persistent: true };
+    } catch (_) {
+      recoveryRequired = true;
+      let previous = null;
+      try { previous = parseSaved(localStorage.getItem(PREVIOUS)); } catch (_) {}
+      return { library: null, fresh: false, persistent: true, corrupt: true, raw, previous };
     }
+  }
+  function recover(raw, library) {
+    if (localStorage.getItem(databaseMarker) === '1' || !recoveryRequired || localStorage.getItem(KEY) !== raw) throw new Error('资料库已变化，请重新打开。');
+    const verified = parseSaved(JSON.stringify(library));
+    const json = JSON.stringify(verified);
+    localStorage.setItem(KEY, json);
+    lastRead = json;
+    recoveryRequired = false;
   }
 
   function save(library) {
-    library.meta = library.meta || {};
-    library.meta.updatedAt = now();
-    const json = JSON.stringify(library);
-    if (!storageOk()) {
-      const error = new Error('这个浏览器没有可用的本地存储。数据只留在本次打开的页面里，请先导出备份。');
-      error.code = 'no-storage';
+    if (recoveryRequired) throw new Error('请先恢复资料库。');
+    let previous;
+    try {
+      if (localStorage.getItem(databaseMarker) === '1') throw new Error('资料库已变化，请重新打开。');
+      previous = localStorage.getItem(KEY);
+      if (previous === databaseRedirect) throw new Error('资料库已变化，请重新打开。');
+    } catch (error) {
+      if (error.name === 'SecurityError') throw new Error('无法读取原始存档');
       throw error;
     }
+    if (lastRead !== undefined && previous !== lastRead) throw new Error('资料库已变化，请重新打开。');
+    if (lastRead === undefined && previous !== null) {
+      try { parseSaved(previous); }
+      catch (_) { lastRead = previous; recoveryRequired = true; throw new Error('请先恢复资料库。'); }
+    }
+    const verified = verify(library);
+    verified.meta.updatedAt = now();
+    const json = JSON.stringify(verified);
+    if (localStorage.getItem(KEY) !== previous || localStorage.getItem(databaseMarker) === '1')
+      throw new Error('资料库已变化，请重新打开。');
     try {
-      localStorage.setItem(KEY, json);
+      try { localStorage.setItem(KEY, json); }
+      catch (error) {
+        if (!['QuotaExceededError', 'NS_ERROR_DOM_QUOTA_REACHED'].includes(error.name)) throw error;
+        const fallback = localStorage.getItem(PREVIOUS);
+        if (fallback === null) throw error;
+        localStorage.removeItem(PREVIOUS);
+        try { localStorage.setItem(KEY, json); }
+        catch (retryError) {
+          // If even the primary record cannot fit, put the previously readable fallback back.
+          if (localStorage.getItem(PREVIOUS) === null) localStorage.setItem(PREVIOUS,fallback);
+          throw retryError;
+        }
+      }
     } catch (error) {
-      const wrapped = new Error('浏览器存储写满了。删几张大图，或先导出备份再清空素材。');
-      wrapped.code = 'quota';
+      const quota = error.name === 'QuotaExceededError' || error.name === 'NS_ERROR_DOM_QUOTA_REACHED';
+      const wrapped = new Error(quota ? '浏览器存储写满了。删几张大图，或先导出备份再清空素材。' : '这个浏览器没有可用的本地存储。数据只留在本次打开的页面里，请先导出备份。');
+      wrapped.code = quota ? 'quota' : 'no-storage';
       throw wrapped;
+    }
+    lastRead = json;
+    if (previous && previous !== json) {
+      try { localStorage.setItem(PREVIOUS, previous); } catch (_) { /* The primary write succeeded. */ }
     }
     return json.length;
   }
 
   function merge(base, incoming) {
-    const out = normalize(structuredClone(base));
-    const next = normalize(incoming);
-    const mergeArr = (key) => {
-      const map = new Map(out[key].map((item) => [item.id, item]));
-      next[key].forEach((item) => map.set(item.id, item));
-      out[key] = [...map.values()];
-    };
-    ['characters', 'worldBooks', 'promptPresets', 'groups', 'chats', 'assets', 'regexScripts', 'quickReplySets', 'scripts', 'themes'].forEach(mergeArr);
-    const mergeNamed = (bucket, key) => {
-      const map = new Map((out[bucket][key] || []).map((item) => [item.id, item]));
-      (next[bucket][key] || []).forEach((item) => map.set(item.id, item));
-      out[bucket][key] = [...map.values()];
-    };
-    mergeNamed('timeline', 'notes');
-    mergeNamed('timeline', 'beats');
-    mergeNamed('graph', 'nodes');
-    mergeNamed('graph', 'edges');
-    if (next.activeThemeId) out.activeThemeId = next.activeThemeId;
-    if (next.settings && next.settings.chatBackgroundAssetId) out.settings.chatBackgroundAssetId = next.settings.chatBackgroundAssetId;
-    if (next.sections) out.sections = next.sections;
-    out.meta.name = next.meta.name || out.meta.name;
-    out.meta.seeded = out.meta.seeded || next.meta.seeded;
-    return out;
+    // Check both inputs, but merge the *supplied* fields. Defaults in an old backup must never erase a local edit.
+    const local = verify(base);
+    if (!isRecord(incoming)) invalid('library');
+    normalize(incoming);
+    const chatConflict = '这份备份和本地的聊天记录有不同的消息，无法确定同一位置的内容。';
+    const imageConflict = '表情包中有同名但内容不同的图片，无法自动合并。';
+    const idConflict = '编号缺失或重复，无法合并这份备份。';
+    const hasId = (row,key) => isRecord(row) && own(row,key) && validId(row[key]);
+    function indexed(rows, identify, path) {
+      const items = new Map();
+      for (const row of rows) {
+        const id = identify(row);
+        if (id === undefined || items.has(id)) invalid(path, idConflict);
+        items.set(id, row);
+      }
+      return items;
+    }
+    function byKey(active, backup, path, identify) {
+      const old = indexed(active,identify,path), incoming = indexed(backup,identify,path);
+      // Keep the shelf order; use the backup order within books, presets, packs and other works.
+      const ids = path.includes('.') ? new Set([...incoming.keys(),...old.keys()]) : new Set([...old.keys(),...incoming.keys()]);
+      return Array.from(ids, id => incoming.has(id) ? combine(old.get(id),incoming.get(id),path) : structuredClone(old.get(id)));
+    }
+    function sameValue(a,b) {
+      if (a === b) return true;
+      if (Array.isArray(a) && Array.isArray(b)) return a.length === b.length && a.every((item,i) => sameValue(item,b[i]));
+      if (!isRecord(a) || !isRecord(b)) return false;
+      return Object.keys(a).length === Object.keys(b).length && Object.keys(a).every(key => own(b,key) && sameValue(a[key],b[key]));
+    }
+    function messageIdCounts(rows) {
+      const counts = new Map();
+      for (const row of rows) if (hasId(row,'id')) counts.set(row.id,(counts.get(row.id) || 0) + 1);
+      return counts;
+    }
+    function messages(active,backup,path) {
+      const result = [];
+      const localIds = messageIdCounts(active), backupIds = messageIdCounts(backup);
+      const overlap = Math.min(active.length,backup.length);
+      for (let i=0; i<overlap; i++) {
+        const a = active[i], b = backup[i];
+        // Imported JSONL usually has no IDs. Identical text and compatible speaker/time identify a shared prefix.
+        const identified = localIds.get(a.id) === 1 && backupIds.get(b.id) === 1;
+        const sameMessage = identified ? a.id === b.id : (typeof a.mes === 'string' && a.mes === b.mes &&
+          ['name','send_date','is_user','is_system'].every(field => !own(a,field) || !own(b,field) || a[field] === b[field]));
+        if (!sameMessage && !sameValue(a,b)) invalid(path + '[' + i + ']',chatConflict);
+        result.push(combine(a,b,path));
+      }
+      const longer = active.length > backup.length ? active : backup;
+      return result.concat(structuredClone(longer.slice(overlap)));
+    }
+    function mergeList(current,backup,path) {
+      const active = Array.isArray(current) ? current : [];
+      if (path === 'chats.messages') return messages(active,backup,path);
+      if (path === 'chats.messages.swipes' || path === 'chats.messages.swipe_info') {
+        const overlap = Math.min(active.length,backup.length);
+        if (!active.slice(0,overlap).every((item,i) => sameValue(item,backup[i]))) invalid(path,chatConflict);
+        return structuredClone(active.length > backup.length ? active : backup);
+      }
+      if (path === 'chats.bookmarks') {
+        // Older bookmarks lack IDs. Preserve independent excerpts even when they point to the same floor.
+        return byKey(active,backup,path,row => hasId(row,'id') ? JSON.stringify(['id',row.id]) :
+          Number.isSafeInteger(row.index) ? JSON.stringify(['excerpt',row.index,row.excerpt,row.note]) : undefined);
+      }
+      if (path === 'stickerPacks.stickers') {
+        if (!active.length || !backup.length) return structuredClone(active.length ? active : backup);
+        return byKey(active,backup,path,row => typeof row.name === 'string' && row.name.trim() ? row.name : undefined);
+      }
+      const rule = own(rowTypes,path) ? rowTypes[path] : null;
+      const key = rule && own(rule,'key') ? rule.key : 'id';
+      const identified = rule || ((active.length || backup.length) && active.every(row => hasId(row,key)) && backup.every(row => hasId(row,key)));
+      if (!identified) return structuredClone(backup);
+      return byKey(active,backup,path,row => hasId(row,key) ? row[key] : undefined);
+    }
+    function combine(current, backup, path) {
+      if (Array.isArray(backup)) return mergeList(current,backup,path);
+      if (isRecord(backup)) {
+        const original = isRecord(current) ? current : {};
+        if (path === 'worldBooks.entries' && own(backup,'secondary_keys') && !own(backup,'secondaryKeys'))
+          backup = { ...backup, secondaryKeys: backup.secondary_keys };
+        if (path === 'stickerPacks.stickers' && own(original,'dataUrl') && own(backup,'dataUrl') && original.dataUrl !== backup.dataUrl)
+          invalid(path,imageConflict);
+        const keys = new Set([...Object.keys(original), ...Object.keys(backup)]);
+        // fromEntries defines own data properties, including extension-defined names such as "__proto__".
+        return Object.fromEntries(Array.from(keys, key => {
+          if (!own(backup,key)) return [key, structuredClone(original[key])];
+          const child = own(original,key) ? original[key] : undefined;
+          const segment = key.includes('.') ? JSON.stringify([key]) : key;
+          return [key, combine(child,backup[key],path ? path + '.' + segment : segment)];
+        }));
+      }
+      return structuredClone(backup);
+    }
+    const out = combine(local,incoming,'');
+    if (local.memoryHtml.trim()) out.memoryHtml = local.memoryHtml;
+    return verify(out);
+  }
+
+  function erase(library) {
+    save(library);
+    localStorage.removeItem(PREVIOUS);
   }
 
   function bytes(library) {
@@ -458,6 +677,6 @@
   }
 
   root.TAStore = {
-    KEY, uid, emptyLibrary, demoLibrary, normalize, load, save, merge, bytes, storageOk,
+    KEY, databaseMarker, databaseRedirect, uid, emptyLibrary, demoLibrary, normalize, verify, load, recover, save, erase, merge, bytes, storageOk,
   };
 })(typeof globalThis !== 'undefined' ? globalThis : window);

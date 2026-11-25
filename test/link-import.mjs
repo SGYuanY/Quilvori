@@ -76,8 +76,21 @@ await test('oversized avatars are omitted while invalid embedded books do not bl
  const preview=await L.prepare({url:'https://example.com/card.png',bytes:context.TAPng.embedChara(pixel,JSON.stringify(card))},{kind:'character',makeAvatar:async()=>({dataUrl:'data:image/jpeg;base64,AA==',mime:'image/jpeg',bytes:400000})});
  assert.equal(preview.avatar,null);assert.equal(preview.embedded,null);assert.equal(preview.embeddedError,true);assert.equal(preview.character.description,'人物资料');
 });
-await test('HTML, invalid JSON, unrelated objects, empty books and oversized data never become a library',async()=>{
- for(const bytes of [new TextEncoder().encode('<!doctype html><script>ignored</script>'),new TextEncoder().encode('{bad'),encode({unexpected:true}),encode({entries:[]}),new Uint8Array(),new Uint8Array(L.MAX_BYTES+1)])await assert.rejects(()=>L.prepare({url:source,bytes}));
+await test('HTML, invalid JSON, unrelated objects, bare empty arrays and oversized data never become a library',async()=>{
+ for(const bytes of [new TextEncoder().encode('<!doctype html><script>ignored</script>'),new TextEncoder().encode('{bad'),encode({unexpected:true}),encode([]),new Uint8Array(),new Uint8Array(L.MAX_BYTES+1)])await assert.rejects(()=>L.prepare({url:source,bytes}));
+});
+await test('explicit empty world-info remains importable, but malformed rows and multicard attachments are identifiable errors',async()=>{
+ for(const entries of [{},[]]){const prepared=await L.prepare(file({name:'Empty',entries}));assert.equal(prepared.total,0);assert.equal(prepared.book.name,'Empty');}
+ for(const entries of ['text',[null,'text'],{0:{content:'Valid'},1:{unrelated:true}}])await assert.rejects(()=>L.prepare(file({entries})),e=>e.code==='invalid-entries');
+ const pair=[{name:'A',description:'A'},{name:'B',description:'B'}],pixel=Uint8Array.from(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aZlsAAAAASUVORK5CYII=','base64'));
+ for(const sourceFile of [file(pair),{url:'https://example.com/pair.png',bytes:context.TAPng.embedChara(pixel,JSON.stringify(pair))}])await assert.rejects(()=>L.prepare(sourceFile,{kind:'character'}),e=>e.code==='multiple-cards');
+});
+await test('link-import undo follows the current explicit attachment on a card',async()=>{
+ const library=S.emptyLibrary(),preview=await L.prepare(file(world())),receipt=A.commit(library,L.plan(library,preview,'Atlas')),id=library.worldBooks[0].id;
+ library.characters.push({id:'old-card',name:'Keeper',embeddedBookId:id});
+ assert.throws(()=>L.undo(library,receipt),e=>e.code==='import-in-use');assert.equal(library.worldBooks[0].id,id);
+ library.characters[0].embeddedBookId='';library.characters[0].source={embeddedBookId:id};
+ L.undo(library,receipt);assert.equal(library.worldBooks.length,0);
 });
 await test('preview is read-only and application adds a separate book with a credential-free source',async()=>{
  const library=S.demoLibrary(),before=JSON.stringify(library),prepared=await L.prepare(file(world())),plan=L.plan(library,prepared,'我的副本');assert.equal(JSON.stringify(library),before);const receipt=A.commit(library,plan);

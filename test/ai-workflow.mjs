@@ -34,7 +34,7 @@ const context = vm.createContext({
   },
 });
 context.globalThis = context;
-for (const name of ["png", "formats", "store", "ai-tasks", "model"])
+for (const name of ["png", "formats", "store", "creative-dialogue", "ai-tasks", "creation-output", "model"])
   vm.runInContext(
     fs.readFileSync(new URL(`../js/${name}.js`, import.meta.url), "utf8"),
     context,

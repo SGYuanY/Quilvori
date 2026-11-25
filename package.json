@@ -6,7 +6,8 @@
   "main": "electron/main.js",
   "scripts": {
     "start": "node scripts/start.mjs",
-    "test": "node test/models.mjs && node test/world-import.mjs && node test/entry-title.mjs && node test/roundtrip.mjs && node test/folder-import.mjs && node test/link-import.mjs && node test/organize.mjs && node test/ai-workflow.mjs && node test/model-transport.mjs && node test/review-report.mjs && node test/creation-session.mjs && node test/branding.mjs && node test/i18n-locales.mjs && node test/room-theme.mjs && node test/resource-source.mjs && node test/wallpaper-import.mjs && node test/resource-catalog.mjs && node test/navigation.mjs && node test/expression-export.mjs && node test/startup.mjs",
+    "test": "node test/models.mjs && node test/world-import.mjs && node test/entry-title.mjs && node test/roundtrip.mjs && node test/folder-import.mjs && node test/link-import.mjs && node test/organize.mjs && node test/ai-workflow.mjs && node test/model-transport.mjs && node test/review-report.mjs && node test/creation-session.mjs && node test/creative-dialogue.mjs && node test/creation-output.mjs && node test/authoring-tools.mjs && node test/journal.mjs && node test/branding.mjs && node test/i18n-locales.mjs && node test/room-theme.mjs && node test/resource-source.mjs && node test/wallpaper-import.mjs && node test/resource-catalog.mjs && node test/navigation.mjs && node test/expression-export.mjs && node test/startup.mjs && node test/library-preservation.mjs && node test/backup-merge.mjs && node test/context-tools.mjs && node test/search.mjs && node test/st-bundle.mjs",
+    "test:ui": "node scripts/test-ui.mjs",
     "check": "node scripts/check-syntax.mjs",
     "validate": "npm run check && npm test"
   },

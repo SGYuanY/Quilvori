@@ -133,6 +133,7 @@ function mainEnvironment(options = {}) {
     if (name === './remote-import') return { downloadRemote: async () => { calls.push('download'); return { bytes: new Uint8Array([1]), url: 'https://example.com/file.json' }; } };
     if (name === './navigation') return policy;
     if (name === './expression-export') return require('../electron/expression-export');
+    if (name === './st-bundle') return { installBundle: async (directory,files) => { calls.push('install'); return {directory,count:files.length}; } };
     return require(name);
   };
   vm.runInNewContext(fs.readFileSync(new URL('../electron/main.js', import.meta.url), 'utf8'), {
@@ -143,7 +144,7 @@ function mainEnvironment(options = {}) {
 
 await test('every registered privileged IPC rejects remote and subframe callers before filesystem or network work', async () => {
   const env = mainEnvironment();
-  assert.deepEqual([...env.handlers.keys()].sort(), ['folders:get', 'folders:pick', 'folders:list', 'folders:read', 'folders:writeExpressions', 'links:download', 'links:cancel'].sort());
+  assert.deepEqual([...env.handlers.keys()].sort(), ['folders:get', 'folders:pick', 'folders:list', 'folders:read', 'folders:writeExpressions', 'bundles:install', 'links:download', 'links:cancel'].sort());
   for (const kind of ['remote', 'iframe', 'unknown-local']) {
     const web = contents(kind === 'remote' ? 'https://example.com' : kind === 'unknown-local' ? local('unknown.html') : local('index.html'));
     const frame = kind === 'iframe' ? { url: local('index.html'), parent: web.mainFrame } : web.mainFrame;
@@ -169,6 +170,9 @@ await test('trusted main-frame folder workflows and bounded link downloads keep 
   assert.doesNotThrow(() => call('links:cancel', 'request_1'));
   assert.equal(web.listenerCount('destroyed'), 0);
   assert.ok(env.calls.includes('write') && env.calls.includes('download'));
+  const beforeInstall = env.calls.length;
+  assert.deepEqual(native(await call('bundles:install', [])), { ok:true, directory:env.configured.cards, count:0 });
+  assert.deepEqual(env.calls.slice(beforeInstall), ['pick','install']);
 });
 
 await test('single-instance locking follows the preserved profile while explicit QA profiles stay isolated', () => {

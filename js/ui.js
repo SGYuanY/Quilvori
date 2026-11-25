@@ -13,7 +13,7 @@
     { id: 'assets', mark: '09', label: '素材库', eyebrow: 'ASSETS', title: '素材库', search: true, placeholder: '搜素材名', blurb: 'blurb.assets' },
     { id: 'regex', mark: '10', label: '正则脚本', eyebrow: 'REGEX', title: '正则脚本', search: true, placeholder: '搜脚本', blurb: 'blurb.regex' },
     { id: 'quick', mark: '11', label: '快捷回复', eyebrow: 'QUICK', title: '快捷回复', search: true, placeholder: '搜回复', blurb: 'blurb.quick' },
-    { id: 'timeline', mark: '12', label: '作者注与情景时间线', eyebrow: 'TIMELINE', title: '作者注与情景时间线', search: true, placeholder: '搜注记、情节', blurb: 'blurb.timeline' },
+    { id: 'timeline', mark: '12', label: '剧情手记', eyebrow: 'JOURNAL', title: '剧情手记', search: true, placeholder: '搜注记、情节', blurb: '在本机规划情节或标记聊天原文。SillyTavern 的作者注另在聊天中配置，用于向模型注入提示。' },
     { id: 'graph', mark: '13', label: '角色关系图', eyebrow: 'GRAPH', title: '角色关系图', search: false, blurb: 'blurb.graph' },
     { id: 'check', mark: '14', label: '人设一致性检查', eyebrow: 'CHECK', title: '人设一致性检查', search: false, blurb: 'blurb.check' },
     { id: 'script', mark: '15', label: '群聊剧本', eyebrow: 'SCRIPT', title: '群聊剧本', search: true, placeholder: '搜剧本、台词', blurb: 'blurb.script' },
@@ -184,37 +184,20 @@
   }
 
   function estimateLength(text) {
-    const raw = String(text || '');
-    let tokens = 0;
-    for (const ch of raw) {
-      if (/\s/u.test(ch)) continue;
-      tokens += /[\u3400-\u9fff\uf900-\ufaff]/u.test(ch) ? 1 : 0.25;
-    }
-    return { chars: Array.from(raw).length, tokens: Math.ceil(tokens) };
+    return root.TAContext.estimate(text);
   }
 
   function mountLengths(rootNode) {
     if (!rootNode) return;
-    rootNode.querySelectorAll('textarea').forEach((node) => {
-      if (node.dataset.nolen != null) return;
-      const rows = Number(node.getAttribute('rows') || 0);
-      if (rows && rows < 3) return;
-      if (node.nextElementSibling && node.nextElementSibling.classList.contains('len')) return;
+    rootNode.querySelectorAll('textarea, input[type="text"][data-field]').forEach(node => {
+      if (node.hasAttribute('data-nolen') || node.nextElementSibling?.classList.contains('len')) return;
+      if (!node.closest('#char-form,#lore-editor') && (node.tagName === 'INPUT' || (node.hasAttribute('rows') && node.rows < 3))) return;
       const meter = document.createElement('div');
-      meter.className = 'len';
-      node.insertAdjacentElement('afterend', meter);
-      const paint = () => {
-        const stat = estimateLength(node.value);
-        const pct = Math.min(100, Math.round((stat.chars / 800) * 100));
-        const lang = root.TAI18n && root.TAI18n.prefs.lang;
-        const unit = lang === 'en' ? 'characters' : lang === 'ja' ? '字' : '字';
-        const about = lang === 'en' ? 'about' : lang === 'ja' ? '約' : '约';
-        const previous = meter.querySelector('.odo');
-        const same = previous && previous.dataset.n === String(stat.chars);
-        meter.innerHTML = `<i><b style="width:${pct}%"></b></i><span><b class="odo${same ? '' : ' tick'}" data-n="${stat.chars}">${stat.chars}</b> ${unit} · ${about} ${stat.tokens} token</span>`;
-      };
-      paint();
-      node.addEventListener('input', paint);
+      meter.className = 'len ctx-length'; meter.dataset.noTranslate = '';
+      meter.title = root.TAContextPanel.basis();
+      node.insertAdjacentElement('afterend',meter);
+      const paint = () => { meter.textContent = root.TAContextPanel.sizeText(estimateLength(node.value)); };
+      paint(); node.addEventListener('input',paint);
     });
   }
 
@@ -309,25 +292,61 @@
     pill.innerHTML = `<i></i>${map[state.save] || tr('已保存')}`;
   }
 
+  let editVersion = 0, replacing = false, pendingSave = null;
   function markDirty() {
+    root.TASearch?.invalidate();
+    editVersion++;
     state.save = 'dirty';
     paintSave();
     clearTimeout(state.timer);
     state.timer = setTimeout(flush, 320);
   }
 
-  function flush() {
+  async function flush() {
     clearTimeout(state.timer);
-    state.save = 'saving';
-    paintSave();
+    if (replacing) return false;
+    if (state.save === 'saved') return true;
+    if (pendingSave && pendingSave.version === editVersion) return pendingSave.job;
+    const version = editVersion;
+    state.save = 'saving'; paintSave();
+    const job = (async () => {
+      try {
+        await TAStore.save(state.lib);
+        if (version !== editVersion) return false;
+        state.save = 'saved'; return true;
+      } catch (error) {
+        if (version === editVersion) { state.save = 'error'; toast(root.TAI18n.t(error.message),{kind:'error'}); }
+        return false;
+      } finally { paintSave(); }
+    })();
+    pendingSave = {version,job};
+    try { return await job; }
+    finally { if (pendingSave?.job === job) pendingSave = null; }
+  }
+
+  async function commitLibrary(candidate, snapshots = [], clearVersions = false, draft = null) {
+    if (replacing) throw new Error('正在保存，请稍后重试。');
+    const app = document.getElementById('app'), wasInert = app.inert, prior = state.save;
+    const version = ++editVersion;
+    replacing = true; app.inert = true; clearTimeout(state.timer);
+    state.save = 'saving'; paintSave();
     try {
-      TAStore.save(state.lib);
-      state.save = 'saved';
+      const guard = () => version===editVersion;
+      const warning = clearVersions ? await TAStore.erase(candidate,guard) : await TAStore.save(candidate,guard,snapshots,draft);
+      if (version !== editVersion) throw new Error('资料库已变化，请重新打开。');
+      state.lib = candidate; state.save = 'saved';
+      if(draft)root.TAStudioDrafts.committed(draft);
+      if(clearVersions){
+        state.replyReference=null;state.regexExamples=null;state.journalScope=null;state.journalJump=null;state.lab='';
+        root.NIJANModel?.clearHistory();root.TATaskActivity?.clear();root.NIJANOrganizePanel?.clear();root.TAStudioDrafts?.reset();root.NIJANStudio?.resetAfterClear?.();
+      }
+      if (typeof warning === 'string') toast(root.TAI18n.t(warning),{kind:'warning'});
+      root.TASearch?.invalidate();
     } catch (error) {
-      state.save = 'error';
-      toast(error.message);
-    }
-    paintSave();
+      if (version === editVersion) state.save = prior === 'saved' ? 'saved' : 'dirty';
+      if (state.save === 'dirty') state.timer = setTimeout(flush,320);
+      throw error;
+    } finally { replacing = false; app.inert = wasInert; paintSave(); }
   }
 
   function ensureTheme() {
@@ -366,14 +385,22 @@
   function paintRail() {
     const host = document.getElementById('rail-cast');
     if (!host || !state.lib) return;
-    host.innerHTML = (state.lib.characters || []).map((character) => {
+    const cards = state.lib.characters || [], size = 18;
+    const selectedPage = Math.max(0,Math.floor(cards.findIndex(row=>row.id===state.sel.character)/size));
+    if (state.railSelected !== state.sel.character) state.railPage = selectedPage;
+    state.railSelected = state.sel.character;
+    const pages = Math.max(1,Math.ceil(cards.length/size)), page = Math.min(pages-1,state.railPage || 0);
+    const visible = cards.slice(page*size,(page+1)*size);
+    host.innerHTML = visible.map((character) => {
       const avatar = assetById(character.avatarAssetId);
-      const face = avatar ? `<img alt="" src="${esc(avatar.dataUrl)}">` : `<span>${esc((character.name || '名').slice(0, 1))}</span>`;
+      const face = avatar ? `<img alt="" loading="lazy" decoding="async" src="${esc(avatar.dataUrl)}">` : `<span>${esc((character.name || '名').slice(0, 1))}</span>`;
       const on = state.sel.character === character.id ? ' on' : '';
-      return `<button type="button" class="rail-char${on}" data-char="${esc(character.id)}">${face}<b>${esc(character.name || '未命名')}</b></button>`;
-    }).join('');
+      return `<button type="button" class="rail-char${on}" data-char="${esc(character.id)}">${face}<b data-no-translate>${esc(character.name || '未命名')}</b></button>`;
+    }).join('') + (pages>1 ? `<div class="row"><button class="btn btn-small" data-prev aria-label="${esc(root.TAI18n.t('上一页'))}" ${page?'':'disabled'}>‹</button><small>${page+1}/${pages}</small><button class="btn btn-small" data-next aria-label="${esc(root.TAI18n.t('下一页'))}" ${page+1<pages?'':'disabled'}>›</button></div>` : '');
+    host.querySelector('[data-prev]')?.addEventListener('click',()=>{state.railPage=page-1;paintRail();});
+    host.querySelector('[data-next]')?.addEventListener('click',()=>{state.railPage=page+1;paintRail();});
     host.querySelectorAll('[data-char]').forEach((button) => {
-      button.onclick = () => { state.sel.character = button.dataset.char; go('characters'); };
+      button.onclick = () => root.TASearch.open({kind:'character',id:button.dataset.char,field:'name'});
     });
   }
 
@@ -386,12 +413,21 @@
     });
     const tr = (text) => (root.TAI18n ? root.TAI18n.t(text) : text);
     document.getElementById('eyebrow').textContent = meta.eyebrow;
-    document.getElementById('title').textContent = tr(meta.title);
+    const title = document.getElementById('title');
+    const section = root.TACollectionControls?.titleInfo(state.route);
+    if (section && state.route !== 'home') {
+      title.innerHTML = root.TACollectionControls.titleMarkup(state.route);
+      title.classList.add('qc-page-title');
+    } else {
+      title.textContent = section?.name || tr(meta.title);
+      title.classList.remove('qc-page-title');
+    }
     const blurb = document.getElementById('blurb');
     if (blurb) blurb.textContent = tr(meta.blurb || '');
     const search = document.getElementById('search');
     search.parentElement.hidden = false;
-    search.placeholder = tr('搜索角色、世界书、正则');
+    search.placeholder = tr('搜索角色卡、世界书、提示词和正则');
+    search.ariaLabel = search.placeholder;
     const searchNote = document.getElementById('search-note');
     if (searchNote) searchNote.textContent = tr('跨页搜索，不改库。');
     document.querySelectorAll('[data-nav]').forEach((button) => {
@@ -402,7 +438,11 @@
       if (mark) mark.textContent = route.mark;
       if (name) name.textContent = tr(route.label);
     });
-    paintRail();
+    const peopleCount = document.querySelector('[data-people-count]');
+    if (peopleCount) peopleCount.textContent = state.lib.characters.length;
+    const rail = document.getElementById('rail-cast');
+    if (rail) rail.hidden = !!state.peopleCollapsed;
+    if (!state.peopleCollapsed) paintRail();
     const importCard = document.querySelector('[data-shell="import-card"]');
     const importBook = document.querySelector('[data-shell="import-book"]');
     const settingsButton = document.querySelector('[data-shell="settings"]');
@@ -432,11 +472,15 @@
     try {
       closeSelect();
       view(stage);
+      if (['home','characters','lore'].includes(state.route) && root.TAStudioDrafts) {
+        stage.refreshDraftShelf=root.TAStudioDrafts.mount(stage,{characters:'character',lore:'world'}[state.route]);
+      } else stage.refreshDraftShelf=null;
       if (root.TAWorkspace) root.TAWorkspace.enhance(stage);
       if (root.TAI18n) {
         root.TAI18n.localize(document.getElementById('app'));
         root.TAI18n.localize(document.getElementById('modal-root'));
       }
+      root.TASearch?.focus(stage, state.route);
     } catch (error) {
       console.error(error);
       stage.innerHTML = `<div class="paper empty"><h3>这一页没有画出来</h3><p>${esc(error.message)}</p></div>`;
@@ -447,25 +491,38 @@
     return id === 'home' ? 'index.html' : `${id}.html`;
   }
 
-  function paintGlobalSearch(query) {
+  function paintGlobalSearch(query, offset = 0) {
     const host = document.getElementById('search-results');
     if (!host) return;
-    const text = String(query || '').trim().toLowerCase();
-    if (!text || !state.lib) { host.innerHTML = ''; return; }
-    const hits = [];
-    (state.lib.characters || []).forEach((item) => {
-      const blob = [item.name, item.tags && item.tags.join(' '), item.description].join('\n').toLowerCase();
-      if (blob.includes(text)) hits.push({ href: `characters.html#${item.id}`, label: `角色卡 ${item.name || '未命名'}` });
-    });
-    (state.lib.worldBooks || []).forEach((book) => {
-      const blob = [book.name, ...(book.entries || []).map((entry) => [entry.comment, (entry.keys || []).join(' '), entry.content].join('\n'))].join('\n').toLowerCase();
-      if (blob.includes(text)) hits.push({ href: `lore.html#${book.id}`, label: `世界书 ${book.name || '未命名'}` });
-    });
-    (state.lib.regexScripts || []).forEach((script) => {
-      const blob = [script.scriptName, script.findRegex].join('\n').toLowerCase();
-      if (blob.includes(text)) hits.push({ href: `regex.html#${script.id}`, label: `正则 ${script.scriptName || '未命名'}` });
-    });
-    host.innerHTML = hits.slice(0, 12).map((hit) => `<a href="${esc(hit.href)}">${esc(hit.label)}</a>`).join('') || '<span>没有同时命中角色卡、世界书或正则。</span>';
+    host.innerHTML = '';
+    if (!String(query || '').trim() || !state.lib) return;
+    const search = root.TASearch, size = 12;
+    const { items, more } = search.page(search.matches(state.lib, query), offset, size);
+    for (const hit of items) {
+      const link = document.createElement('a'), name = document.createElement('strong'), detail = document.createElement('small');
+      link.href = search.href(hit.target); link.dataset.noTranslate = '';
+      name.textContent = hit.title || root.TAUI.t('未命名');
+      detail.textContent = search.describe(hit);
+      link.append(name, detail);
+      link.onclick = event => {
+        if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+        event.preventDefault(); search.open(hit.target);
+      };
+      host.append(link);
+    }
+    if (!items.length) {
+      const note = document.createElement('span'); note.textContent = root.TAUI.t('没有找到匹配的内容'); host.append(note);
+    }
+    if (offset || more) {
+      const pages = document.createElement('div'); pages.className = 'search-pages';
+      for (const [step, label, available] of [[-1, '上一页', offset > 0], [1, '下一页', more]]) {
+        const button = document.createElement('button'); button.type = 'button'; button.className = 'btn btn-small';
+        button.textContent = root.TAUI.t(label); button.disabled = !available;
+        button.onclick = () => { paintGlobalSearch(query, offset + size * step); host.querySelector('a')?.focus(); };
+        pages.append(button);
+      }
+      host.append(pages);
+    }
   }
 
   let folderPaths = null, folderReadPromise = null, triedAutoRead = false;
@@ -474,10 +531,23 @@
     const host = document.getElementById('folders');
     if (!host) return;
     const tr = (text) => (root.TAI18n ? root.TAI18n.t(text) : text);
-    const saved = JSON.parse(localStorage.getItem('nijan-folders') || '{}');
+    let saved = {};
+    try { saved = JSON.parse(localStorage.getItem('nijan-folders') || '{}') || {}; } catch (_) {}
     const draw = (paths) => {
       folderPaths = paths || {};
-      host.innerHTML = `<span><span data-zh="人物卡文件夹">${tr('人物卡文件夹')}</span>：${esc(paths.cards || tr('尚未设置'))}</span><span><span data-zh="世界书文件夹">${tr('世界书文件夹')}</span>：${esc(paths.worlds || tr('尚未设置'))}</span><button type="button" class="btn btn-small" id="pick-cards">${tr('选人物卡文件夹')}</button><button type="button" class="btn btn-small" id="pick-worlds">${tr('选世界书文件夹')}</button><button type="button" class="btn btn-small" id="read-folders">${tr('读取已有文件')}</button>`;
+      host.innerHTML = `<span><span data-zh="人物卡文件夹">${tr('人物卡文件夹')}</span>：${esc(paths.cards || tr('尚未设置'))}</span><span><span data-zh="世界书文件夹">${tr('世界书文件夹')}</span>：${esc(paths.worlds || tr('尚未设置'))}</span><button type="button" class="btn btn-small" id="pick-cards">${tr('选人物卡文件夹')}</button><button type="button" class="btn btn-small" id="pick-worlds">${tr('选世界书文件夹')}</button><button type="button" class="btn btn-small" id="read-folders">${tr('读取已有文件')}</button><button type="button" class="btn btn-small" id="scan-profile">${tr('扫描酒馆用户目录')}</button>`;
+      host.querySelector('#scan-profile').onclick = () => {
+        const picker = document.createElement('input'); picker.type='file'; picker.webkitdirectory=true;
+        picker.onchange = async () => {
+          const source = root.TAFolderImport.profileFiles(picker.files);
+          const count = Object.values(source.buckets).reduce((sum,rows)=>sum+rows.length,0);
+          if (!count) { toast(tr('请选择包含 characters、worlds 或 chats 的用户目录')); return; }
+          const detail = Object.entries(source.buckets).map(([kind,rows])=>({cards:'characters',worlds:'worlds',chats:'chats'}[kind])+' · '+rows.length).join(' / ');
+          const ok = await ask({title:tr('扫描酒馆用户目录'),body:detail,actions:[{id:'yes',label:tr('导入')},{id:'no',label:tr('取消')}]});
+          if (ok==='yes') await readFolders(source.paths,{adapter:source});
+        };
+        picker.click();
+      };
       host.querySelector('#pick-cards').onclick = () => pickFolder('cards');
       host.querySelector('#pick-worlds').onclick = () => pickFolder('worlds');
       host.querySelector('#read-folders').onclick = () => readFolders(paths);
@@ -505,10 +575,10 @@
 
   async function readFolders(paths, options = {}) {
     if (folderReadPromise) return folderReadPromise;
-    if (!root.nijanDesktop) { toast('请用桌面版读取已设置的文件夹，或点击“导入角色卡”选择文件。'); return; }
+    if (!options.adapter && !root.nijanDesktop) { toast('请用桌面版读取已设置的文件夹，或点击“导入角色卡”选择文件。'); return; }
     const sourcePaths = paths || folderPaths || await root.nijanDesktop.getPaths();
     if (folderReadPromise) return folderReadPromise;
-    if (!sourcePaths.cards && !sourcePaths.worlds) { toast('先设置角色卡或世界书的文件夹。'); return; }
+    if (!sourcePaths.cards && !sourcePaths.worlds && !sourcePaths.chats) { toast('先设置角色卡或世界书的文件夹。'); return; }
     const button = document.querySelector('#read-folders');
     if (button) button.disabled = true;
     const task = (async () => {
@@ -525,28 +595,25 @@
           return { dataUrl, mime: 'image/jpeg', bytes: Math.ceil(dataUrl.length * .75) };
         } finally { bitmap.close(); }
       };
-      const result = await root.TAFolderImport.importAll(state.lib, sourcePaths, root.nijanDesktop, Object.assign({ makeAvatar }, options));
+      const result = await root.TAFolderImport.importAll(state.lib, sourcePaths, options.adapter || root.nijanDesktop, Object.assign({ makeAvatar, avatarBudget:TAStore.backend === 'indexedDB' ? Infinity : 750000 }, options));
       // Wait for importing to finish without replacing edits made in the meantime.
       if (snapshot(state.lib) !== before) throw new Error('读取期间稿子有变化。请再点一次读取，当前改动已保留。');
-      clearTimeout(state.timer);
-      const commit = () => {
-        root.TAStore.save(result.library);
-        state.lib = result.library; state.save = 'saved';
-      };
-      try { commit(); }
+      const commit = () => commitLibrary(result.library);
+      try { await commit(); }
       catch (error) {
         if (error.name !== 'QuotaExceededError' && error.code !== 22 && error.code !== 'quota') throw error;
         const oldAssets = new Set(state.lib.assets.map((item) => item.id));
         const importedAvatars = new Set(result.library.assets.filter((item) => !oldAssets.has(item.id)).map((item) => item.id));
         result.library.assets = result.library.assets.filter((item) => !importedAvatars.has(item.id));
         result.library.characters.forEach((card) => { if (importedAvatars.has(card.avatarAssetId)) { card.avatarAssetId = null; result.report.avatarsOmitted++; } });
-        commit();
+        await commit();
       }
       const report = result.report;
+      const tChat = () => root.TAI18n?.t('聊天') || '聊天';
       if (report.firstCardId) { state.sel.character ||= report.firstCardId; state.sel.checkChar ||= report.firstCardId; }
       if (report.firstBookId) state.sel.book ||= report.firstBookId;
       const message = (root.TAI18n ? root.TAI18n.t('folder.readResult', report) : `已导入 ${report.cards} 张角色卡、${report.books} 本世界书；${report.unchanged} 个文件已读过。`);
-      toast(message, { id: 'folder-import', kind: report.failed.length ? 'warning' : 'success', duration: 10000 });
+      toast(message + (sourcePaths.chats ? ' · '+report.chats+' '+tChat() : ''), { id: 'folder-import', kind: report.failed.length ? 'warning' : 'success', duration: 10000 });
       renderStage();
       if (report.failed.length || report.avatarsOmitted) {
         const info = document.createElement('details'); info.className = 'paper folder-import-report';
@@ -563,23 +630,62 @@
     finally { folderReadPromise = null; const current = document.querySelector('#read-folders'); if (current) current.disabled = false; }
   }
 
-  function go(id) {
-    const next = ROUTES.some((route) => route.id === id) ? id : 'home';
-    const here = document.body.dataset.page;
-    if (here) {
-      if (here !== next) location.href = pageHref(next);
-      else show(next);
-      return;
+  let lastAddress = '';
+  function openAddress(value, push = true) {
+    const url = new URL(value, location.href);
+    const here = new URL(location.href);
+    const file = url.pathname.split('/').pop() || 'index.html';
+    const route = ROUTES.find(item => pageHref(item.id) === file)?.id;
+    if (url.origin !== here.origin || new URL('.',url).href !== new URL('.',here).href || !route) return false;
+    const stateParams = new URLSearchParams();
+    const id = url.hash.slice(1);
+    if (id) stateParams.set('entity', id);
+    if (url.search) stateParams.set('fields', url.search.slice(1));
+    // A hash works for both a local file and an HTTP-served application. Changing
+    // the path of a file: URL with pushState is forbidden in several browsers.
+    const fragment = '/' + route + (stateParams.size ? '?' + stateParams : '');
+    if (push && here.hash.slice(1) !== fragment) history.pushState(null,'','#' + fragment);
+    lastAddress = location.href;
+    if (id) root.TASearch?.restoreAddress(route,url);
+    show(route);
+    return true;
+  }
+  function followLocation() {
+    if (lastAddress === location.href && lastAddress) return;
+    const raw = (location.hash || '').slice(1), modern = raw.startsWith('/');
+    const fragment = modern ? raw.slice(1) : raw;
+    const separator = fragment.indexOf('?');
+    const route = separator < 0 ? fragment : fragment.slice(0,separator);
+    const params = separator < 0 ? null : new URLSearchParams(fragment.slice(separator+1));
+    const entry = document.body.dataset.page;
+    const address = typeof location.href === 'string' ? new URL(location.href) : null;
+    const isRoute = ROUTES.some(row => row.id === route);
+    // Standalone pages historically put an entity ID in the hash. A leading
+    // slash distinguishes navigation fragments from those saved links.
+    if (isRoute && (modern || !entry)) {
+      if (address && params?.has('entity')) {
+        const target = new URL(pageHref(route),address);
+        target.search = params.get('fields') || ''; target.hash = params.get('entity');
+        root.TASearch?.restoreAddress(route,target);
+      }
+      lastAddress=location.href || ''; show(route); return;
     }
-    if (location.hash !== `#${next}`) location.hash = next;
-    else show(next);
+    lastAddress=location.href || '';
+    if (entry && address) root.TASearch?.restoreAddress(entry,address);
+    show(entry || (isRoute ? route : 'home'));
+  }
+  function go(id) {
+    const next = ROUTES.some(route=>route.id===id) ? id : 'home';
+    return openAddress(pageHref(next));
   }
 
   function show(id) {
+    if (state.route !== id) root.NIJANOrganizePanel?.hideForNavigation();
     state.route = ROUTES.some((route) => route.id === id) ? id : 'home';
     state.query = '';
     const search = document.getElementById('search');
     if (search) search.value = '';
+    paintGlobalSearch('');
     const slip = document.getElementById('export-slip');
     if (slip) slip.innerHTML = '';
     const stage = document.getElementById('stage');
@@ -676,8 +782,8 @@
       ],
     });
     if (answer !== 'yes') return;
-    state.lib = TAStore.demoLibrary();
-    flush();
+    try { await commitLibrary(TAStore.normalize(TAStore.demoLibrary())); } catch(error) { toast(root.TAI18n.t(error.message),{kind:'error'}); return; }
+    state.loreUndo?.clear();
     toast('已载入听雨楼示例');
     renderStage();
   }
@@ -685,15 +791,15 @@
   async function confirmClear() {
     const answer = await ask({
       title: '清空库',
-      body: '页面里的角色、世界书、素材和备份以外的内容都会从这台浏览器删掉。导出过的文件不会受影响。',
+      body: root.TAI18n.t('清空当前资料库、作品快照、AI 草稿、模型返回记录和本机迁移副本？'),
       actions: [
         { id: 'yes', label: '清空', kind: 'btn-danger' },
         { id: 'no', label: '取消' },
       ],
     });
     if (answer !== 'yes') return;
-    state.lib = TAStore.emptyLibrary();
-    flush();
+    try { await commitLibrary(TAStore.emptyLibrary(),[],true); } catch(error) { toast(root.TAI18n.t(error.message),{kind:'error'}); return; }
+    state.loreUndo?.clear();
     toast('库已清空');
     renderStage();
   }
@@ -712,11 +818,17 @@
       <label class="check"><input id="set-teach" type="checkbox"> ${tr('显示逐步说明和导入解读')}</label>
       <label class="check"><input id="set-json" type="checkbox"> 书写时用 JSON 互转（默认关闭）</label>
       <p class="field-label">模型接口（密钥只留在这台浏览器）</p>
+      <label class="field"><span class="field-label">模型配置</span><select id="connection-profiles" data-no-translate></select></label>
+      <div class="row"><input id="profile-name" placeholder="配置名称"><button class="btn" id="add-profile" type="button">新建配置</button></div>
       <label class="field"><span class="field-label">地址</span><input id="set-base" type="text" placeholder="https://api.openai.com/v1" autocomplete="off"></label>
       <label class="field"><span class="field-label">接口协议</span><select id="set-protocol"><option value="auto">自动（优先 Responses）</option><option value="responses">Responses</option><option value="chat">Chat Completions</option></select></label>
       <label class="field"><span class="field-label">密钥</span><input id="set-key" type="password" autocomplete="off"></label>
       <div class="row"><button type="button" class="btn btn-primary" id="set-connect">连接</button></div>
       <p class="help">点连接后，从接口列出的模型里选一个。不用手填名称。</p>
+      <label class="field"><span class="field-label">手动输入模型 ID</span><input id="model-id" autocomplete="off"></label>
+      <label class="field"><span class="field-label">上下文窗口（手动，token）</span><input id="model-window" type="number" min="1"></label><p id="model-info" class="help"></p>
+      <label class="field"><span class="field-label">空闲等待（分钟）</span><input id="model-idle-minutes" type="number" min="1" max="60" step="1" aria-describedby="model-idle-help"></label>
+      <p id="model-idle-help" class="help">默认 5 分钟。每次收到接口数据都会重新计时，长时间静默的模型可延长等待。</p>
       <label class="field"><span class="field-label">选用模型</span><select id="set-model" disabled><option value="">先点连接</option></select></label>
       <label class="field"><span class="field-label">推理强度</span><select id="set-reasoning"><option value="auto">跟随模型（默认）</option><option value="none">关闭推理 · none</option><option value="minimal">极低 · minimal</option><option value="low">低 · low</option><option value="medium">中 · medium</option><option value="high">高 · high</option><option value="xhigh">极高 · xhigh</option><option value="max">最高 · max</option></select></label>
       <p class="help">较高强度通常需要更长时间。可用档位取决于模型和接口，默认不额外发送推理参数。</p>
@@ -751,7 +863,21 @@
     host.querySelector('#set-protocol').value = model.protocol || 'auto';
     host.querySelector('#set-reasoning').value = model.reasoningEffort || 'auto';
     host.querySelector('#set-key').value = model.key || '';
-    const known = root.NIJANModel ? root.NIJANModel.rememberedModels() : [];
+    const api = root.NIJANModel, choices = host.querySelector('#connection-profiles'), modelId = host.querySelector('#model-id');
+    choices.innerHTML = api.profiles().map(row=>`<option value="${esc(row.id)}" ${row.active?'selected':''}>${esc(row.name)}</option>`).join('');
+    const changeProfile = fn => { try { fn(); openSettings(); renderStage(); } catch(error) { toast(tr(error.message)); } };
+    choices.onchange = () => changeProfile(()=>api.selectProfile(choices.value));
+    host.querySelector('#add-profile').onclick = () => changeProfile(()=>api.newProfile(host.querySelector('#profile-name').value));
+    modelId.value = model.model;
+    host.querySelector('#model-window').value = model.contextWindow || '';
+    const idleInput = host.querySelector('#model-idle-minutes');
+    idleInput.value = model.idleMinutes;
+    const paintInfo = () => {
+      const info = api.capabilities(), unknown = tr('接口未提供');
+      host.querySelector('#model-info').textContent = [tr('接口上下文')+' · '+(info.context || unknown),tr('支持的推理强度')+' · '+(info.efforts.join(', ') || unknown),tr('推荐推理强度')+' · '+(info.recommended || unknown)].join('  |  ');
+    };
+    paintInfo();
+    const known = [...new Set([...api.rememberedModels(), model.model].filter(Boolean))];
     const paintModels = (names, selected) => {
       const pick = host.querySelector('#set-model');
       pick.disabled = !names.length;
@@ -825,14 +951,21 @@
     host.querySelector('#set-lang').onchange = commit;
     host.querySelector('#set-teach').onchange = commit;
     host.querySelector('#set-json').onchange = commit;
-    host.querySelector('#set-base').oninput = commit;
+    host.querySelector('#set-base').oninput = () => { commit(); paintInfo(); paintModels(api.rememberedModels(),modelId.value); };
     host.querySelector('#set-protocol').onchange = commit;
     host.querySelector('#set-reasoning').onchange = commit;
-    host.querySelector('#set-key').oninput = commit;
+    host.querySelector('#set-key').oninput = () => { commit(); paintInfo(); paintModels(api.rememberedModels(),modelId.value); };
     const reply = host.querySelector('#set-reply');
     const say = (text) => { reply.textContent = text; };
     host.querySelector('#set-model').onchange = (event) => {
-      if (root.NIJANModel) root.NIJANModel.save({ model: event.target.value });
+      if (root.NIJANModel) root.NIJANModel.save({ model: event.target.value, contextWindow:0 });
+      modelId.value = event.target.value; host.querySelector('#model-window').value = ''; paintInfo();
+    };
+    modelId.oninput = () => { api.save({model:modelId.value.trim(), contextWindow:0}); host.querySelector('#model-window').value=''; paintModels(api.rememberedModels(),modelId.value.trim()); paintInfo(); };
+    host.querySelector('#model-window').oninput = event => api.save({contextWindow:event.target.value});
+    idleInput.onchange = () => {
+      if (!idleInput.validity.valid) { idleInput.reportValidity(); return; }
+      idleInput.value = api.save({idleMinutes:idleInput.value}).idleMinutes;
     };
     host.querySelector('#set-connect').onclick = async () => {
       if (!root.NIJANModel) return;
@@ -842,7 +975,7 @@
         const names = await root.NIJANModel.listModels();
         const current = root.NIJANModel.load().model;
         paintModels(names, names.includes(current) ? current : '');
-        if (current && !names.includes(current)) root.NIJANModel.save({ model: '' });
+        paintInfo();
         say(names.length ? tr('已连接，共 {count} 个模型。选一个再用。', { count: names.length }) : tr('连上了，但接口没有返回模型。'));
       } catch (error) {
         say(error.message || tr('连接失败'));
@@ -882,27 +1015,56 @@
     if (root.TAI18n) root.TAI18n.localize(host);
   }
 
-  function mount(registered) {
+  function mount(registered, loaded = TAStore.load()) {
     views = registered;
-    const loaded = TAStore.load();
+    if (loaded.unavailable) {
+      const app = document.getElementById('app');
+      app.innerHTML = '<main class="paper recovery"><h1>'+esc(root.TAI18n.t('无法打开本机资料库'))+'</h1><p role="alert"></p><button class="btn">'+esc(root.TAI18n.t('重试'))+'</button></main>';
+      app.querySelector('p').textContent=root.TAI18n.t(loaded.message); app.querySelector('button').onclick=()=>location.reload(); return;
+    }
+    if (loaded.corrupt) {
+      const app = document.getElementById('app');
+      const t = key => esc(root.TAI18n.t(key));
+      app.innerHTML = `<main class="paper recovery"><h1>${t('恢复本机资料库')}</h1><p>${t(loaded.missing ? '未找到已迁移的资料库。请选择备份恢复。' : '存档无法读取。先下载原始数据，再选择可用的备份。')}</p><div class="row">${loaded.missing ? '' : '<button class="btn" data-rescue>'+t('下载原始存档')+'</button>'}<button class="btn" data-file>${t('从备份恢复')}</button>${loaded.previous ? '<button class="btn" data-previous>' + t('恢复上次保存') + '</button>' : ''}</div><p role="status"></p></main>`;
+      app.querySelector('[data-rescue]')?.addEventListener('click',()=>downloadText('Quilvori-recovery.json', loaded.raw));
+      const restore = async library => {
+        if (!window.confirm(root.TAI18n.t('用选中的备份恢复资料库？'))) return;
+        await TAStore.recover(loaded.raw, library);
+        location.reload();
+      };
+      const run = async action => {
+        try { await action(); }
+        catch (error) { app.querySelector('[role="status"]').textContent = root.TAI18n.t(error.message); }
+      };
+      app.querySelector('[data-file]').onclick = () => run(async () => {
+        const file = await pickFile('.json,application/json');
+        if (file) {
+          const data = JSON.parse((await file.text()).replace(/^\uFEFF/,''));
+          await restore(data?.atelier ? root.TAFormats.backupLibrary(data) : TAStore.verify(data));
+        }
+      });
+      app.querySelector('[data-previous]')?.addEventListener('click', () => run(() => restore(loaded.previous)));
+      return;
+    }
     state.lib = loaded.library;
     state.persistent = loaded.persistent;
     state.fresh = loaded.fresh;
     const app = document.getElementById('app');
     const tr = (key) => root.TAI18n ? root.TAI18n.t(key) : key;
     const icon = (name) => root.TAWorkspace ? root.TAWorkspace.icon(name) : '';
+    const commandKey = /Mac|iPhone|iPad/i.test(root.navigator?.platform || '') ? '⌘' : 'Ctrl';
     const navButton = (route) => `<button type="button" class="nav-btn" data-nav="${route.id}" title="${esc(route.label)}" aria-label="${esc(route.label)}">${icon(route.id)}<span data-label>${route.label}</span></button>`;
     const primary = ['home', 'resources', 'studio', 'characters', 'lore'];
     const writing = ['sections', 'prompts', 'graph', 'check'];
     app.innerHTML = `<div class="shell">
       <aside class="nav">
-        <div class="brand"><img class="mark" src="img/emblem.svg?v=quilvori-1" alt=""><span><strong data-product>叙翎集</strong><em data-product-secondary data-no-translate>Quilvori</em></span></div>
+        <div class="brand"><img class="mark" src="img/emblem.svg?v=quilvori-1" alt=""><span class="qc-brand-lockup"><strong data-product data-no-translate>叙翎集</strong><em data-product-secondary data-no-translate>Quilvori</em></span></div>
         <div class="nav-import">
           <button type="button" class="btn" data-shell="import-card">导入角色卡</button>
           <button type="button" class="btn" data-shell="import-book">导入世界书</button>
         </div>
         <nav class="nav-list" aria-label="主要导航"><div class="nav-section-label">写东西</div>${primary.map((id) => navButton(ROUTES.find((route) => route.id === id))).join('')}<div class="nav-section-label">理一理</div>${writing.map((id) => navButton(ROUTES.find((route) => route.id === id))).join('')}<details class="nav-tools"${[...primary, ...writing].includes(document.body.dataset.page || location.hash.slice(1) || 'home') ? '' : ' open'}><summary>${icon('more')}<span>更多工具</span>${icon('chevron')}</summary>${ROUTES.filter((route) => ![...primary, ...writing].includes(route.id)).map(navButton).join('')}</details></nav>
-        <div class="rail-label">人物</div>
+        <button type="button" class="rail-label qc-people-toggle" data-people-toggle aria-controls="rail-cast" aria-expanded="true"><span>${tr('人物')}</span><small data-people-count></small>${icon('chevron')}</button>
         <div id="rail-cast" class="rail-cast"></div>
         <div class="nav-foot">
           <button type="button" class="btn" data-shell="settings">设置</button>
@@ -914,8 +1076,8 @@
         <header class="top">
           <div class="top-title"><button type="button" class="ws-icon-button" data-workspace="sidebar" aria-label="展开或收起导航" title="展开或收起导航" aria-expanded="true">${icon('sidebar')}</button><div><p class="eyebrow" id="eyebrow">HOME</p><h1 id="title">总览</h1><p class="note" id="blurb"></p></div></div>
           <div class="top-actions">
-            <label class="search"><input id="search" type="search" placeholder="搜索角色、世界书、正则" autocomplete="off"><span class="note" id="search-note">跨页搜索，不改库。</span><div id="search-results"></div></label>
-            <button type="button" class="ws-command-trigger" data-workspace="command" aria-label="${esc(tr('搜索或跳转'))}" title="${esc(tr('搜索或跳转'))} · Ctrl+K">${icon('search')}<kbd class="ws-key">Ctrl K</kbd></button>
+            <div class="search"><input id="search" type="search" aria-label="搜索角色卡、世界书、提示词和正则" placeholder="搜索角色卡、世界书、提示词和正则" autocomplete="off"><span class="note" id="search-note">跨页搜索，不改库。</span><div id="search-results"></div></div>
+            <button type="button" class="ws-command-trigger" data-workspace="command" aria-keyshortcuts="Control+K Meta+K" aria-label="${esc(tr('搜索或跳转'))}" title="${esc(tr('搜索或跳转'))} · ${commandKey}+K">${icon('search')}<kbd class="ws-key" data-no-translate>${commandKey} K</kbd></button>
             <button type="button" class="ws-icon-button" data-workspace="focus" aria-label="专注模式" title="专注模式" aria-pressed="false">${icon('focus')}</button>
             <button type="button" class="ws-icon-button" data-workspace="settings" aria-label="设置" title="设置">${icon('settings')}</button>
             <span class="save-wrap"><span id="save-pill" class="pill"><i></i>已保存</span><span class="note">改动自动写入这台浏览器。</span></span>
@@ -929,6 +1091,13 @@
     </div>
     <div id="modal-root" class="modal-root"></div>
     <div id="toasts" class="toasts"></div>`;
+    const people = document.querySelector('[data-people-toggle]');
+    people.onclick = () => {
+      state.peopleCollapsed = !state.peopleCollapsed;
+      people.setAttribute('aria-expanded',String(!state.peopleCollapsed));
+      document.getElementById('rail-cast').hidden = state.peopleCollapsed;
+      if (!state.peopleCollapsed) paintRail();
+    };
     document.querySelectorAll('[data-nav]').forEach((button) => {
       button.onclick = () => go(button.dataset.nav);
     });
@@ -948,42 +1117,59 @@
     };
     searchBox.addEventListener('pointerup', releaseSearch);
     searchBox.addEventListener('pointercancel', releaseSearch);
-    searchBox.addEventListener('input', (event) => {
-      state.query = event.target.value;
-      paintGlobalSearch(event.target.value);
-      renderStage();
-      const box = document.getElementById('search');
-      if (box) box.value = state.query;
+    let filterTimer;
+    searchBox.addEventListener('input', () => {
+      const query = searchBox.value;
+      state.query = query;
+      paintGlobalSearch(query);
+      clearTimeout(filterTimer);
+      if (routeMeta().search) filterTimer = setTimeout(() => { if (state.query === query) renderStage(); }, 180);
     });
+    searchBox.addEventListener('keydown', event => {
+      if (event.key === 'ArrowDown') {
+        const result = document.querySelector('#search-results a');
+        if (result) { event.preventDefault(); result.focus(); }
+      }
+      if (event.key === 'Escape') paintGlobalSearch('');
+    });
+    searchBox.addEventListener('focus', () => paintGlobalSearch(searchBox.value));
+    window.addEventListener('pointerdown', event => { if (!event.target.closest('.search')) paintGlobalSearch(''); });
     if (!state.persistent) {
       document.getElementById('storage-banner').innerHTML = '<div class="banner">这台浏览器没有把本地存储开放给当前页面。改动只留在这次打开里，离开前请导出整库备份。</div>';
     }
+    if(loaded?.draftWarning)toast(root.TAI18n.t('本机草稿暂时无法读取，仍可打开已收录作品。'),{kind:'warning'});
+    if(loaded?.archiveWarning)toast(root.TAI18n.t('本机模型返回记录暂时无法读取。'),{kind:'warning'});
     applyTheme();
     if (root.TAWorkspace) root.TAWorkspace.mount();
-    window.addEventListener('hashchange', () => show((location.hash || '#home').slice(1)));
-    window.addEventListener('beforeunload', () => {
-      if (state.save !== 'saved') {
-        clearTimeout(state.timer);
-        try { TAStore.save(state.lib); } catch (error) { /* 离开时写不进去就只能靠已经下载的备份 */ }
+    window.addEventListener('quilvori-drafts',()=>document.getElementById('stage')?.refreshDraftShelf?.());
+    window.addEventListener('hashchange',followLocation);
+    window.addEventListener('popstate',followLocation);
+    document.addEventListener?.('click',event=>{
+      if (event.defaultPrevented || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+      const link=event.target.closest?.('a[href]');
+      if (!link || link.hasAttribute('download') || link.target && link.target !== '_self') return;
+      if (openAddress(link.href)) event.preventDefault();
+    });
+    window.addEventListener('beforeunload', event => {
+      if (root.TATaskActivity?.pending() || root.NIJANStudio?.running() || root.NIJANOrganizePanel?.running()) {
+        event.preventDefault(); event.returnValue = '';
       }
+      if (state.save === 'saved') return;
+      if (TAStore.backend !== 'indexedDB' && !replacing) {
+        try { TAStore.save(state.lib); state.save='saved'; return; } catch (_) {}
+      }
+      if (!replacing) void flush();
+      event.preventDefault(); event.returnValue = '';
+    });
+    document.addEventListener?.('visibilitychange', () => {
+      if (document.hidden && state.save === 'dirty') void flush();
     });
     if (state.fresh) {
-      try { TAStore.save(state.lib); state.save = 'saved'; } catch (error) { state.save = 'error'; }
-      toast(loaded.corrupt ? '原来的库读不出来，已改用示例。' : '已载入听雨楼示例。不需要的话可以清空库。');
+      state.save='dirty'; void flush();
+      toast('已载入听雨楼示例。不需要的话可以清空库。');
     }
     paintFolders();
-    const forced = document.body.dataset.page;
-    if (forced) {
-      const hashId = (location.hash || '').slice(1);
-      if (forced === 'characters' && hashId) state.sel.character = hashId;
-      if (forced === 'lore' && hashId) state.sel.book = hashId;
-      if (forced === 'regex' && hashId) state.sel.regex = hashId;
-      show(forced);
-      return;
-    }
-    const initial = (location.hash || '#home').slice(1);
-    if (!location.hash) history.replaceState(null, '', '#home');
-    show(initial);
+    followLocation();
   }
 
   let openSelect = null;
@@ -1092,8 +1278,8 @@
 
   root.TAUI = {
     ROUTES, state, esc, toast, ask, downloadBlob, downloadText, downloadJson, pickFile, readText, readDataUrl, copyText,
-    safeName, assetById, charById, selected, matchQuery, markDirty, flush, applyTheme, ensureTheme, go, renderStage, show, flyPlane,
-    field, fold, mountFolds, area, text, bindFields, picker, bindPicker, empty, confirmLoadDemo, confirmClear, mount,
+    safeName, assetById, charById, selected, matchQuery, markDirty, flush, commitLibrary, applyTheme, ensureTheme, go, openAddress, renderStage, show, flyPlane,
+    openSettings, field, fold, mountFolds, area, text, bindFields, picker, bindPicker, empty, confirmLoadDemo, confirmClear, mount,
     t: (key, vars) => (root.TAI18n ? root.TAI18n.t(key, vars) : key),
     estimateLength, mountLengths, showExport, fillLesson, enhanceSelect, readFolders,
   };

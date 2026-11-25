@@ -28,6 +28,7 @@ function environment() {
   context.TAUI = { state: { lib: context.TAStore.emptyLibrary(), save: 'saved', sel: {} }, t: value => value, esc: value => String(value ?? '').replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;'),
     go: route => routes.push(route), toast: (message, options) => toasts.push({ message, options }), renderStage() {}, pickFile: async () => null };
   context.TAStore.save = library => saved.push(native(library));
+  context.TAUI.commitLibrary = async library => { await context.TAStore.save(library); context.TAUI.state.lib=library; context.TAUI.state.save='saved'; };
   return { context, W: context.TAWallpaperImport, host, saved, toasts, routes, classes };
 }
 function pngSize(width, height) { const bytes = pixel.slice(); const view = new DataView(bytes.buffer); view.setUint32(16, width); view.setUint32(20, height); return bytes; }
@@ -155,14 +156,14 @@ await test('save failure leaves the active library untouched and successful loca
   env.W.open({ title: 'Local image', attribution });
   await env.host.querySelector('[data-wallpaper-local]').onclick();
   assert.equal(env.saved.length, 0); assert.equal(env.context.TAUI.state.lib, original);
-  env.host.querySelector('[data-wallpaper-apply]').onclick();
+  await env.host.querySelector('[data-wallpaper-apply]').onclick();
   assert.equal(env.saved.length, 0, 'a file selected under an author must be confirmed before attributing it');
   env.host.querySelector('[data-wallpaper-source-confirm]').onchange({ target: { checked: true } });
   env.context.TAStore.save = () => { throw Object.assign(new Error('quota'), { code: 'quota' }); };
-  env.host.querySelector('[data-wallpaper-apply]').onclick();
+  await env.host.querySelector('[data-wallpaper-apply]').onclick();
   assert.equal(env.context.TAUI.state.lib, original); assert.equal(original.assets.length, 0); assert.equal(env.routes.length, 0);
   env.context.TAStore.save = next => env.saved.push(native(next));
-  env.host.querySelector('[data-wallpaper-apply]').onclick();
+  await env.host.querySelector('[data-wallpaper-apply]').onclick();
   assert.equal(env.saved.length, 1); assert.equal(env.context.TAUI.state.lib.assets.length, 1);
   assert.equal(env.context.TAUI.state.lib.settings.chatBackgroundAssetId, 'keep-background');
   assert.equal(env.context.TAUI.state.lib.assets[0].source.kind, 'file');
@@ -178,7 +179,7 @@ await test('changing the selected wallpaper resets source confirmation and does 
   env.host.querySelector('[data-wallpaper-source-confirm]').onchange({ target: { checked: true } });
   env.context.TAUI.pickFile = async () => ({ name: 'different.png', size: pixel.length, arrayBuffer: async () => pixel.buffer });
   await env.host.querySelector('[data-wallpaper-local]').onclick();
-  env.host.querySelector('[data-wallpaper-apply]').onclick();
+  await env.host.querySelector('[data-wallpaper-apply]').onclick();
   assert.equal(env.saved.length, 0); assert.equal(env.context.TAUI.state.lib.assets.length, 0);
 });
 
@@ -188,9 +189,9 @@ await test('standalone resource pages retain the success toast and its usable un
   env.W.open({ title: 'From source', attribution });
   await env.host.querySelector('[data-wallpaper-local]').onclick();
   env.host.querySelector('[data-wallpaper-source-confirm]').onchange({ target: { checked: true } });
-  env.host.querySelector('[data-wallpaper-apply]').onclick();
+  await env.host.querySelector('[data-wallpaper-apply]').onclick();
   assert.equal(env.context.TAUI.state.lib.assets.length, 1); assert.equal(env.routes.length, 0);
-  env.toasts.find(toast => toast.options?.action)?.options.action.onClick();
+  await env.toasts.find(toast => toast.options?.action)?.options.action.onClick();
   assert.equal(env.context.TAUI.state.lib.assets.length, 0); assert.equal(env.saved.length, 2);
 });
 
