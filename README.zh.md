@@ -8,6 +8,23 @@
 
 Quilvori 是为 SillyTavern 素材准备的本地写作工作台。你可以编辑角色卡、整理世界书、连接自己的模型一起改稿，再导出到 SillyTavern。手动编辑、导入、检查和备份等本地功能可以独立使用；AI 功能需要另行配置模型服务。
 
+## 界面实拍
+
+下图使用专为演示制作的虚构作品，展示收藏室、角色卡编辑器和世界书触发测试。
+
+<a href="docs/screenshots/collection.png"><img src="docs/screenshots/collection.png" alt="收藏室中的角色卡和世界书封面"></a>
+
+<table>
+  <tr>
+    <td width="50%"><a href="docs/screenshots/character-editor.png"><img src="docs/screenshots/character-editor.png" alt="角色卡编辑器与实时预览"></a></td>
+    <td width="50%"><a href="docs/screenshots/world-book-trigger.png"><img src="docs/screenshots/world-book-trigger.png" alt="世界书触发测试列出的条目和上下文开销"></a></td>
+  </tr>
+  <tr>
+    <td align="center">角色卡编辑器</td>
+    <td align="center">世界书触发测试</td>
+  </tr>
+</table>
+
 ## 收藏室、分区配色与资源目录
 
 首页以大封面收藏画廊展示角色卡和世界书，支持搜索、分类、原文预览，并保留“写角色卡”“写世界书”入口。角色卡使用已有肖像；缺少肖像时显示文字书封，不生成替代作品。标题花边、书封角花和藏书章呼应书卷氛围。
