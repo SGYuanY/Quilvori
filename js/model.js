@@ -4,54 +4,65 @@
   const KEY = "nijan-model";
   const REASONING_EFFORTS = ['auto', 'none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
   const records = [];
-  let catalog = [],
-    sequence = 0;
-  function load() {
-    try {
-      return Object.assign(
-        {
-          baseUrl: "",
-          model: "",
-          key: "",
-          profile: "default",
-          temperature: 0.7,
-          protocol: "auto",
-          reasoningEffort: "auto",
-        },
-        JSON.parse(localStorage.getItem(KEY) || "{}"),
-      );
-    } catch (_) {
-      return {
-        baseUrl: "",
-        model: "",
-        key: "",
-        profile: "default",
-        temperature: 0.7,
-        protocol: "auto",
-        reasoningEffort: "auto",
-      };
-    }
+  let sequence = 0;
+  const DEFAULT_IDLE_MINUTES = 5;
+  const defaults = {baseUrl:'', model:'', key:'', profile:'default', temperature:.7, protocol:'auto', reasoningEffort:'auto', contextWindow:0, idleMinutes:DEFAULT_IDLE_MINUTES};
+  function configOf(raw = {}) {
+    const cfg = Object.fromEntries(Object.entries(defaults).map(([key, value]) => [key,raw[key] ?? value]));
+    cfg.protocol = ['auto','responses','chat'].includes(cfg.protocol) ? cfg.protocol : 'auto';
+    cfg.reasoningEffort = REASONING_EFFORTS.includes(cfg.reasoningEffort) ? cfg.reasoningEffort : 'auto';
+    cfg.temperature = Number.isFinite(Number(cfg.temperature)) ? Number(cfg.temperature) : .7;
+    cfg.contextWindow = Math.max(0,Math.floor(Number(cfg.contextWindow) || 0));
+    const minutes = Number(cfg.idleMinutes);
+    cfg.idleMinutes = Number.isFinite(minutes) && minutes >= 1 && minutes <= 60 ? Math.round(minutes) : DEFAULT_IDLE_MINUTES;
+    return cfg;
   }
+  function registry() {
+    let raw = {};
+    try { raw = JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch (_) {}
+    const profiles = (Array.isArray(raw.profiles) ? raw.profiles : []).filter(row=>typeof row?.id==='string' && typeof row.name==='string' && row.config && typeof row.config==='object');
+    if (!profiles.length) profiles.push({id:'default',name:'Default',config:configOf(raw),models:[]});
+    return {profiles,active:profiles.find(row=>row.id===raw.active) || profiles[0]};
+  }
+  function persist(reg) {
+    localStorage.setItem(KEY,JSON.stringify({...reg.active.config,active:reg.active.id,profiles:reg.profiles}));
+  }
+  function load() { return configOf(registry().active.config); }
   function save(next) {
-    const config = Object.assign(load(), next || {});
-    config.protocol = ["auto", "chat", "responses"].includes(config.protocol)
-      ? config.protocol
-      : "auto";
-    config.temperature = Number.isFinite(Number(config.temperature))
-      ? Number(config.temperature)
-      : 0.7;
-    config.reasoningEffort = REASONING_EFFORTS.includes(config.reasoningEffort) ? config.reasoningEffort : 'auto';
-    localStorage.setItem(
-      KEY,
-      JSON.stringify(
-        Object.fromEntries(
-          ["baseUrl", "model", "key", "profile", "temperature", "protocol", "reasoningEffort"].map(
-            (key) => [key, config[key]],
-          ),
-        ),
-      ),
-    );
-    return config;
+    const reg = registry(), prev = reg.active.config;
+    reg.active.config = configOf({...prev,...next});
+    if (prev.baseUrl !== reg.active.config.baseUrl || prev.key !== reg.active.config.key) reg.active.models = [];
+    if ((prev.baseUrl !== reg.active.config.baseUrl || prev.model !== reg.active.config.model) && !Object.hasOwn(next || {},'contextWindow')) reg.active.config.contextWindow=0;
+    persist(reg);
+    return reg.active.config;
+  }
+  function profiles() {
+    const reg = registry();
+    return reg.profiles.map(({id,name}) => ({id,name,active:id===reg.active.id}));
+  }
+  function selectProfile(id) {
+    const reg = registry(), row = reg.profiles.find(p=>p.id===id);
+    if (!row) throw new Error('请选择模型配置');
+    reg.active = row; persist(reg);
+  }
+  function newProfile(name) {
+    if (!name?.trim()) throw new Error('请输入配置名称');
+    const reg = registry();
+    reg.active = {id:root.crypto.randomUUID(),name:name.trim(),config:configOf(),models:[]};
+    reg.profiles.push(reg.active); persist(reg);
+  }
+  function metadata(item) {
+    const id = typeof item === 'string' ? item : String(item?.id || item?.name || item?.model || '');
+    const context = Number(item?.context_length ?? item?.context_window ?? item?.max_context_tokens ?? item?.top_provider?.context_length);
+    const offered = item?.supported_reasoning_efforts ?? item?.reasoning?.supported_efforts;
+    const recommended = item?.recommended_reasoning_effort ?? item?.default_reasoning_effort ?? item?.reasoning?.default_effort;
+    return {id:id.trim(),context:Number.isSafeInteger(context) && context > 0 ? context : 0,
+      efforts:Array.isArray(offered) ? offered.filter(value=>REASONING_EFFORTS.includes(value)) : [], recommended:REASONING_EFFORTS.includes(recommended) ? recommended : ''};
+  }
+  function capabilities() {
+    const row = registry().active;
+    const report = (row.models || []).find(m=>m.id===row.config.model) || metadata(row.config.model);
+    return {...report,manual:row.config.contextWindow || 0};
   }
   function apiRoot(url) {
     return String(url || "")
@@ -90,7 +101,7 @@
   }
   function writingGuide() {
     const prefs = (root.TAI18n && root.TAI18n.prefs) || {};
-    const group = (root.TAUI && root.TAUI.state.lib.sections.style) || {};
+    const group = root.TAUI?.state?.lib?.sections?.style || {};
     const styles = {
       short: "句子短，叙述具体。",
       long: "允许展开环境、动作和细节。",
@@ -151,6 +162,8 @@
   function extract(data, protocol) {
     if (protocol === "responses") {
       const output = Array.isArray(data.output) ? data.output : [];
+      const refusal = output.filter(item => item.type === 'message').flatMap(item => item.content || []).find(part => part.type === 'refusal');
+      if (refusal?.refusal) throw new Error(refusal.refusal);
       return {
         text:
           piece(data.output_text) ||
@@ -166,35 +179,31 @@
             .join("\n"),
         reasoning: output
           .filter((item) => item.type === "reasoning")
-          .map((item) => piece(item.summary || item.content || ""))
+          .map((item) => piece(item.summary) || piece(item.content))
           .filter(Boolean)
           .join("\n"),
       };
     }
     const message =
       (data.choices && data.choices[0] && data.choices[0].message) || {};
+    const parts = chatPart(message);
+    if (!parts.reasoning) parts.reasoning = piece(data.reasoning_content);
+    return parts;
+  }
+  function chatPart(message) {
+    const content = message.content;
+    if (message.refusal) throw new Error(piece(message.refusal));
+    const hidden = Array.isArray(content) ? content.filter(part => /^(reasoning|thinking)/.test(part?.type || '')) : [];
+    const visible = hidden.length ? content.filter(part => !hidden.includes(part)) : content;
     return {
-      text:
-        typeof message.content === "string"
-          ? message.content
-          : piece(
-              (message.content || []).filter(
-                (part) => !String(part.type || "").startsWith("reasoning"),
-              ),
-            ),
-      reasoning: piece(
-        message.reasoning_content ||
-          message.reasoning ||
-          data.reasoning_content ||
-          "",
-      ),
+      text: piece(visible),
+      reasoning: piece(message.reasoning_content) || piece(message.reasoning) || piece(hidden.map(part => part.text || part.thinking)),
     };
   }
   function cleanError(message, config) {
-    return String(message || "请求失败")
-      .split(config.key || "\0")
-      .join("[密钥已隐藏]")
-      .slice(0, 500);
+    let messageText = String(message || '请求失败');
+    if (config.key) messageText = messageText.split(config.key).join('[redacted]');
+    return messageText.replace(/\bBearer\s+\S+/gi,'Bearer [redacted]').slice(0,500);
   }
   function checkCompletion(data, protocol) {
     if (!data || typeof data !== "object" || Array.isArray(data))
@@ -222,20 +231,116 @@
         );
     }
   }
-  async function streamResult(response, protocol, record) {
+  const tr = text => root.TAI18n ? root.TAI18n.t(text) : text;
+
+  // Each attempt permits a full wait for its first bytes. Any nonempty body chunk
+  // (including an SSE keep-alive) renews the idle window for that attempt.
+  function watchActivity(record, idleMs, parentSignal) {
+    const controller = new AbortController();
+    let timer, bytesThisAttempt = 0, timeoutCode = '', notifiedAt = 0;
+    function renew() {
+      clearTimeout(timer);
+      if (!controller.signal.aborted) timer = setTimeout(() => {
+        timeoutCode = bytesThisAttempt ? 'idle-timeout' : 'first-byte-timeout';
+        controller.abort();
+      }, idleMs);
+    }
+    const cancel = () => controller.abort();
+    if (parentSignal?.aborted) cancel();
+    else parentSignal?.addEventListener('abort', cancel, {once:true});
+    return {
+      signal: controller.signal,
+      get timeoutCode() { return timeoutCode; },
+      begin() {
+        controller.signal.throwIfAborted();
+        bytesThisAttempt = 0;
+        record.phase = 'waiting';
+        record.httpStatus = null;
+        renew();
+        notify(record);
+      },
+      headers(status) { record.httpStatus = status; notify(record); },
+      receive(size) {
+        if (!bytesThisAttempt) notifiedAt = 0;
+        bytesThisAttempt += size;
+        record.bytesReceived += size;
+        record.lastActivityAt = Date.now();
+        renew();
+        if (record.phase === 'waiting') record.phase = 'receiving';
+      },
+      progress() {
+        if (Date.now() - notifiedAt >= 150) { notifiedAt = Date.now(); notify(record); }
+      },
+      close() {
+        clearTimeout(timer);
+        parentSignal?.removeEventListener('abort',cancel);
+        controller.abort();
+      },
+    };
+  }
+
+  async function readBody(response, activity, consume) {
+    const reader = response.body?.getReader();
+    if (!reader) return;
+    const decoder = new TextDecoder();
+    const cancel = () => { reader.cancel().catch(() => {}); };
+    activity.signal.addEventListener('abort',cancel,{once:true});
+    try {
+      while (true) {
+        activity.signal.throwIfAborted();
+        const chunk = await reader.read();
+        activity.signal.throwIfAborted();
+        if (chunk.done) { consume(decoder.decode(),true); break; }
+        if (!chunk.value.byteLength) continue;
+        activity.receive(chunk.value.byteLength);
+        const done = consume(decoder.decode(chunk.value,{stream:true}),false);
+        activity.progress();
+        if (done) { cancel(); break; }
+      }
+    } finally {
+      activity.signal.removeEventListener('abort',cancel);
+      reader.releaseLock();
+    }
+  }
+
+  async function responseText(response, activity, limit = Infinity) {
+    let text = '';
+    await readBody(response,activity,part => {
+      text += part.slice(0,limit - text.length);
+      return text.length >= limit;
+    });
+    return text;
+  }
+
+  async function errorDetail(response, activity, config) {
+    const text = await responseText(response,activity,8192);
+    let message;
+    try {
+      const data = JSON.parse(text), error = data?.error;
+      message = (typeof error === 'string' ? error : error?.message) || data?.message;
+      if (error?.code) message = message ? message + ' (' + error.code + ')' : error.code;
+    } catch (_) {}
+    return cleanError(message || text.trim() || response.statusText,config);
+  }
+
+  async function streamResult(response, protocol, record, activity) {
     if (
-      !String(response.headers.get("content-type") || "").includes(
+      !String(response.headers.get("content-type") || "").toLowerCase().includes(
         "text/event-stream",
       )
     ) {
-      const data = await response.json();
+      const text = await responseText(response,activity);
+      let data;
+      try { data = JSON.parse(text); }
+      catch (_) { throw new Error(tr('接口未返回完整的 JSON 响应。')); }
       checkCompletion(data, protocol);
       record.usage = data.usage;
       return extract(data, protocol);
     }
-    const reader = response.body.getReader(),
-      decoder = new TextDecoder();
     let buffer = "",
+      skipNextLF = false,
+      scanned = 0,
+      eventName = "",
       eventData = [],
       text = "",
       reasoning = "",
@@ -243,13 +348,15 @@
       finished = false;
     const event = () => {
       if (!eventData.length) return;
-      const raw = eventData.join("\n");
+      const raw = eventData.join("\n"), type = eventName;
       eventData = [];
-      if (raw === "[DONE]") {
+      eventName = "";
+      if (raw.trim() === "[DONE]") {
         if (protocol === "chat") finished = true;
         return;
       }
       const value = JSON.parse(raw);
+      if (type && !value.type) value.type = type;
       if (
         value.error ||
         value.type === "error" ||
@@ -257,17 +364,15 @@
         value.type === "response.incomplete"
       )
         throw new Error(
-          (value.error && value.error.message) ||
-            (value.response &&
-              value.response.error &&
-              value.response.error.message) ||
-            "模型输出未完成，原稿已保留。",
+          (typeof value.error === 'string' ? value.error : value.error?.message) ||
+          value.message || value.response?.error?.message || tr('模型输出未完成，原稿已保留。'),
         );
       if (protocol === "chat") {
         const delta =
           (value.choices && value.choices[0] && value.choices[0].delta) || {};
-        text += piece(delta.content);
-        reasoning += piece(delta.reasoning_content || delta.reasoning);
+        const parts = chatPart(delta);
+        text += parts.text;
+        reasoning += parts.reasoning;
         const finish =
           value.choices && value.choices[0] && value.choices[0].finish_reason;
         if (finish && finish !== "stop")
@@ -277,6 +382,7 @@
         if (finish) finished = true;
         if (value.usage) record.usage = value.usage;
       } else {
+        if (value.type === 'response.refusal.delta') throw new Error(value.delta || tr('模型没有返回正文，原稿已保留。'));
         if (value.type === "response.output_text.delta")
           text += value.delta || "";
         if (
@@ -293,31 +399,33 @@
       }
       record.reasoning = reasoning;
       record.output = text;
-      notify(record);
+      if (text) record.phase = 'writing';
+      else if (reasoning) record.phase = 'reasoning';
     };
-    const line = (value) => {
-      if (value === "") event();
-      else if (value.startsWith("data:"))
-        eventData.push(value.slice(5).trimStart());
-    };
-    try {
-      while (true) {
-        const chunk = await reader.read();
-        buffer += decoder.decode(chunk.value || new Uint8Array(), {
-          stream: !chunk.done,
-        });
-        let index;
-        while ((index = buffer.indexOf("\n")) >= 0) {
-          line(buffer.slice(0, index).replace(/\r$/, ""));
-          buffer = buffer.slice(index + 1);
-        }
-        if (chunk.done) break;
-      }
-      if (buffer) line(buffer.replace(/\r$/, ""));
-      event();
-    } finally {
-      reader.releaseLock();
+    // A line may span reads, including the CR and LF of a single separator.
+    function line(value) {
+      if (value === '') { event(); eventName = ''; }
+      else if (value.startsWith('data:')) eventData.push(value.slice(5).replace(/^ /,''));
+      else if (value.startsWith('event:')) eventName = value.slice(6).trim();
     }
+    await readBody(response,activity,(part,eof) => {
+      if (skipNextLF && part) { if (part[0] === '\n') part = part.slice(1); skipNextLF = false; }
+      buffer += part;
+      let start = 0;
+      for (let i = scanned; i < buffer.length; i++) {
+        if (buffer[i] !== '\n' && buffer[i] !== '\r') continue;
+        line(buffer.slice(start,i));
+        if (buffer[i] === '\r') {
+          if (buffer[i + 1] === '\n') i++;
+          else if (i + 1 === buffer.length) skipNextLF = true;
+        }
+        start = i + 1;
+      }
+      buffer = buffer.slice(start);
+      scanned = buffer.length;
+      if (eof && !finished) { if (buffer) line(buffer); event(); }
+      return finished;
+    });
     if (!finished) throw new Error("连接在输出完成前中断，原稿已保留。");
     const extracted = final ? extract(final, protocol) : null;
     return {
@@ -333,10 +441,16 @@
     if (!/^https?:\/\//i.test(base))
       throw new Error("接口地址需要以 http:// 或 https:// 开头。");
     const record = {
-      id: `task_${++sequence}_${Date.now()}`,
+      id: root.crypto?.randomUUID?.() || `task_${++sequence}_${Date.now()}`,
+      epoch:root.TACreationRecords?.epoch(),
+      ...(opts.workRecord || {}),
       task: opts.task || "test",
       label: opts.label || "接口测试",
       status: "running",
+      phase: 'waiting',
+      bytesReceived: 0,
+      httpStatus: null,
+      idleMs: Number(opts.timeoutMs) > 0 ? Number(opts.timeoutMs) : config.idleMinutes * 60000,
       model: config.model,
       reasoningEffort: REASONING_EFFORTS.includes(config.reasoningEffort) ? config.reasoningEffort : 'auto',
       reasoning: "",
@@ -346,18 +460,7 @@
     };
     records.push(record);
     if (records.length > 24) records.shift();
-    notify(record);
-    const controller = new AbortController();
-    let timedOut = false;
-    const cancel = () => controller.abort();
-    if (opts.signal) {
-      if (opts.signal.aborted) controller.abort();
-      else opts.signal.addEventListener("abort", cancel, { once: true });
-    }
-    const timer = setTimeout(() => {
-      timedOut = true;
-      controller.abort();
-    }, opts.timeoutMs || 180000);
+    const activity = watchActivity(record,record.idleMs,opts.signal);
     try {
       const protocols =
         config.protocol === "chat"
@@ -384,12 +487,13 @@
           if (protocol === 'responses') body.reasoning = { effort: record.reasoningEffort };
           else body.reasoning_effort = record.reasoningEffort;
         }
-        const request = () =>
-          fetch(
+        const request = async () => {
+          activity.begin();
+          const response = await fetch(
             `${base}/${protocol === "responses" ? "responses" : "chat/completions"}`,
             {
               method: "POST",
-              signal: controller.signal,
+              signal: activity.signal,
               headers: {
                 Authorization: `Bearer ${config.key}`,
                 "Content-Type": "application/json",
@@ -398,67 +502,60 @@
               body: JSON.stringify(body),
             },
           );
+          activity.headers(response.status);
+          return response;
+        };
         let response = await request();
-        if (
-          response.status === 400 &&
-          Object.prototype.hasOwnProperty.call(body, "temperature")
-        ) {
-          const detail = await response.clone().text();
-          if (
-            /temperature/i.test(detail) &&
-            /unsupported|not supported|does not support|only.*default|不支持/i.test(
-              detail,
-            )
-          ) {
-            delete body.temperature;
-            record.transportNote = "接口不支持温度参数，已使用模型默认值。";
-            response = await request();
-          }
+        let detail = response.ok ? '' : await errorDetail(response,activity,config);
+        if (response.status === 400 && Object.hasOwn(body,'temperature') &&
+            /temperature/i.test(detail) && /unsupported|not supported|does not support|only.*default|不支持/i.test(detail)) {
+          delete body.temperature;
+          record.transportNote = "接口不支持温度参数，已使用模型默认值。";
+          response = await request();
+          detail = response.ok ? '' : await errorDetail(response,activity,config);
         }
         if (!response.ok) {
-          const detail = cleanError(await response.text(), config);
           if (response.status === 400 && record.reasoningEffort !== 'auto' && /reasoning|effort/i.test(detail)) {
             const message = '当前模型或接口不支持所选推理强度，请换一个档位或选择跟随模型。';
             throw new Error(`${root.TAI18n ? root.TAI18n.t(message) : message} ${detail}`);
           }
           if (
             index + 1 < protocols.length &&
-            [404, 405, 501].includes(response.status)
+            ([405,501].includes(response.status) ||
+              (response.status === 404 && !/model[_\s-]?not[_\s-]?found|unknown model|model.*(not found|does not exist)|模型.*不存在/i.test(detail)))
           )
             continue;
           throw new Error(`接口返回 ${response.status}：${detail}`);
         }
-        result = await streamResult(response, protocol, record);
+        result = await streamResult(response, protocol, record, activity);
         break;
       }
-      if (!result || !result.text.trim())
-        throw new Error("模型没有返回正文，原稿已保留。");
       record.output = result.text;
       record.reasoning = result.reasoning;
+      if (!result.text.trim()) throw Object.assign(new Error(tr(result.reasoning ? '接口只返回了推理，没有写作正文。' : '模型没有返回正文，原稿已保留。')),{code:'empty-output'});
       record.status = "received";
       record.finishedAt = new Date().toISOString();
       notify(record);
       return { text: result.text, record };
     } catch (error) {
-      record.status = timedOut
-        ? "error"
-        : controller.signal.aborted
-          ? "cancelled"
-          : "error";
-      record.error = timedOut
-        ? "请求超时，原稿已保留。"
-        : controller.signal.aborted
-          ? "已停止，原稿已保留。"
-          : cleanError(error.message, config);
+      const timeout = activity.timeoutCode;
+      record.status = activity.signal.aborted && !timeout ? 'cancelled' : 'error';
+      if (timeout === 'first-byte-timeout') record.error = tr('等待接口首个数据包超时。可在模型设置延长空闲等待。');
+      else if (timeout === 'idle-timeout') record.error = tr('接收中途超时。接口已停止传输，已收到的内容可在任务记录中查看。');
+      else if (record.status === 'cancelled') record.error = tr('已停止，原稿已保留。');
+      else record.error = tr(error.message);
+      if (timeout && record.httpStatus >= 400) record.error = 'HTTP ' + record.httpStatus + ' · ' + record.error;
+      record.error = cleanError(record.error,config);
+      record.errorCode = timeout || (record.status === 'cancelled' ? 'cancelled' : error.code || 'request-failed');
       record.finishedAt = new Date().toISOString();
+      await root.TACreationRecords?.save(record);
       notify(record);
       const wrapped = new Error(record.error);
-      wrapped.name = controller.signal.aborted ? "AbortError" : "Error";
+      wrapped.code = record.errorCode;
+      wrapped.name = timeout ? 'TimeoutError' : record.status === 'cancelled' ? 'AbortError' : 'Error';
       throw wrapped;
     } finally {
-      clearTimeout(timer);
-      controller.abort();
-      if (opts.signal) opts.signal.removeEventListener("abort", cancel);
+      activity.close();
     }
   }
   function parseJson(raw) {
@@ -471,6 +568,11 @@
         "模型返回的内容不是完整 JSON，原稿已保留。请重试或缩小范围。",
       );
     }
+  }
+  function taskOutput(task, raw) {
+    if (["questions", "ideas", "discuss"].includes(task))
+      return root.NIJANCreativeDialogue.decode(task, raw);
+    return parseJson(raw);
   }
   async function runTask(task, context, options) {
     const input = context || {};
@@ -502,8 +604,10 @@
       Object.assign({}, options, {
         task,
         creative: task.startsWith("create:"),
+        workRecord: ['create:character','create:world'].includes(task) ? {workKinds:options?.workKinds || [task.slice(7)],workBatch:options?.workBatch || '',workBrief:input.brief || ''} : null,
         scopeSummary: [
           `任务：${options?.label || task}`,
+          ...(task.startsWith('create:') && Array.isArray(input.modules) ? [input.modules.map(key=>root.TAI18n?.t(root.NIJANAI.MODULES[key]) || root.NIJANAI.MODULES[key]).filter(Boolean).join(' / ')] : []),
           ...(input.ideas?.length
             ? [
                 `已采用灵感：${input.ideas.map((idea, index) => `${index + 1}. ${idea}`).join("\n")}`,
@@ -528,11 +632,27 @@
       }),
     );
     try {
-      const result = root.NIJANAI.validate(
-        task,
-        parseJson(response.text),
-        input,
-      );
+      let result;
+      if (response.record.workKinds && root.NIJANCreationOutput) {
+        const kind=task.slice(7);
+        const report=root.NIJANCreationOutput.collect(response.text,response.record.workKinds,input);
+        const results=Object.keys(report.results);
+        const invalid=report.present.filter(item=>report.errors[item]);
+        const terminal=report.code==='needs-input' || report.code==='model-error';
+        if(terminal || (!options?.collectWorks && !report.results[kind])){
+          throw Object.assign(new Error(report.errors[kind] || report.errors[invalid[0]] || '模型没有返回正文，原稿已保留。'),{code:report.code || 'invalid-work'});
+        }
+        const problems=new Set(invalid);
+        if(!report.results[kind])problems.add(kind);
+        response.record.status=!results.length ? 'error' : problems.size ? 'partial' : 'validated';
+        response.record.error=[...problems].map(key=>report.errors[key]).filter(Boolean).join(' · ');
+        response.record.result=report.results[kind];
+        await root.TACreationRecords?.save(response.record);
+        notify(response.record);
+        if(options?.collectWorks)return {...report,sourceKey:response.record.sourceKey,recordId:response.record.id};
+        return report.results[kind];
+      }
+      result = root.NIJANAI.validate(task, taskOutput(task,response.text), input);
       response.record.status = "validated";
       response.record.result = result;
       if (task === "review") response.record.reviewSource = serialized;
@@ -542,12 +662,13 @@
       response.record.status =
         error.code === "needs-input" ? "needs_input" : "error";
       response.record.error = error.message;
+      await root.TACreationRecords?.save(response.record);
       notify(response.record);
       throw error;
     }
   }
   async function listModels() {
-    const config = load();
+    const reg = registry(), config = reg.active.config;
     if (!config.baseUrl || !config.key)
       throw new Error("先填写接口地址和密钥。");
     const controller = new AbortController(),
@@ -558,8 +679,13 @@
         headers: { Authorization: `Bearer ${config.key}` },
       });
       if (!response.ok) throw new Error(`模型列表返回 ${response.status}`);
-      catalog = modelsFromPayload(await response.json());
-      return catalog.slice();
+      const payload = await response.json(), names = modelsFromPayload(payload);
+      const current = registry();
+      if (current.active.id !== reg.active.id || current.active.config.baseUrl !== config.baseUrl || current.active.config.key !== config.key) throw new Error('配置已变化，请重新连接');
+      const items = Array.isArray(payload) ? payload : (payload.data || payload.models || []);
+      current.active.models = Array.isArray(items) ? items.map(metadata).filter(row=>row.id).slice(0,10000) : [];
+      persist(current);
+      return names;
     } finally {
       clearTimeout(timer);
     }
@@ -609,11 +735,14 @@
     modelsFromPayload,
     listModels,
     runTask,
+    parseJson,
     askJson,
     testMessage,
     semanticFindings,
-    rememberedModels: () => catalog.slice(),
-    history: () => records.slice(),
+    profiles, selectProfile, newProfile, capabilities,
+    rememberedModels: () => (registry().active.models || []).map(row=>row.id),
+    history: () => root.TACreationRecords?.history(records) || records.slice(),
+    clearHistory: () => {records.length=0;root.TACreationRecords?.reset(root.TALibraryDB?.clearEpoch());},
     lastReasoning: () =>
       records.length ? records[records.length - 1].reasoning : "",
   };

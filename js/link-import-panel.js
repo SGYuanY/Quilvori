@@ -7,6 +7,7 @@
   const host = () => document.getElementById('modal-root');
   function message(error) {
     const code = error?.code || error?.message;
+    if (code==='multiple-cards' || code==='invalid-entries') return tr(error.message);
     return tr(({
       'catalog-file':'请选择对应的附件文件。', 'invalid-url':'请粘贴一个有效的文件链接。', 'https-required':'请使用公开的 HTTPS 文件链接。', 'private-url':'这个链接指向本机或内网，请改用公开的 HTTPS 文件链接。',
       'discord-message':'这是 Discord 帖子链接。请在原帖附件上复制下载链接，再粘贴到这里。', 'github-file':'请复制 GitHub 中具体 JSON 或 PNG 文件的链接。',
@@ -57,29 +58,28 @@
     else{UI().state.sel.book=id;UI().state.sel.entry=null;UI().state.loreFilter='';}
     UI().state.query='';close();if(preserveUndo&&document.body.dataset.page)UI().renderStage();else UI().go(kind==='character'?'characters':'lore');
   }
-  function apply(session) {
+  async function apply(session) {
     try {
       if(!session.prepared||session.busy||(session.attribution&&!session.sourceConfirmed))return;
       if(!session.name.trim())throw L().error(session.kind==='character'?'card-name-required':'name-required');
       const plan=L().plan(UI().state.lib,session.prepared,session.name,{includeBook:session.includeBook});
       if(plan.existingId&&!plan.operations?.length){reveal(plan.existingId,session.kind);UI().toast(tr(session.kind==='character'?'这张角色卡已在本地，已为你打开。':'这本世界书已在本地，已为你打开。'));return;}
       const library=root.NIJANAI.copy(UI().state.lib);let receipt=root.NIJANAI.commit(library,plan),avatarSkipped=false;
-      try{root.TAStore.save(library);}catch(error){
+      try{await UI().commitLibrary(library);}catch(error){
         const addedAssets=new Set(receipt.operations.filter(op=>op.path[0]==='assets').map(op=>op.value.id));
         if(error.code!=='quota'||!addedAssets.size)throw error;
         library.assets=library.assets.filter(asset=>!addedAssets.has(asset.id));library.characters.forEach(card=>{if(addedAssets.has(card.avatarAssetId))card.avatarAssetId=null;});
-        receipt.operations=receipt.operations.filter(op=>op.path[0]!=='assets');receipt.operations.forEach(op=>{if(op.kind==='add'&&op.path[0]==='characters')op.value=root.NIJANAI.copy(library.characters.find(card=>card.id===op.value.id));});root.TAStore.save(library);avatarSkipped=true;
+        receipt.operations=receipt.operations.filter(op=>op.path[0]!=='assets');receipt.operations.forEach(op=>{if(op.kind==='add'&&op.path[0]==='characters')op.value=root.NIJANAI.copy(library.characters.find(card=>card.id===op.value.id));});await UI().commitLibrary(library);avatarSkipped=true;
       }
-      clearTimeout(UI().state.timer);UI().state.lib=library;UI().state.save='saved';
       const id=session.kind==='character'?plan.cardId:plan.bookId;if(plan.bookId)UI().state.bookImportId=plan.bookId;
       session.receipt=receipt;reveal(id,session.kind,!!session.attribution);
       UI().toast(tr(session.kind==='character'?'角色卡已导入，可以撤销。':'世界书已导入，可以撤销。'),{kind:'success',action:{label:tr('撤销'),onClick:()=>undo(receipt)}});
       if(avatarSkipped)UI().toast(tr('空间不足，已保留卡片文字并省略新增头像。'));
     }catch(error){session.failed=true;session.status=error.code==='quota'||error.code==='no-storage'?tr(error.message):message(error);render();}
   }
-  function undo(receipt) {
+  async function undo(receipt) {
     try {
-      const library=root.NIJANAI.copy(UI().state.lib);L().undo(library,receipt);root.TAStore.save(library);clearTimeout(UI().state.timer);UI().state.lib=library;UI().state.save='saved';if(!library.characters.some(card=>card.id===UI().state.sel.character))UI().state.sel.character=null;UI().state.sel.book=null;UI().state.sel.entry=null;UI().renderStage();UI().toast(tr('已撤销这次链接导入。'),{kind:'success'});
+      const library=root.NIJANAI.copy(UI().state.lib);L().undo(library,receipt);await UI().commitLibrary(library);if(!library.characters.some(card=>card.id===UI().state.sel.character))UI().state.sel.character=null;UI().state.sel.book=null;UI().state.sel.entry=null;UI().renderStage();UI().toast(tr('已撤销这次链接导入。'),{kind:'success'});
     }catch(error){UI().toast(error.code==='import-in-use'?message(error):tr(error.message),{kind:'error'});}
   }
   function entries(session) {

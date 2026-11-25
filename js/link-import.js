@@ -88,8 +88,8 @@
     } finally { signal?.removeEventListener('abort', cancel); }
   }
   const stable = (value) => Array.isArray(value) ? value.map(stable) : object(value) ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, stable(value[key])])) : value;
-  const signature = (book) => JSON.stringify(stable({ description: book.description || '', entries: (book.entries || []).map(({ id, ...entry }) => entry) }));
-  const cardSignature = (card) => JSON.stringify(stable(Object.fromEntries(CARD_FIELDS.map((field) => [field,card[field] ?? (['tags','alternate_greetings'].includes(field)?[]:field==='talkativeness'?.5:'')]))));
+  const signature = (book) => JSON.stringify(stable({ description: book.description || '', settings:book.stBookFields || {},extensions:book.stBookExtensions || {}, entries: (book.entries || []).map(({ id, stUid, ...entry }) => entry) }));
+  const cardSignature = (card) => JSON.stringify(stable({ ...Object.fromEntries(CARD_FIELDS.map((field) => [field,card[field] ?? (['tags','alternate_greetings'].includes(field)?[]:field==='talkativeness'?.5:'')])), ...root.TAFormats.signatureMetadata(card) }));
   async function digest(value) { return [...new Uint8Array(await root.crypto.subtle.digest('SHA-256', new TextEncoder().encode(value)))].map((byte) => byte.toString(16).padStart(2, '0')).join(''); }
   async function prepare(file, options = {}) {
     const explicitSource = resourceSource(options.attribution);
@@ -106,7 +106,7 @@
         json = JSON.parse(text);
       }
     } catch (err) { throw err.code ? err : error(png ? 'invalid-card' : 'invalid-json'); }
-    const candidate = Array.isArray(json) && json.length === 1 ? json[0] : json;
+    const candidate = options.kind === 'character' ? root.TAFormats.singleCard(json) : Array.isArray(json) && json.length === 1 ? json[0] : json;
     const card = object(candidate?.character?.data) ? candidate.character : candidate;
     const data = object(card?.data) ? card.data : card;
     const isCard = png || /^chara_card_v[23]$/.test(card?.spec || '') || object(data) && ['description','personality','first_mes','scenario'].some((key) => typeof data[key] === 'string') && !data.entries;
@@ -142,12 +142,13 @@
     if (isCard) { spec = data?.character_book; kind = 'embedded'; if (!spec?.entries) throw error('no-embedded-book'); }
     let parsedBook, entries;
     try { parsedBook = root.TAFormats.worldInfoToBook(spec); entries = parsedBook.entries; }
-    catch (_) { throw error('not-world-book'); }
-    if (!entries.length) throw error('empty-book');
+    catch (failure) { if (failure.code === 'invalid-entries') throw failure; throw error('not-world-book'); }
+    const declaredEntries = spec?.entries ?? spec?.data?.entries;
+    if (!entries.length && (!declaredEntries || typeof declaredEntries !== 'object')) throw error('empty-book');
     const base = String(spec?.name || spec?.data?.name || file.filename || filename(file.url) || '').replace(/\.(json|png)$/i, '').trim();
     const name = base || (kind === 'embedded' ? `${data.name || ''} · 世界书` : '世界书');
     const attribution = explicitSource || resourceSource(parsedBook.source);
-    const book = { name, description: parsedBook.description, entries, ...(attribution ? { source: attribution } : {}) };
+    const book = { ...parsedBook, name, entries, ...(attribution ? { source: attribution } : {}) };
     const fingerprint = await digest(signature(book));
     return { target:'world',book, fingerprint, kind, url: safeUrl(file.url), bytes: bytes.length, total: entries.length, constant: entries.filter((entry) => entry.constant).length, unnamed: entries.filter((entry) => !String(entry.comment || '').trim()).length, ...(attribution ? { attribution } : {}) };
   }
@@ -184,7 +185,7 @@
     if((library.characters||[]).some((card)=>{
       const sourceChange=receipt.operations.find(op=>op.kind==='set'&&op.path[0]==='characters'&&op.id===card.id&&op.field==='source');
       const sourceAfterUndo=sourceChange?sourceChange.before:card.source;
-      return !cards.has(card.id)&&(assets.has(card.avatarAssetId)||(card.expressionAssetIds||[]).some((id)=>assets.has(id))||books.has(sourceAfterUndo?.embeddedBookId));
+      return !cards.has(card.id)&&(assets.has(card.avatarAssetId)||(card.expressionAssetIds||[]).some((id)=>assets.has(id))||books.has(card.embeddedBookId ?? sourceAfterUndo?.embeddedBookId));
     })||assets.has(library.settings?.chatBackgroundAssetId))throw error('import-in-use');
     root.NIJANAI.undo(library,receipt);
   }

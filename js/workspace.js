@@ -47,20 +47,11 @@
   const prefs = readPrefs();
   function savePrefs() { try { localStorage.setItem(KEY, JSON.stringify(prefs)); } catch (_) {} }
   let mounted = false, focusMode = false, returnFocus = null, commandItems = [], commandIndex = 0, peekTimer = null;
+  let commandOffset = 0, commandHasMore = false;
+  const commandPageSize = 24;
   function openEntity(ref) {
     closeCommand(); closePeek();
-    if (ref.kind === 'character') { UI().state.sel.character = ref.id; UI().state.cardView = 'edit'; }
-    else { UI().state.sel.book = ref.bookId || ref.id; UI().state.sel.entry = ref.kind === 'entry' ? ref.id : null; }
-    if (ref.kind === 'entry') {
-      UI().state.openFold ||= {};
-      UI().state.openFold.lore = 'content';
-    }
-    const route = ref.kind === 'character' ? 'characters' : 'lore';
-    const forced = document.body.dataset.page;
-    if (forced && forced !== route) {
-      UI().flush();
-      location.href = `${route}.html${ref.kind === 'entry' ? `?entry=${encodeURIComponent(ref.id)}` : ''}#${encodeURIComponent(ref.bookId || ref.id)}`;
-    } else UI().go(route);
+    return root.TASearch.open({ kind: ref.kind, id: ref.id, parentId: ref.bookId, field: ref.kind === 'entry' ? 'content' : 'name', selectOnly: ref.kind !== 'entry' });
   }
   function editWithAI(ref) {
     closeCommand(); closePeek();
@@ -121,21 +112,67 @@
     if (button) { button.setAttribute('aria-pressed', String(on)); button.title = tr(on ? '退出专注模式' : '专注模式'); }
     if (on) UI().toast(tr('已进入专注模式，按 Esc 返回'), { id: 'focus', kind: 'info', title: tr('专注模式'), action: { label: tr('退出专注模式'), onClick: () => setFocus(false) } });
   }
-  function commandActions(query) {
-    const lib = UI().state.lib, q = query.trim().toLowerCase();
-    const items = UI().ROUTES.map((route) => ({ label: tr(route.label), detail: tr('跳转页面'), icon: route.id, run: () => UI().go(route.id) }));
-    lib.characters.forEach((card) => items.push({ label: card.name || tr('未命名'), detail: tr('角色卡'), icon: 'characters', raw: true, search: `${card.description} ${(card.tags || []).join(' ')}`, run: () => openEntity({ kind: 'character', id: card.id }) }));
-    lib.worldBooks.forEach((book) => {
-      items.push({ label: book.name, detail: tr('世界书'), icon: 'lore', raw: true, run: () => openEntity({ kind: 'book', id: book.id }) });
-      if (q) book.entries.forEach((entry) => items.push({ label: entry.comment || tr('未命名'), detail: book.name, raw: true, icon: 'lore', search: `${entry.content} ${(entry.keys || []).join(' ')}`, run: () => openEntity({ kind: 'entry', id: entry.id, bookId: book.id }) }));
-    });
-    return items.filter((item) => !q || `${item.label} ${item.detail} ${item.search || ''}`.toLowerCase().includes(q)).slice(0, 24);
+  function performTargetAction(kind, id, action) {
+    const lib = UI().state.lib, card = kind === 'character';
+    const target = (card ? lib.characters : lib.worldBooks).find(row => row.id === id);
+    if (!target) { UI().toast(tr('搜索目标已不存在')); return; }
+    if (action === 'organize') {
+      root.NIJANOrganizePanel.open(card ? { kind: 'character', cardId: id } : { kind: 'world', bookId: id });
+      return;
+    }
+    const bookId = target.embeddedBookId ?? target.source?.embeddedBookId;
+    const payload = card ? root.TAFormats.characterToCard(target, lib.worldBooks.find(row => row.id === bookId)) : root.TAFormats.bookToWorldInfo(target);
+    UI().downloadJson(UI().safeName(target.name) + '.json', payload);
   }
-  function paintCommand(query) {
-    commandItems = commandActions(query); commandIndex = 0;
+  function *commandActions(query) {
+    const { state, ROUTES } = UI(), search = root.TASearch;
+    const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    const includes = text => terms.every(term => text.toLowerCase().includes(term));
+    const actionKinds = [
+      ['character', 'organize', '整理角色卡'], ['book', 'organize', '整理世界书'],
+      ['character', 'export', '导出角色卡 JSON'], ['book', 'export', '导出世界书 JSON'],
+    ];
+    for (const [kind, action, phrase] of actionKinds) {
+      const type = search.types[kind], prefix = tr(phrase);
+      const commandText = [prefix, phrase, action].join(' ').toLowerCase();
+      if (terms.length && !terms.some(term => commandText.includes(term) || term.includes(action === 'export' ? '导出' : '整理'))) continue;
+      for (const item of state.lib[type.collection]) {
+        if (!terms.length && state.sel[type.selection] !== item.id) continue;
+        const title = item.name || tr('未命名');
+        if (includes(commandText + ' ' + title)) yield { label: prefix + ' · ' + title, detail: tr(type.label), icon: type.route, raw: true, run: () => performTargetAction(kind, item.id, action) };
+      }
+    }
+    for (const route of ROUTES) {
+      const label = tr(route.label), detail = tr('跳转页面');
+      if (includes([label, detail, route.id, route.label].join(' '))) yield { label, detail, icon: route.id, run: () => UI().go(route.id) };
+    }
+    if (terms.length) {
+      for (const hit of search.matches(state.lib, query)) yield { label: hit.title || tr('未命名'), detail: search.describe(hit), icon: search.types[hit.target.kind].route, raw: true, run: () => search.open(hit.target) };
+    } else {
+      for (const [kind, type] of Object.entries(search.types)) {
+        if (type.parent) continue;
+        for (const item of state.lib[type.collection]) yield { label: item[type.title] || tr('未命名'), detail: tr(type.label), icon: type.route, raw: true, run: () => search.open({kind, id:item.id, field:type.title}) };
+      }
+    }
+  }
+  function paintCommand(query, offset = 0) {
+    const page = root.TASearch.page(commandActions(query), offset, commandPageSize);
+    commandItems = page.items; commandOffset = offset; commandHasMore = page.more; commandIndex = 0;
     const list = document.getElementById('workspace-command-results');
     list.innerHTML = commandItems.map((item, index) => `<button type="button" class="ws-command-result${index === 0 ? ' active' : ''}" role="option" aria-selected="${index === 0}" id="ws-result-${index}" data-command-index="${index}">${icon(item.icon)}<span><b ${item.raw ? 'data-no-translate' : ''}>${esc(item.label)}</b><small data-no-translate>${esc(item.detail)}</small></span>${icon('arrow')}</button>`).join('') || `<p class="ws-command-empty">${tr('没有找到匹配的内容')}</p>`;
     list.querySelectorAll('[data-command-index]').forEach((button) => { button.onclick = () => runCommand(Number(button.dataset.commandIndex)); });
+    const footer = document.querySelector('#workspace-command footer');
+    let pages = footer.querySelector('.search-pages');
+    if (!pages) { pages = document.createElement('div'); pages.className = 'search-pages'; footer.prepend(pages); }
+    pages.replaceChildren();
+    if (offset || page.more) {
+      for (const [step, label, available] of [[-1,'上一页',offset > 0],[1,'下一页',page.more]]) {
+        const button = document.createElement('button'); button.type = 'button'; button.className = 'btn btn-small';
+        button.disabled = !available; button.textContent = tr(label);
+        button.onclick = () => { paintCommand(query, offset + step * commandPageSize); document.getElementById('workspace-command-input').focus(); };
+        pages.append(button);
+      }
+    }
     syncCommandIndex();
   }
   function syncCommandIndex() {
@@ -259,15 +296,6 @@
       heading.querySelector('[data-card-collaborate]').onclick = () => editWithAI({ kind: 'character', id: UI().state.sel.character });
       heading.querySelector('[data-card-organize]').onclick = () => root.NIJANOrganizePanel.open({ kind: 'character', cardId: UI().state.sel.character }); form.prepend(heading);
     }
-    const filter = stage.querySelector('#lore-filter');
-    if (filter && !filter.dataset.bound) {
-      filter.dataset.bound = '1'; filter.oninput = () => {
-        const query = filter.value.trim().toLowerCase(); UI().state.loreFilter = filter.value;
-        directory.querySelectorAll('.entry').forEach((row) => { row.hidden = !row.dataset.search.includes(query); });
-        directory.querySelectorAll('.column').forEach((column) => { column.hidden = !column.querySelector('.entry:not([hidden])'); });
-        const empty = directory.querySelector('.ws-filter-empty'); if (empty) empty.hidden = !!directory.querySelector('.entry:not([hidden])');
-      }; if (filter.value) filter.oninput();
-    }
     stage.querySelectorAll('[data-quick-instruction]').forEach((button) => {
       button.onclick = () => { const area = stage.querySelector('#ai-instruction'); if (!area) return; area.value = area.value.trim() ? `${area.value.trim()}\n${button.dataset.quickInstruction}` : button.dataset.quickInstruction; area.dispatchEvent(new Event('input', { bubbles: true })); area.focus(); };
     });
@@ -321,6 +349,11 @@
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); openCommand(); return; }
       const command = document.getElementById('workspace-command');
       if (!command.hidden) {
+        if (event.key === 'PageUp' || event.key === 'PageDown') {
+          event.preventDefault();
+          const next = event.key === 'PageDown';
+          if (next ? commandHasMore : commandOffset > 0) paintCommand(document.getElementById('workspace-command-input').value, commandOffset + (next ? 1 : -1) * commandPageSize);
+        }
         if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); commandIndex = commandItems.length ? (commandIndex + (event.key === 'ArrowDown' ? 1 : -1) + commandItems.length) % commandItems.length : 0; syncCommandIndex(); }
         if (event.key === 'Enter' && !event.isComposing && document.activeElement.id === 'workspace-command-input') { event.preventDefault(); runCommand(commandIndex); }
       }

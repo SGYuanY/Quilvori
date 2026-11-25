@@ -18,7 +18,7 @@
     return {
       brief: state.brief,
       modules: copy(state.modules || []),
-      answers: copy(state.answers || []),
+      answers: copy((state.answers || []).filter(item => typeof item.answer === 'string' && item.answer.trim())),
       ideas: selectedIdeas(state.ideas),
       history: copy(
         (state.creationHistory || []).map(({ role, text }) => ({ role, text })),

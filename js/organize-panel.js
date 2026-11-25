@@ -10,8 +10,7 @@
   const fieldName = (value) => tr(AI().CARD_FIELDS[value] || { category: '分类', comment: '条目名', keys: '主关键词', constant: '常驻方式' }[value] || value);
   const display = (value, field) => field === 'constant' ? tr(value ? '常驻' : '关键词触发') : field === 'category' ? category(value) : Array.isArray(value) ? value.join('、') || tr('留白') : value || tr('留白');
   function close() {
-    active?.controller?.abort();
-    if (active) active.busy = false;
+    // Closing the sheet detaches its controls. The selected work owns its request.
     active = null; host().classList.remove('show'); host().innerHTML = ''; host().onclick = null;
     document.removeEventListener('keydown', keyboard, true);
     if (previousFocus?.isConnected) previousFocus.focus();
@@ -54,34 +53,32 @@
     session.status = tr('正在整理，原稿还没有改动。'); const controller = new AbortController(); session.controller = controller; render();
     try {
       const result = await root.NIJANModel.runTask(session.task, session.context, { label: session.kind === 'character' ? tr('角色卡整理分栏') : tr('世界书条目整理'), signal: controller.signal });
-      if (active !== session || controller.signal.aborted || session.controller !== controller) return;
+      if (controller.signal.aborted || session.controller !== controller) return;
       session.result = result;
       session.selected = new Set(session.kind === 'character' ? result.moves.map((_, index) => String(index)) : result.entries.map((entry) => entry.id));
       session.plan = selectedPlan(session);
       session.status = tr(session.plan.operations.length ? '建议已备好。先核对预览，再决定应用哪些。' : '没有需要调整的内容，原稿保持原样。');
     } catch (error) {
-      if (active !== session || controller.signal.aborted || session.controller !== controller) return;
+      if (controller.signal.aborted || session.controller !== controller) return;
       session.result = null; session.plan = null; session.error = true; session.status = tr(error.message);
     } finally { if (session.controller === controller) { session.busy = false; if (active === session) render(); } }
   }
-  function apply(session) {
+  async function apply(session) {
     try {
       const plan = selectedPlan(session);
       if (!plan?.operations.length) return;
-      const next = AI().copy(UI().state.lib), receipt = AI().commit(next, plan);
-      // Save first: failed storage must not leave a half-applied library or preview.
-      root.TAStore.save(next); clearTimeout(UI().state.timer); UI().state.lib = next; UI().state.save = 'saved';
+      const receipt = await root.TAHistory.apply(plan);
       session.receipt = receipt; session.receiptPlan = plan; session.applied = true; session.plan = plan;
       session.error = false; session.status = tr('整理已应用，可以撤销。'); UI().renderStage(); render();
       const savedReceipt = receipt;
       UI().toast(tr('整理已应用，可以撤销。'), { kind: 'success', action: { label: tr('撤销'), onClick: () => undo(session, savedReceipt) } });
     } catch (error) { session.error = true; session.status = tr(error.message); render(); }
   }
-  function undo(session, receipt = session.receipt) {
+  async function undo(session, receipt = session.receipt) {
     try {
       if (!receipt || receipt !== session.receipt) throw new Error(tr('请使用当前预览中的撤销按钮。'));
       const next = AI().copy(UI().state.lib); AI().undo(next, receipt);
-      root.TAStore.save(next); clearTimeout(UI().state.timer); UI().state.lib = next; UI().state.save = 'saved';
+      await UI().commitLibrary(next);
       session.receipt = null; session.applied = false; session.plan = null; session.result = null;
       session.error = false; session.status = tr('已撤销整理，原稿已恢复。'); UI().renderStage(); if (active === session) render();
       UI().toast(tr('已撤销整理，原稿已恢复。'), { kind: 'success' });
@@ -112,6 +109,11 @@
     host().innerHTML = `<section class="modal paper organize-modal" role="dialog" aria-modal="true" aria-labelledby="organize-title"><header class="organize-heading"><div><p class="ws-address" data-no-translate>${esc(name || '')}</p><h3 id="organize-title">${esc(tr(title))}</h3></div><button class="ws-icon-button" type="button" data-organize-close aria-label="${esc(tr('关闭'))}">${root.TAWorkspace.icon('close')}</button></header><p class="organize-intro">${esc(tr(card ? '把混在一起的设定放回合适的栏位。只搬原文，未归类的内容留在原栏，可选栏位可以留白。' : '给未命名条目起名，按内容分类，并补充准确的触发词。正文不参与修改，常驻条目可以没有关键词。'))}</p><details class="organize-settings" ${session.result ? '' : 'open'}><summary>${esc(tr('整理设置'))}</summary><div class="organize-controls">${card ? '' : `<label class="field"><span class="field-label">${esc(tr('整理范围'))}</span><select data-organize-scope ${session.busy ? 'disabled' : ''}>${[['current', '当前条目'], ['attention', '未命名或缺少触发词的条目'], ['all', '当前世界书全部条目']].filter(([value]) => value !== 'current' || session.entryId).map(([value, label]) => `<option value="${value}" ${session.scope === value ? 'selected' : ''}>${esc(tr(label))}</option>`).join('')}</select></label><fieldset ${session.busy ? 'disabled' : ''}><legend>${esc(tr('这次允许整理'))}</legend><label class="check"><input type="checkbox" data-organize-option="keywords" ${session.keywords ? 'checked' : ''}>${esc(tr('补充主关键词'))}</label><label class="check"><input type="checkbox" data-organize-option="renameAll" ${session.renameAll ? 'checked' : ''}>${esc(tr('也可调整已有条目名'))}</label><label class="check"><input type="checkbox" data-organize-option="changeActivation" ${session.changeActivation ? 'checked' : ''}>${esc(tr('允许建议调整常驻方式'))}</label></fieldset>`}<label class="field"><span class="field-label">${esc(tr('整理偏好（可选）'))}</span><textarea rows="2" data-organize-instruction ${session.busy ? 'disabled' : ''} placeholder="${esc(tr(card ? '例如：能力和身世留在描述，行为习惯放进性格。' : '例如：优先用人物全名和别名触发，基础规则保持常驻。'))}">${esc(session.instruction)}</textarea></label><div class="row"><button class="btn btn-primary" type="button" data-organize-generate ${session.busy ? 'disabled' : ''}>${esc(tr(session.busy ? '正在整理…' : '让 AI 整理并预览'))}</button>${!root.NIJANModel.configured() ? `<button class="btn" type="button" data-organize-connect>${esc(tr('连接模型'))}</button>` : ''}<span class="help">${esc(tr('使用设置中选定的模型与推理强度'))}</span></div></div></details><p class="organize-status${session.error ? ' organize-error' : ''}" role="status">${esc(session.status || tr('建议会先展示在这里，确认后才写入。'))}</p>${card ? cardPreview(session) : worldPreview(session)}<footer class="organize-footer"><span class="help">${esc(tr(card ? '原文逐字保留，搬移成对应用。' : '仅应用勾选条目；正文和其他注入设置保留。'))}</span><div class="row"><button class="btn" type="button" data-organize-undo ${!session.receipt || session.busy ? 'disabled' : ''}>${esc(tr('撤销整理'))}</button><button class="btn btn-primary" type="button" data-organize-apply ${!pending || session.busy ? 'disabled' : ''}>${esc(tr('应用勾选的整理'))}</button></div></footer></section>`;
     host().querySelector('[data-organize-close]').onclick = close;
     host().querySelector('[data-organize-generate]').onclick = () => generate(session);
+    if(session.busy){
+      const stop=document.createElement('button');stop.type='button';stop.className='btn btn-small';stop.dataset.organizeStop='';stop.textContent=tr('停止');
+      stop.onclick=()=>{const run=session.controller;if(!run)return;session.controller=null;session.busy=false;session.status=tr('已停止请求，原稿保持原样。');run.abort();render();};
+      host().querySelector('[data-organize-generate]').after(stop);
+    }
     host().querySelector('[data-organize-apply]').onclick = () => apply(session);
     host().querySelector('[data-organize-undo]').onclick = () => undo(session);
     host().querySelector('[data-organize-connect]')?.addEventListener('click', () => { close(); document.querySelector('[data-shell="settings"]')?.click(); });
@@ -134,5 +136,9 @@
     host().classList.add('show'); host().onclick = (event) => { if (event.target === host()) close(); };
     document.addEventListener('keydown', keyboard, true); render(); host().querySelector('[data-organize-close]').focus();
   }
-  root.NIJANOrganizePanel = { open, close };
+  function clear() {
+    for (const session of sessions.values()) { const controller=session.controller;session.controller=null;controller?.abort(); }
+    sessions.clear();if(active)close();
+  }
+  root.NIJANOrganizePanel = { open, close, clear, hideForNavigation:()=>{if(active)close();}, running:()=>[...sessions.values()].some(session=>session.busy) };
 })(globalThis);

@@ -64,7 +64,8 @@ This project uses GPLv3, not the GNU Affero General Public License.
 | Material | Applicable terms |
 | --- | --- |
 | Quilvori source code, project-authored interface assets, scripts, and documentation, unless separately marked | GPL-3.0-only; see [LICENSE](LICENSE) and [NOTICE](NOTICE). |
-| Bundled Sarasa UI fonts | SIL Open Font License 1.1; see [fonts/OFL-Sarasa.txt](fonts/OFL-Sarasa.txt) and [font provenance](fonts/README.md). |
+| Sarasa UI SC and Quilvori Section | SIL Open Font License 1.1. See [font license](fonts/OFL-Sarasa.txt) and [font provenance](fonts/README.md). |
+| Quilvori wordmarks | The Chinese Wing Han font uses its [SIL Open Font License 1.1](fonts/OFL-QuilvoriWingHan.txt). The original Wing Latin font is part of the GPL-3.0-only project. |
 | Resource-directory preview artwork | Original authors retain their rights. See [preview attribution](img/resources/ATTRIBUTION.md). No general external redistribution license was found in the reviewed posts; this repository does not grant permission on their behalf. |
 | Referenced character cards, world books, and full-resolution wallpapers | The original authors' terms apply. Links and attribution do not place those works under GPLv3. Their original resource files are not bundled in the directory. |
 | npm dependencies | Their own license files and notices apply. The lockfile records versions, not a replacement license for those packages. |

@@ -1,0 +1,30 @@
+#context-world { margin-block: 1rem; }
+.ctx-panel { overflow: clip; color: var(--ink); background: var(--paper); }
+.ctx-panel > summary { cursor: pointer; color: inherit; font-weight: 600; }
+.ctx-panel > summary::after { content: '⌄'; margin-inline-start: auto; }
+.ctx-panel[open] > summary::after { transform: rotate(180deg); }
+.ctx-body { padding: 0 1rem 1rem; display: grid; gap: .65rem; }
+.ctx-body > .field, .ctx-body p, .ctx-slot h4 { margin-block: .25rem; }
+.ctx-metrics { display: flex; flex-wrap: wrap; gap: .6rem 1.5rem; padding: .7rem .9rem; margin-block: .35rem .75rem; border-inline-start: 3px solid var(--brass); background: var(--paper); border-radius: 4px; }
+.ctx-metrics > div { display: grid; align-content: start; gap: .22rem; }
+.ctx-metrics span, .ctx-entry-size, .ctx-chip-size { font-size: .78rem; opacity: .82; }
+.ctx-metrics b { font-size: .86rem; font-variant-numeric: tabular-nums; }
+.ctx-metrics meter { width: 7em; height: .5em; accent-color: var(--brass); }
+.ctx-controls, .ctx-hit, .ctx-edge { display: flex; flex-wrap: wrap; gap: .4rem .8rem; align-items: center; }
+.ctx-controls > label.field { max-width: 14em; }
+.ctx-slot, .ctx-result, .ctx-edge, .ctx-skipped, .ctx-change { padding-block: .65rem; border-block-start: 1px solid var(--line); }
+.ctx-slot h4 { font-size: .98rem; }
+.ctx-hit { margin-block: .38rem; }
+.ctx-prose, .ctx-result blockquote { margin: .5rem 0 0; padding: .7rem .9rem; color: inherit; background: var(--paper-2); border-inline-start: 2px solid var(--brass); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 24rem; overflow: auto; font: inherit; }
+.ctx-key { overflow-wrap: anywhere; }
+.ctx-edge-arrow { opacity: .65; }
+.ctx-diff { display: grid; gap: .75rem; grid-template-columns: repeat(auto-fit,minmax(min(100%,16rem),1fr)); margin-top: .6rem; }
+.ctx-core:not([hidden]) { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,13rem),1fr)); gap: .3rem; }
+.ctx-core { max-height: 22rem; overflow: auto; margin-block: .5rem; }
+.ctx-length, .ctx-chip-size, .ctx-entry-size { font-variant-numeric: tabular-nums; }
+.ctx-length { justify-content: flex-end; }
+.ctx-entry-size { grid-column: 1 / -1; display: block; }
+.ctx-directory-rows { width: 100%; display: grid; gap: .5rem; }
+.ctx-directory-pager:not([hidden]) { position: sticky; top: 2rem; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: .35rem; width: 100%; padding: .2rem 0; background: var(--bg); }
+.ctx-directory-pager output { font-size: .76rem; font-variant-numeric: tabular-nums; }
+.ctx-body summary, .ctx-result button, .ctx-edge button { overflow-wrap: anywhere; }

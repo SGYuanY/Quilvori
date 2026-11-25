@@ -63,66 +63,42 @@
     }
   }
 
-  function adoptCharacterBook(spec, ownerName) {
-    if (!spec || !Array.isArray(spec.entries) || !spec.entries.length) return null;
-    const imported = F.worldInfoToBook(spec, `${ownerName || '角色'}·角色书`);
-    const book = { ...imported, id: Store.uid('book'), description: imported.description || '随角色卡导入',
-      entries: imported.entries.map(entry => Object.assign(blankEntry(), entry, { id: Store.uid('lore') })),
-    };
-    UI.state.lib.worldBooks.push(book);
-    return book;
+  async function commitCurrentLibrary(update) {
+    // File reads and confirmation dialogs may outlive the editor that started the operation.
+    const candidate = structuredClone(UI.state.lib);
+    update(candidate);
+    await UI.commitLibrary(candidate);
   }
 
-  function pushCharacter(partial, book) {
-    const clean = Object.assign({}, partial);
-    delete clean.book;
-    const character = Object.assign(blankCharacter(), clean, { id: Store.uid('ch'), createdAt: stamp(), updatedAt: stamp() });
-    const specBook = book || partial.book;
-    if (specBook) {
-      const saved = adoptCharacterBook(specBook, character.name);
-      if (saved) {
-        UI.state.bookImportId = saved.id;
-        UI.toast(`一并收入角色书「${saved.name}」，${saved.entries.length} 条`);
-      }
-    }
-    UI.state.cardImportId = character.id;
-    UI.state.lib.characters.unshift(character);
-    UI.state.sel.character = character.id;
-    UI.markDirty();
-    UI.renderStage();
+  async function deleteWork(collection, item, body) {
+    const expected = JSON.stringify(item);
+    try {
+      const answer = await UI.ask({
+        title:`删除「${item.name}」`, body,
+        actions:[{id:'yes',label:'删除',kind:'btn-danger'},{id:'no',label:'留下'}],
+      });
+      if (answer !== 'yes') return;
+      await commitCurrentLibrary(candidate => {
+        const index = candidate[collection].findIndex(row => row.id === item.id);
+        if (index < 0 || JSON.stringify(candidate[collection][index]) !== expected) throw new Error('资料库已变化，请重新打开。');
+        candidate[collection].splice(index,1);
+        if (collection === 'characters') {
+          candidate.groups.forEach(group => { group.members = group.members.filter(member => member.characterId !== item.id); });
+        }
+      });
+      UI.renderStage();
+    } catch (error) { UI.toast(UI.t(error.message),{kind:'error'}); }
   }
 
   async function importCharacterFile(file) {
+    if (!file) return;
     try {
-      if (!file) return;
-      const isPng = /png$/i.test(file.type) || /\.png$/i.test(file.name);
-      if (isPng) {
-        const bytes = new Uint8Array(await file.arrayBuffer());
-        const raw = root.TAPng.readChara(bytes);
-        if (!raw) throw new Error('这张 PNG 里没有 chara 数据');
-        const card = JSON.parse(raw);
-        const partial = F.cardToCharacter(card);
-        if (file.size <= 900000) {
-          const asset = {
-            id: Store.uid('asset'), name: `${partial.name || file.name}·头像`, kind: 'avatar',
-            dataUrl: await UI.readDataUrl(file), mime: 'image/png', bytes: file.size, createdAt: stamp(),
-          };
-          UI.state.lib.assets.push(asset);
-          partial.avatarAssetId = asset.id;
-        } else {
-          UI.toast('PNG 太大，没有收进素材库，卡面文字已经导入');
-        }
-        pushCharacter(partial, partial.book);
-        UI.toast(`已导入角色「${partial.name || '未命名'}」`);
-        return;
-      }
-      const card = await parseJsonFile(file);
-      const partial = F.cardToCharacter(card);
-      pushCharacter(partial, partial.book);
-      UI.toast(`已导入角色「${partial.name || '未命名'}」`);
-    } catch (error) {
-      UI.toast(error.message || '导入失败');
-    }
+      const {card,book,avatarOmitted} = await root.TAFolderImport.importDocument('character',file);
+      UI.state.cardImportId = UI.state.sel.character = card.id;
+      if (book) UI.state.bookImportId = book.id;
+      UI.renderStage();
+      UI.toast(avatarOmitted ? UI.t('PNG 太大，没有收进素材库，卡面文字已经导入') : UI.t('角色卡已导入'),{kind:avatarOmitted?'warning':'success'});
+    } catch (error) { UI.toast(UI.t(error.message),{kind:'error'}); }
   }
 
   function loadImage(src) {
@@ -151,28 +127,37 @@
     ctx.fillText(String(name || '未命名').slice(0, 8), 256, 400);
   }
 
-  async function exportCharacterPng(character, book) {
+  async function makeCardPng(character, book) {
     const canvas = document.createElement('canvas');
     canvas.width = 512;
     canvas.height = 512;
     const ctx = canvas.getContext('2d');
     drawSeal(ctx, character.name);
     const avatar = UI.assetById(character.avatarAssetId);
+    if (avatar?.dataUrl?.startsWith('data:image/png;base64,')) {
+      const bytes = Uint8Array.from(atob(avatar.dataUrl.slice(22)),ch=>ch.charCodeAt(0));
+      return root.TAPng.embedChara(bytes,JSON.stringify(F.characterToCard(character,book)));
+    }
     if (avatar) {
       try {
         const image = await loadImage(avatar.dataUrl);
-        ctx.drawImage(image, 0, 0, 512, 512);
+        const scale = Math.min(1, 2048 / Math.max(image.width,image.height));
+        canvas.width = Math.max(1,Math.round(image.width*scale)); canvas.height = Math.max(1,Math.round(image.height*scale));
+        ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
       } catch (error) { /* 印章已经画好 */ }
     }
     const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
     if (!blob) throw new Error('浏览器没有给出 PNG');
     const png = root.TAPng.embedChara(new Uint8Array(await blob.arrayBuffer()), JSON.stringify(F.characterToCard(character, book)));
-    UI.downloadBlob(`${UI.safeName(character.name)}.png`, new Blob([png], { type: 'image/png' }));
+    return png;
+  }
+  async function exportCharacterPng(character, book) {
+    UI.downloadBlob(`${UI.safeName(character.name)}.png`, new Blob([await makeCardPng(character,book)], { type: 'image/png' }));
   }
 
   function mountChips(host, list, placeholder, onChange) {
     const paint = (focus) => {
-      host.innerHTML = `${list.map((item, index) => `<button type="button" class="chip" data-i="${index}">${UI.esc(item)} ×</button>`).join('')}<input class="chip-input" placeholder="${UI.esc(placeholder)}">`;
+      host.innerHTML = `${list.map((item, index) => `<button type="button" class="chip" data-no-translate data-i="${index}">${UI.esc(item)} ×</button>`).join('')}<input class="chip-input" placeholder="${UI.esc(placeholder)}"><small class="ctx-chip-size" data-no-translate>${UI.esc(root.TAContextPanel.sizeText(root.TAContext.estimate(list.join(', '))))}</small>`;
       host.querySelectorAll('.chip').forEach((button) => {
         button.onclick = () => {
           list.splice(Number(button.dataset.i), 1);
@@ -196,11 +181,39 @@
     paint(false);
   }
 
+  // Keep cover images and their interactive controls bounded for both shelf views.
+  function mountGalleryPager(host, preferences, draw) {
+    const pageSize = 24;
+    host.className = 'gallery-pagination row';
+    host.setAttribute('aria-label', UI.t('画廊分页'));
+    host.innerHTML = `<button class="btn btn-small" type="button" data-prev>${UI.esc(UI.t('上一页'))}</button><span role="status" aria-live="polite" data-page></span><button class="btn btn-small" type="button" data-next>${UI.esc(UI.t('下一页'))}</button>`;
+    const prev = host.querySelector('[data-prev]'), next = host.querySelector('[data-next]'), counter = host.querySelector('[data-page]');
+    let items = [];
+    function paint() {
+      const pages = Math.max(1, Math.ceil(items.length/pageSize));
+      const page = Math.max(0, Math.min(pages-1, preferences.page || 0));
+      preferences.page = page;
+      host.hidden = pages <= 1;
+      prev.disabled = page === 0;
+      next.disabled = page === pages - 1;
+      counter.textContent = (page+1)+' / '+pages;
+      draw(items.slice(page*pageSize,(page+1)*pageSize));
+    }
+    function turn(step, button) {
+      preferences.page += step; paint();
+      if (button.disabled) (step > 0 ? prev : next).focus();
+    }
+    prev.onclick = () => turn(-1,prev);
+    next.onclick = () => turn(1,next);
+    return (matches,reset) => { items = matches; if (reset) preferences.page = 0; paint(); };
+  }
+
   function home(stage) {
     const lib = UI.state.lib, icon = root.TAWorkspace.icon, esc = UI.esc, tr = UI.t;
     const prefs = UI.state.collectionView ||= { kind: 'all', query: '' };
     const cards = [...lib.characters].sort((a, b) => String(b.updatedAt || b.createdAt || '').localeCompare(String(a.updatedAt || a.createdAt || '')));
-    const books = [...lib.worldBooks];
+    const books = lib.worldBooks;
+    const assetsById = new Map((lib.assets || []).map(asset=>[asset.id,asset]));
     // Interleave the two collections without changing their stored order.
     const collection = [];
     for (let i = 0; i < Math.max(cards.length, books.length); i++) {
@@ -211,23 +224,20 @@
     const tint = id => [...String(id || '')].reduce((sum, char) => sum + char.codePointAt(0), 0) % 4;
     stage.innerHTML = `<section class="collection-home" aria-labelledby="collection-heading">
       <header class="collection-heading">
-        <div class="collection-heading-copy"><span class="collection-imprint" aria-hidden="true"><img src="img/emblem.svg" alt=""><span>QUILVORI<span class="collection-imprint-rule"></span></span></span><div class="collection-title-row"><span class="collection-title-vine" aria-hidden="true"></span><h2 id="collection-heading">${tr('收藏室')}</h2><span class="collection-title-vine" aria-hidden="true"></span></div><p>${tr('把喜欢的人物与世界，安放在这里。')}</p></div>
+        <div class="collection-heading-copy"><span class="collection-imprint" aria-hidden="true"><img src="img/emblem.svg" alt=""><span>QUILVORI<span class="collection-imprint-rule"></span></span></span><div class="collection-title-row"><span class="collection-title-vine" aria-hidden="true"></span><h2 id="collection-heading">${root.TACollectionControls.titleMarkup('home')}</h2><span class="collection-title-vine" aria-hidden="true"></span></div><p>${tr('把喜欢的人物与世界，安放在这里。')}</p></div>
         <div class="collection-create"><button type="button" class="btn" data-collection-create="character">${icon('plus')}<span>${tr('写角色卡')}</span></button><button type="button" class="btn" data-collection-create="book">${icon('plus')}<span>${tr('写世界书')}</span></button><span class="collection-project"><a class="collection-repository" href="https://github.com/ShangguanQian/Quilvori" target="_blank" rel="noopener noreferrer" aria-label="Quilvori · GitHub" data-no-translate>GitHub ${icon('arrow')}</a></span></div>
       </header>
       <div class="collection-toolbar"><div class="collection-filters" role="group" aria-label="${esc(tr('收藏目录'))}">${[['all','全部藏品',collection.length],['character','角色卡',cards.length],['book','世界书',books.length]].map(([kind,label,count]) => `<button type="button" data-collection-kind="${kind}" aria-pressed="${prefs.kind === kind}"><span>${tr(label)}</span><small>${count}</small></button>`).join('')}</div><label class="collection-search">${icon('search')}<input type="search" data-collection-search aria-label="${esc(tr('搜索藏品、作者、标签'))}" placeholder="${esc(tr('搜索藏品、作者、标签'))}" value="${esc(prefs.query)}" autocomplete="off"></label></div>
       <div class="collection-divider" aria-hidden="true"><span class="collection-divider-wing"></span><span class="collection-divider-jewel"></span><span class="collection-divider-wing is-right"></span></div>
-      <div class="collection-gallery" data-collection-gallery></div>
+      <nav data-shelf-pages hidden></nav><div class="collection-gallery" data-collection-gallery></div>
       <div class="collection-colophon" aria-hidden="true"><span class="collection-divider-wing"></span><span class="collection-colophon-seal"><span class="collection-seal"></span><small>EX LIBRIS · QUILVORI</small></span><span class="collection-divider-wing is-right"></span></div>
       <footer class="collection-foot"><span data-collection-count role="status" aria-live="polite"></span><span class="collection-foot-mark" aria-hidden="true">QUILVORI <i>✦</i> EX LIBRIS</span></footer>
     </section>`;
     const host = stage.querySelector('.collection-home'), grid = host.querySelector('[data-collection-gallery]');
-    const paint = () => {
-      const term = prefs.query.trim().toLocaleLowerCase();
-      const visible = collection.filter(({kind,item}) => (prefs.kind === 'all' || prefs.kind === kind) && (!term || [item.name,item.creator,item.description,...(item.tags || [])].filter(Boolean).join(' ').toLocaleLowerCase().includes(term)));
-      host.querySelectorAll('[data-collection-kind]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.collectionKind === prefs.kind)));
-      host.querySelector('[data-collection-count]').textContent = `${visible.length} ${tr('件藏品')}`;
-      grid.innerHTML = visible.map(({kind,item}) => {
-        const character = kind === 'character', name = item.name || tr('未命名'), avatar = character && UI.assetById(item.avatarAssetId);
+    const moveFilter = root.TACollectionControls.mountFilters(host.querySelector('.collection-filters'));
+    const showPage = mountGalleryPager(host.querySelector('[data-shelf-pages]'),prefs,items => {
+      grid.innerHTML = items.map(({kind,item}) => {
+        const character = kind === 'character', name = item.name || tr('未命名'), avatar = character && assetsById.get(item.avatarAssetId);
         const recent = character && latest?.id === item.id;
         const author = typeof item.creator === 'string' && item.creator.trim() ? item.creator : '';
         const title = esc(name), id = esc(item.id);
@@ -242,12 +252,26 @@
           <div class="collection-caption"><span class="collection-category">${tr(character ? '角色卡' : '世界书')}${recent ? `<span class="collection-recent">${tr('最近编辑')}</span>` : ''}</span><h3 data-no-translate>${title}</h3><p>${author ? `<span data-no-translate>${esc(author)}</span>` : character ? tr('未署名') : `${(item.entries || []).length} ${tr('条设定')}`}</p>${character && item.tags?.length ? `<div class="collection-tags" data-no-translate>${item.tags.slice(0,2).map(tag => `<span>${esc(tag)}</span>`).join('')}</div>` : ''}</div>
         </article>`;
       }).join('') || `<div class="collection-empty"><img src="img/emblem.svg" alt=""><h3>${tr(collection.length ? '没有找到这件藏品' : '收藏从这里开始')}</h3><p>${tr(collection.length ? '换个关键词，或看看其他分类。' : '导入角色卡或世界书，也可以写下你的第一份作品。')}</p><div class="row">${collection.length ? `<button type="button" class="btn" data-collection-reset>${tr('清除筛选')}</button>` : `<button type="button" class="btn" data-collection-import="card">${tr('导入角色卡')}</button><button type="button" class="btn" data-collection-import="book">${tr('导入世界书')}</button>`}</div></div>`;
+    });
+    const paint = (reset = false) => {
+      const term = prefs.query.trim().toLocaleLowerCase();
+      const matches = collection.filter(row => {
+        if (prefs.kind !== 'all' && prefs.kind !== row.kind) return false;
+        if (!term) return true;
+        const item = row.item;
+        row.search ??= [item.name,item.creator,item.description,...(item.tags || [])].filter(Boolean).join(' ').toLocaleLowerCase();
+        return row.search.includes(term);
+      });
+      host.querySelectorAll('[data-collection-kind]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.collectionKind === prefs.kind)));
+      moveFilter();
+      host.querySelector('[data-collection-count]').textContent = `${matches.length} ${tr('件藏品')}`;
+      showPage(matches,reset);
     };
-    host.querySelector('[data-collection-search]').oninput = event => { prefs.query = event.target.value; paint(); };
+    host.querySelector('[data-collection-search]').oninput = event => { prefs.query = event.target.value; paint(true); };
     host.onclick = event => {
       const button = event.target.closest('button'); if (!button || !host.contains(button)) return;
-      if (button.hasAttribute('data-collection-kind')) { prefs.kind = button.dataset.collectionKind; paint(); }
-      if (button.hasAttribute('data-collection-reset')) { prefs.kind = 'all'; prefs.query = ''; host.querySelector('[data-collection-search]').value = ''; paint(); }
+      if (button.hasAttribute('data-collection-kind')) { prefs.kind = button.dataset.collectionKind; paint(true); }
+      if (button.hasAttribute('data-collection-reset')) { prefs.kind = 'all'; prefs.query = ''; host.querySelector('[data-collection-search]').value = ''; paint(true); }
       if (button.hasAttribute('data-collection-open')) root.TAWorkspace.openEntity({ kind: button.dataset.collectionType, id: button.dataset.collectionOpen });
       if (button.hasAttribute('data-collection-peek')) root.TAWorkspace.showPeek({ kind: button.dataset.collectionType, id: button.dataset.collectionPeek }, button, true);
       if (button.hasAttribute('data-collection-import')) document.querySelector(`[data-shell="import-${button.dataset.collectionImport}"]`)?.click();
@@ -264,7 +288,9 @@
 
   function characters(stage) {
     const lib = UI.state.lib;
-    const list = lib.characters.filter((character) => UI.matchQuery([character.name, character.tags.join(' '), character.description, character.personality].join('\n')));
+    const list = UI.state.query.trim() ? lib.characters.filter(character => UI.matchQuery([
+      character.name, (character.tags || []).join(' '), character.description, character.personality,
+    ].join('\n'))) : lib.characters;
     const character = list.find((item) => item.id === UI.state.sel.character) || list[0] || null;
     if (character) UI.state.sel.character = character.id;
     const books = lib.worldBooks;
@@ -282,7 +308,7 @@
       <button type="button" class="btn btn-primary" data-act="png" ${character ? '' : 'disabled'}>导出 PNG</button>
       ${hint(galleryOn ? '点卡片就能编辑。复制会另存一份。' : '选一张卡继续写。导出时，可以顺手带上一本世界书。')}
     </div>
-    ${UI.picker(list, character && character.id, (item) => (item.tags || []).slice(0, 3).join(' · '))}
+    ${!galleryOn && character ? '<button type="button" class="qc-current-card" aria-haspopup="dialog" data-switch-card></button>' : ''}
     <div id="card-ai"></div>
     <div id="char-body"></div>`;
     const cardLinkButton = document.createElement('button'); cardLinkButton.type = 'button'; cardLinkButton.className = 'btn'; cardLinkButton.dataset.cardLinkImport = ''; cardLinkButton.textContent = UI.t('链接导入');
@@ -295,7 +321,14 @@
       checks.parentNode.insertBefore(details, checks); details.appendChild(checks);
     }
     const body = stage.querySelector('#char-body');
-    UI.bindPicker(stage, (id) => { UI.state.sel.character = id; UI.renderStage(); });
+    const switcher = stage.querySelector('[data-switch-card]');
+    if (switcher) {
+      stage.querySelector('.toolbar').before(switcher);
+      root.TACollectionControls.currentCard(switcher,character);
+      switcher.onclick = () => root.TACollectionControls.chooseCard(switcher,list,character.id,id=>{
+        UI.state.sel.character=id; UI.renderStage();
+      });
+    }
     stage.querySelector('[data-act="view-gallery"]').onclick = () => { UI.state.cardView = 'gallery'; UI.renderStage(); };
     stage.querySelector('[data-act="view-edit"]').onclick = () => { UI.state.cardView = 'edit'; UI.renderStage(); };
     const duplicateCharacter = (source) => {
@@ -329,55 +362,68 @@
       return;
     }
     stage.querySelector('[data-act="dup"]').onclick = () => duplicateCharacter(character);
-    stage.querySelector('[data-act="del"]').onclick = async () => {
-      const answer = await UI.ask({ title: `删除「${character.name}」`, body: '这张卡会从本机库里拿走。已经导出的文件还在。', actions: [{ id: 'yes', label: '删除', kind: 'btn-danger' }, { id: 'no', label: '留下' }] });
-      if (answer !== 'yes') return;
-      lib.characters = lib.characters.filter((item) => item.id !== character.id);
-      lib.groups.forEach((group) => { group.members = group.members.filter((member) => member.characterId !== character.id); });
-      UI.markDirty();
-      UI.renderStage();
-    };
+    stage.querySelector('[data-act="del"]').onclick = () => deleteWork('characters',character,'这张卡会从本机库里拿走。已经导出的文件还在。');
+    root.TAHistoryPanel.mount(stage.querySelector('.toolbar'), 'characters', character);
     const bookOf = () => lib.worldBooks.find((book) => book.id === stage.querySelector('#attach-book').value) || null;
-    if (character.source?.embeddedBookId && lib.worldBooks.some((book) => book.id === character.source.embeddedBookId)) stage.querySelector('#attach-book').value = character.source.embeddedBookId;
-    stage.querySelector('[data-act="json"]').onclick = () => {
+    root.TAStBundle.mount(stage, character, bookOf, makeCardPng);
+    const attached = character.embeddedBookId ?? character.source?.embeddedBookId;
+    if (books.some(book=>book.id === attached)) stage.querySelector('#attach-book').value = attached;
+    stage.querySelector('#attach-book').addEventListener('change', event => { character.embeddedBookId = event.target.value; UI.markDirty(); });
+    stage.querySelector('[data-act="json"]').onclick = async () => {
       const filename = `${UI.safeName(character.name)}.json`;
-      const card = F.characterToCard(character, bookOf());
       const pack = (lib.stickerPacks || []).find((item) => item.id === character.stickerPackId);
-      if (pack) {
-        card.data.extensions.expression_folder = `${character.name}/expressions`;
-        exportStickerFiles(pack, character.name);
+      try {
+        const card = F.characterToCard(character, bookOf());
+        if (pack?.stickers?.length) card.data.extensions.expression_folder = `${character.name}/expressions`;
+        UI.downloadJson(filename, card);
+      } catch (error) {
+        UI.toast(UI.t('export.cardFailed', {reason: UI.t(error.message)}), {kind:'error'});
+        return;
       }
-      UI.downloadJson(filename, card);
-      UI.toast(pack ? '已导出角色卡和表情文件夹' : '已导出角色卡 JSON');
-      UI.showExport(filename, pack ? '角色卡 JSON 放到酒馆 characters。表情图片放到该角色的 expressions 文件夹。' : '角色卡 JSON。放到酒馆 characters，或在角色列表里导入。');
+      const message = UI.t('export.cardRequested', {format:'JSON'});
+      UI.toast(message, {kind:'info'});
+      UI.showExport(filename, message);
+      if (pack) await exportStickerFiles(pack, character.name, {filename, message});
     };
     stage.querySelector('[data-act="png"]').onclick = () => exportCharacterPng(character, bookOf()).then(() => {
-      UI.toast('已导出带 chara 数据的 PNG');
-      UI.showExport(`${UI.safeName(character.name)}.png`, '带 chara 数据的 PNG。在酒馆里按图片导入角色。');
-    }).catch((error) => UI.toast(error.message));
+      const message = UI.t('export.cardRequested', {format:'PNG'});
+      UI.toast(message, {kind:'info'});
+      UI.showExport(`${UI.safeName(character.name)}.png`, message);
+    }).catch(error => UI.toast(UI.t('export.cardFailed', {reason:UI.t(error.message)}), {kind:'error'}));
     if (galleryOn) {
-      const picker = stage.querySelector('.picker');
-      if (picker) picker.hidden = true;
-      body.innerHTML = `<div class="gallery">${list.map((item) => {
-        const avatar = UI.assetById(item.avatarAssetId);
-        const face = avatar ? `<img alt="" src="${UI.esc(avatar.dataUrl)}">` : `<div class="seal-fallback">${UI.esc((item.name || '名').slice(0, 1))}</div>`;
-        return `<article class="paper gallery-card${item.id === character.id ? ' on' : ''}">
-          <button type="button" class="gallery-open" data-open-card="${UI.esc(item.id)}">${face}</button>
-          <div class="gallery-meta">
-            <strong>${UI.esc(item.name || '未命名')}</strong>
-            <div class="row"><button type="button" class="btn btn-small" data-dup-card="${UI.esc(item.id)}">复制</button></div>
-          </div>
-        </article>`;
-      }).join('')}</div>`;
-      body.querySelectorAll('[data-open-card]').forEach((button) => {
-        button.onclick = () => { UI.state.sel.character = button.dataset.openCard; UI.state.cardView = 'edit'; UI.renderStage(); };
+      const prefs = UI.state.characterGallery ||= {query:'',page:0};
+      const assetsById = new Map((lib.assets || []).map(asset=>[asset.id,asset]));
+      const labels = new Map();
+      body.innerHTML = `<div class="row"><label class="field"><span class="field-label">${UI.t('搜索藏品、作者、标签')}</span><input type="search" data-gallery-search value="${UI.esc(prefs.query)}" autocomplete="off"></label><nav data-card-pages hidden></nav></div><div class="gallery"></div>`;
+      const grid = body.querySelector('.gallery'), search = body.querySelector('[data-gallery-search]');
+      const showPage = mountGalleryPager(body.querySelector('[data-card-pages]'),prefs,items => {
+        grid.innerHTML = items.map(item => {
+          const avatar = assetsById.get(item.avatarAssetId), name = UI.esc(item.name || UI.t('未命名'));
+          const face = avatar ? `<img alt="" src="${UI.esc(avatar.dataUrl)}" loading="lazy" decoding="async">` : `<div class="seal-fallback" data-no-translate>${UI.esc((item.name || '名').slice(0,1))}</div>`;
+          return `<article class="paper gallery-card${item.id === character.id ? ' on' : ''}">
+            <button type="button" class="gallery-open" data-open-card="${UI.esc(item.id)}" aria-label="${UI.esc(UI.t('打开编辑'))} · ${name}">${face}</button>
+            <div class="gallery-meta"><strong data-no-translate>${name}</strong><div class="row"><button type="button" class="btn btn-small" data-dup-card="${UI.esc(item.id)}" aria-label="${UI.esc(UI.t('复制'))} · ${name}">${UI.t('复制')}</button></div></div>
+          </article>`;
+        }).join('') || `<p class="help" role="status">${UI.t('没有找到这件藏品')}</p>`;
       });
-      body.querySelectorAll('[data-dup-card]').forEach((button) => {
-        button.onclick = () => {
-          const source = lib.characters.find((item) => item.id === button.dataset.dupCard);
-          if (source) duplicateCharacter(source);
-        };
-      });
+      const filter = reset => {
+        const term = prefs.query.trim().toLocaleLowerCase();
+        const matches = !term ? list : list.filter(item => {
+          if (!labels.has(item.id)) labels.set(item.id,[item.name,item.creator,item.description,item.personality,item.scenario,...(item.tags || [])].join(' ').toLocaleLowerCase());
+          return labels.get(item.id).includes(term);
+        });
+        showPage(matches,reset);
+      };
+      search.oninput = () => { prefs.query = search.value; filter(true); };
+      grid.onclick = event => {
+        const open = event.target.closest('[data-open-card]'), duplicate = event.target.closest('[data-dup-card]');
+        if (open) { UI.state.sel.character = open.dataset.openCard; UI.state.cardView = 'edit'; UI.renderStage(); }
+        else if (duplicate) {
+          const source = lib.characters.find(item => item.id === duplicate.dataset.dupCard);
+          if (source) { prefs.page = 0; duplicateCharacter(source); }
+        }
+      };
+      filter(false);
       return;
     }
     const avatars = lib.assets.filter((asset) => asset.kind === 'avatar' || asset.kind === 'expression');
@@ -450,8 +496,7 @@
       if (key === 'avatarAssetId' && !character.avatarAssetId) character.avatarAssetId = null;
       character.updatedAt = stamp();
       paintPreview();
-      const pick = stage.querySelector(`.pick[data-id="${CSS.escape(character.id)}"] b`);
-      if (pick) pick.textContent = character.name || '未命名';
+      if (switcher && (key==='name' || key==='avatarAssetId')) root.TACollectionControls.currentCard(switcher,character);
     });
     mountChips(body.querySelector('#char-tags'), character.tags, '添加标签', paintPreview);
     const greetHost = body.querySelector('#greetings');
@@ -480,6 +525,7 @@
     };
     paintGreetings();
     UI.mountLengths(body);
+    root.TAContextPanel.mountCharacter(body,character);
   }
 
   function lore(stage) {
@@ -507,50 +553,60 @@
     }
     const book = UI.selected(lib.worldBooks, UI.state.sel.book);
     UI.state.sel.book = book.id;
-    const entries = book.entries.filter((entry) => UI.matchQuery([entry.comment, entry.content, ...(entry.keys || []), ...(entry.secondaryKeys || [])].join('\n')));
-    const directoryGroups = UI.state.loreGroupBy === 'category'
-      ? [...Object.entries(root.NIJANOrganize.CATEGORIES).map(([id, label]) => ({ id, label, entries: entries.filter((item) => item.category === id) })), { id: '', label: '未分类', entries: entries.filter((item) => !Object.hasOwn(root.NIJANOrganize.CATEGORIES, item.category)) }]
-      : F.POSITIONS.map((position) => Object.assign({}, position, { entries: entries.filter((item) => item.position === position.id) }));
-    const entry = entries.find((item) => item.id === UI.state.sel.entry) || entries[0] || null;
+    const entries = UI.state.query ? book.entries.filter(entry=>root.TAContext.matchesEntry(entry,UI.state.query)) : book.entries;
+    const entry = entries.find(item=>item.id===UI.state.sel.entry) || entries[0];
     if (entry) UI.state.sel.entry = entry.id;
     UI.state.openFold ||= {};
     if (!UI.state.openFold.lore) UI.state.openFold.lore = 'content';
-    const loreUndo = UI.state.loreUndo || (UI.state.loreUndo = []);
+    UI.state.loreUndo ||= new Map();
+    const loreUndo = UI.state.loreUndo.get(book.id) || [];
+    UI.state.loreUndo.set(book.id,loreUndo);
     const snapLore = () => {
       if (!book) return;
-      loreUndo.push(JSON.stringify(book.entries));
+      const before = JSON.stringify(book.entries);
+      if (loreUndo.at(-1) !== before) loreUndo.push(before);
       if (loreUndo.length > 40) loreUndo.shift();
     };
     stage.innerHTML = `<div class="dropwell"><div><strong>把世界书拖到这里</strong><span>酒馆世界信息的 JSON。</span></div><button type="button" class="btn btn-primary" id="book-drop-btn">选择文件</button></div><div id="sticker-host"></div><div id="json-host"></div><div class="toolbar">
-      <button type="button" class="btn" id="lore-undo">撤销</button>
-      <button type="button" class="btn btn-primary" id="new-book">新建世界书</button>
-      <label class="dark-muted">书<select id="book-select">${lib.worldBooks.map((item) => `<option value="${UI.esc(item.id)}"${item.id === book.id ? ' selected' : ''}>${UI.esc(item.name)}</option>`).join('')}</select></label>
-      <button type="button" class="btn" id="rename-book">改书名</button>
-      <button type="button" class="btn btn-primary" id="new-entry">新建条目</button>
-      <button type="button" class="btn" id="import-book">导入 JSON</button>
-      <button type="button" class="btn" id="organize-book">${root.TAWorkspace.icon('sections')}AI 整理条目</button>
-      <label class="dark-muted">目录分组<select id="lore-group-by"><option value="position"${UI.state.loreGroupBy !== 'category' ? ' selected' : ''}>按注入位置</option><option value="category"${UI.state.loreGroupBy === 'category' ? ' selected' : ''}>按内容分类</option></select></label>
-      <button type="button" class="btn btn-primary" id="export-book">导出世界书</button>
-      <button type="button" class="btn btn-danger" id="del-book">删除此书</button>
-      ${hint('点左边的条目就能改，想找哪条可以直接搜。')}
+      <div class="qc-book-selectors">
+        <label><span>当前世界书</span><select id="book-select" data-no-translate>${lib.worldBooks.map((item) => `<option value="${UI.esc(item.id)}"${item.id === book.id ? ' selected' : ''}>${UI.esc(item.name || UI.t('未命名'))}</option>`).join('')}</select></label>
+        <label><span>目录分组</span><select id="lore-group-by"><option value="position"${UI.state.loreGroupBy !== 'category' ? ' selected' : ''}>按注入位置</option><option value="category"${UI.state.loreGroupBy === 'category' ? ' selected' : ''}>按内容分类</option></select></label>
+      </div>
+      <div class="qc-book-actions">
+        <button type="button" class="btn btn-primary" id="new-entry">${root.TAWorkspace.icon('plus')}新建条目</button>
+        <button type="button" class="btn" id="organize-book" data-qc-for="organize-world">${root.TAWorkspace.icon('sections')}AI 整理条目</button>
+        <button type="button" class="btn" id="export-book">导出世界书</button>
+        <button type="button" class="btn qc-more-trigger" data-qc-more popovertarget="qc-book-more" aria-expanded="false" aria-controls="qc-book-more" aria-label="${UI.esc(UI.t('更多世界书操作'))}" title="${UI.esc(UI.t('更多世界书操作'))}">${root.TAWorkspace.icon('more')}</button>
+      </div>
+      <div class="qc-more-panel" id="qc-book-more" popover aria-label="${UI.esc(UI.t('更多世界书操作'))}">
+        <button type="button" class="btn" id="new-book">新建世界书</button>
+        <button type="button" class="btn" id="import-book">导入 JSON</button>
+        <button type="button" class="btn" data-qc-compact="organize-world">${root.TAWorkspace.icon('sections')}AI 整理条目</button>
+        <button type="button" class="btn" id="lore-undo">撤销</button>
+        <button type="button" class="btn btn-danger" id="del-book">删除此书</button>
+      </div>
     </div>
-    <details class="ws-assist-details"><summary>${root.TAWorkspace.icon('check')}触发测试与逻辑检查</summary><div class="paper lore-try">
-      <label class="field"><span class="field-label">试一句</span><textarea id="lore-sample" rows="2" data-nolen placeholder="贴一句聊天或开场白">${UI.esc(UI.state.loreSample || '')}</textarea></label>
-      ${hint('看这句话会触发当前书里哪些启用条目。恒定条目总会算上；选择性条目通常还要命中一个次关键词。')}
-      <button type="button" class="btn" id="lore-try">看会触发哪些</button>
-      <div id="lore-hits"></div>
-      <div id="lore-lesson"></div>
+    <details class="ws-assist-details"><summary id="rename-book">书名与简介</summary><div class="paper stack">
+      ${UI.field('书名', `<input type="text" data-book-field="name" value="${UI.esc(book.name)}">`)}
+      ${UI.field('简介', `<textarea rows="3" data-book-field="description">${UI.esc(book.description || '')}</textarea>`)}
+    </div></details>
+    <section id="context-world"></section>
+    <details class="ws-assist-details"><summary>${root.TAWorkspace.icon('check')}逻辑检查与栏位整理</summary><div class="paper lore-try">
       <div id="book-import"></div>
       <div id="lore-ai"></div>
     </div></details>
     <div class="board-layout">
-      <div class="board"><div class="ws-list-header"><span>条目目录</span><small>${entries.length} ${UI.t('条')}</small></div><label class="ws-directory-search">${root.TAWorkspace.icon('search')}<input type="search" id="lore-filter" placeholder="查找条目或正文…" value="${UI.esc(UI.state.loreFilter || '')}" aria-label="查找条目或正文…"></label>${directoryGroups.map((position) => {
-        const group = position.entries;
-        return group.length ? `<section class="column"><h3><span>${UI.t(position.label)}</span><small>${group.length}</small></h3>${group.map((item) => `<article class="entry${item.id === (entry && entry.id) ? ' on' : ''}${item.enabled ? '' : ' off'}" data-id="${UI.esc(item.id)}" data-search="${UI.esc(`${item.comment} ${item.content} ${(item.keys || []).join(' ')}`.toLowerCase())}" tabindex="0" aria-label="${UI.esc(item.comment || '未命名')}"><b data-no-translate>${UI.esc(item.comment || '未命名')}</b><button type="button" class="btn btn-small" data-toggle="${UI.esc(item.id)}">${item.enabled ? UI.t('启用') : UI.t('停用')}</button><span class="ws-entry-snippet" data-no-translate>${UI.esc(String(item.content || '').replace(/\s+/g, ' ').slice(0, 90))}</span><button type="button" class="ws-entry-peek" data-peek-entry="${UI.esc(item.id)}" data-book="${UI.esc(book.id)}" aria-label="${UI.t('原文预览')}">${root.TAWorkspace.icon('eye')}</button></article>`).join('')}</section>` : '';
-      }).join('')}<div class="ws-filter-empty" hidden>没有找到匹配的内容</div></div>
+      <div class="board"><div class="ws-list-header"><span>条目目录</span><small></small></div>
+        <label class="ws-directory-search">${root.TAWorkspace.icon('search')}<input type="search" id="lore-filter" placeholder="查找条目或正文…" value="${UI.esc(UI.state.loreFilter || '')}" aria-label="查找条目或正文…"></label>
+        <nav class="ctx-directory-pager" hidden aria-label="${UI.esc(UI.t('条目目录'))}"><button type="button" class="btn btn-small" data-prev>${UI.t('上一页')}</button><output></output><button type="button" class="btn btn-small" data-next>${UI.t('下一页')}</button></nav>
+        <div class="ctx-directory-rows"></div><div class="ws-filter-empty" hidden>没有找到匹配的内容</div>
+      </div>
       <div id="lore-editor"></div>
     </div>`;
+    root.TAHistoryPanel.mount(stage.querySelector('.toolbar'), 'worldBooks', book);
     const editor = stage.querySelector('#lore-editor');
+    const toolbar = stage.querySelector('.toolbar');
+    toolbar.classList.add('qc-book-toolbar'); root.TACollectionControls.mountMore(toolbar);
     stage.querySelector('#lore-group-by').onchange = (event) => { UI.state.loreGroupBy = event.target.value; UI.renderStage(); };
     stage.querySelector('#book-select').onchange = (event) => { UI.state.sel.book = event.target.value; UI.state.sel.entry = null; UI.renderStage(); };
     stage.querySelector('#new-book').onclick = () => addBook();
@@ -561,10 +617,19 @@
       UI.markDirty();
       UI.renderStage();
     };
-    stage.querySelector('#rename-book').onclick = async () => {
-      const name = window.prompt('世界书名称', book.name);
-      if (name && name.trim()) { book.name = name.trim(); UI.markDirty(); UI.renderStage(); }
+    const bookName = stage.querySelector('[data-book-field="name"]'), bookSelect = stage.querySelector('#book-select');
+    bookName.oninput = () => {
+      if (!bookName.value.trim()) return;
+      book.name = bookName.value;
+      bookSelect.selectedOptions[0].textContent = book.name;
+      const display = bookSelect.closest('.dark-select')?.querySelector('.dark-select-value');
+      if (display) display.textContent = book.name;
+      const address = editor.querySelector('.ws-address');
+      if (address) address.textContent = book.name;
+      UI.markDirty();
     };
+    bookName.onblur = () => { if (!bookName.value.trim()) bookName.value = book.name; };
+    stage.querySelector('[data-book-field="description"]').oninput = event => { book.description = event.target.value; UI.markDirty(); };
     stage.querySelector('#export-book').onclick = () => {
       const filename = `${UI.safeName(book.name)}.json`;
       const data = F.bookToWorldInfo(book);
@@ -576,32 +641,20 @@
     };
     stage.querySelector('#import-book').onclick = () => importBook();
     mountLinkImport();
-    stage.querySelector('#organize-book').onclick = () => root.NIJANOrganizePanel.open({ kind: 'world', bookId: book.id });
-    stage.querySelector('#del-book').onclick = async () => {
-      const answer = await UI.ask({ title: `删除「${book.name}」`, body: '书里的条目会一起删除。', actions: [{ id: 'yes', label: '删除', kind: 'btn-danger' }, { id: 'no', label: '留下' }] });
-      if (answer !== 'yes') return;
-      lib.worldBooks = lib.worldBooks.filter((item) => item.id !== book.id);
-      UI.markDirty();
-      UI.renderStage();
-    };
-    stage.querySelectorAll('.entry').forEach((card) => {
-      card.onkeydown = (event) => { if (event.target === card && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); card.click(); } };
-      card.onclick = () => {
-        if (!UI.state.openFold) UI.state.openFold = {};
-        UI.state.sel.entry = card.dataset.id;
-        UI.state.openFold.lore = 'content';
-        paintEditor();
-        stage.querySelectorAll('.entry').forEach((item) => item.classList.toggle('on', item.dataset.id === UI.state.sel.entry));
-      };
-    });
-    stage.querySelectorAll('[data-toggle]').forEach((button) => {
-      button.onclick = (event) => {
-        event.stopPropagation();
-        const target = book.entries.find((item) => item.id === button.dataset.toggle);
-        target.enabled = !target.enabled;
-        UI.markDirty();
-        UI.renderStage();
-      };
+    const organizeBook = () => root.NIJANOrganizePanel.open({kind:'world',bookId:book.id});
+    stage.querySelector('#organize-book').onclick = organizeBook;
+    stage.querySelector('[data-qc-compact="organize-world"]').onclick = organizeBook;
+    stage.querySelector('#del-book').onclick = () => deleteWork('worldBooks',book,'书里的条目会一起删除。');
+    const directory = root.TAContextPanel.mountDirectory(stage,book,id=>{
+      UI.state.sel.entry = id; UI.state.openFold.lore = 'content';
+      paintEditor();
+    },id=>{
+      const item = book.entries.find(entry=>entry.id===id);
+      if (!item) return;
+      snapLore(); item.enabled = item.enabled === false;
+      UI.markDirty(); directory.edit(item);
+      if (id===UI.state.sel.entry) paintEditor();
+      refreshContext();
     });
     function paintEditor() {
       const current = book.entries.find((item) => item.id === UI.state.sel.entry);
@@ -616,7 +669,7 @@
         ${UI.fold('keys', '主关键词', '<div id="keys" class="chips"></div>')}
         ${UI.fold('keys2', '次关键词', '<div id="keys2" class="chips"></div>', '选择性开启时，通常还要命中一个次关键词')}
         ${UI.fold('order', '顺序', `<input data-field="order" type="number" value="${Number(current.order) || 0}">`, '原样写入酒馆的顺序。')}
-        ${UI.fold('depth', '深度', `<input data-field="depth" type="number" value="${Number(current.depth) || 4}">`, '指定深度时使用')}
+        ${UI.fold('depth', '深度', `<input data-field="depth" type="number" value="${Number(current.depth ?? 4)}">`, '指定深度时使用')}
         ${UI.fold('position', '位置', `<select data-field="position">${F.POSITIONS.map((position) => `<option value="${position.id}"${position.id === current.position ? ' selected' : ''}>${position.label}</option>`).join('')}</select>`)}
         ${UI.fold('outletName', '出口名', UI.text('outletName', current.outletName), '位置为出口时填写')}
         ${UI.fold('flags', '开关', `<label class="check"><input data-field="constant" type="checkbox" ${current.constant ? 'checked' : ''}>恒定注入</label><label class="check"><input data-field="selective" type="checkbox" ${current.selective ? 'checked' : ''}>选择性</label><label class="check"><input data-field="enabled" type="checkbox" ${current.enabled ? 'checked' : ''}>启用</label><p class="help">恒定注入不看关键词。选择性勾上后，通常还要命中一个次关键词。</p>`)}
@@ -626,15 +679,14 @@
       editor.querySelector('#lore-ai-organize').onclick = () => root.NIJANOrganizePanel.open({ kind: 'world', bookId: book.id, entryId: current.id });
       UI.mountFolds(editor, 'lore');
       UI.bindFields(editor, current, (key) => {
-        if (!editor.dataset.snapped) { snapLore(); editor.dataset.snapped = '1'; }
         if (key === 'comment') {
           const title = stage.querySelector(`.entry[data-id="${CSS.escape(current.id)}"] b`);
           if (title) title.textContent = current.comment || '未命名';
         }
         if (key === 'position' || key === 'enabled' || key === 'constant' || key === 'category') UI.renderStage();
       });
-      mountChips(editor.querySelector('#keys'), current.keys, '主关键词', () => {});
-      mountChips(editor.querySelector('#keys2'), current.secondaryKeys, '次关键词', () => {});
+      mountChips(editor.querySelector('#keys'), current.keys, '主关键词', refreshContext);
+      mountChips(editor.querySelector('#keys2'), current.secondaryKeys, '次关键词', refreshContext);
       UI.mountLengths(editor);
       if (root.TAI18n) root.TAI18n.localize(editor);
       editor.querySelector('#dup-entry').onclick = () => {
@@ -653,95 +705,29 @@
         UI.renderStage();
       };
     }
-    const includesKey = (text, key, sensitive) => {
-      const needle = String(key || '').trim();
-      if (!needle) return false;
-      if (sensitive) return text.includes(needle);
-      return text.toLowerCase().includes(needle.toLowerCase());
-    };
-    const loreHits = (sample) => book.entries.filter((entry) => entry.enabled !== false).map((entry) => {
-      if (entry.constant) return { entry, why: UI.t('恒定') };
-      const text = String(sample || '');
-      const sensitive = entry.caseSensitive === true;
-      const keys = (entry.keys || []).filter((key) => includesKey(text, key, sensitive));
-      if (!keys.length) return null;
-      const secondary = entry.secondaryKeys || [];
-      if (entry.selective && secondary.length) {
-        const hits = secondary.filter((key) => includesKey(text, key, sensitive));
-        const logic = Number(entry.selectiveLogic ?? 0);
-        const ok = logic === 1 ? hits.length === secondary.length
-          : logic === 2 ? hits.length === 0
-            : logic === 3 ? hits.length !== secondary.length
-              : hits.length > 0;
-        if (!ok) return null;
-      }
-      return { entry, why: UI.t('lore.why', { keys: keys.join('、') }) };
-    }).filter(Boolean);
-    const paintHits = () => {
-      const sample = stage.querySelector('#lore-sample').value;
-      UI.state.loreSample = sample;
-      const hits = loreHits(sample);
-      const ids = new Set(hits.map((hit) => hit.entry.id));
-      stage.querySelectorAll('.entry').forEach((card) => card.classList.toggle('hit', ids.has(card.dataset.id)));
-      const host = stage.querySelector('#lore-hits');
-      const lesson = [UI.t('lore.scan')];
-      const blank = (value) => value || UI.t('没写');
-      book.entries.forEach((entry) => {
-        const name = entry.comment || UI.t('未命名');
-        const place = UI.t((F.POSITIONS.find((item) => item.id === entry.position) || {}).label || entry.position);
-        const snippet = String(entry.content || UI.t('空')).replace(/\s+/g, ' ').slice(0, 36);
-        if (entry.enabled === false) {
-          lesson.push(UI.t('lore.off', { name, place, order: entry.order }));
-          return;
-        }
-        if (entry.constant) {
-          lesson.push(UI.t('lore.constant', { name, place, order: entry.order, text: snippet }));
-          return;
-        }
-        const keys = entry.keys || [];
-        const secondary = entry.secondaryKeys || [];
-        if (!String(sample || '').trim()) {
-          const selective = entry.selective ? UI.t('lore.selectiveOn', { keys: blank(secondary.join('、')) }) : UI.t('lore.selectiveOff');
-          lesson.push(UI.t('lore.waiting', { name, keys: blank(keys.join('、')), selective, place, order: entry.order }));
-          return;
-        }
-        const sensitive = entry.caseSensitive === true;
-        const hitKeys = keys.filter((key) => includesKey(sample, key, sensitive));
-        if (!hitKeys.length) {
-          lesson.push(UI.t('lore.miss', { name, keys: blank(keys.join('、')) }));
-          return;
-        }
-        if (entry.selective && secondary.length) {
-          const secHits = secondary.filter((key) => includesKey(sample, key, sensitive));
-          const logic = Number(entry.selectiveLogic ?? 0);
-          const rule = UI.t(['还要再中至少一个次关键词', '次关键词要全部中', '一个次关键词都不能中', '不能所有次关键词都中'][logic] || '再看次关键词');
-          const ok = logic === 1 ? secHits.length === secondary.length : logic === 2 ? secHits.length === 0 : logic === 3 ? secHits.length !== secondary.length : secHits.length > 0;
-          lesson.push(ok
-            ? UI.t('lore.hitSelect', { name, place, order: entry.order, keys: hitKeys.join('、'), rule, secondary: secHits.join('、') || UI.t('没有') })
-            : UI.t('lore.hitFail', { name, keys: hitKeys.join('、'), rule, secondary: secondary.join('、'), hit: secHits.join('、') || UI.t('没有') }));
-          return;
-        }
-        lesson.push(UI.t('lore.hit', { name, place, order: entry.order, keys: hitKeys.join('、'), tail: entry.selective ? UI.t('选择性开着，但没有次关键词，所以只看主关键词。') : UI.t('不是选择性。') }));
-      });
-      UI.fillLesson(stage.querySelector('#lore-lesson'), lesson);
-      if (!hits.length) {
-        host.innerHTML = `<p class="help">${sample.trim() ? '没有条目会被这句话触发。' : '先写一句，才会按关键词判断。恒定条目仍会列出。'}</p>`;
+    const openEntryField = (id,field) => {
+      UI.state.sel.entry = id; UI.state.openFold.lore = field;
+      const target = book.entries.find(row=>row.id===id);
+      if (!target) return;
+      if (!root.TAContext.matchesEntry(target,UI.state.query)) {
+        UI.state.loreFilter = ''; UI.show('lore');
+        root.TAContextPanel.focusField(stage.querySelector('#lore-editor'),field);
         return;
       }
-      host.innerHTML = `<div class="hit-row">${hits.map((hit) => `<button type="button" class="btn btn-small" data-hit="${UI.esc(hit.entry.id)}">${UI.esc(hit.entry.comment || '未命名')} · ${UI.esc(hit.why)}</button>`).join('')}</div>`;
-      host.querySelectorAll('[data-hit]').forEach((button) => {
-        button.onclick = () => {
-          if (!UI.state.openFold) UI.state.openFold = {};
-          UI.state.sel.entry = button.dataset.hit;
-          UI.state.openFold.lore = 'content';
-          paintEditor();
-          stage.querySelectorAll('.entry').forEach((item) => item.classList.toggle('on', item.dataset.id === button.dataset.hit));
-        };
-      });
+      directory.reveal(id); paintEditor();
+      root.TAContextPanel.focusField(editor,field);
     };
-    stage.querySelector('#lore-sample').addEventListener('input', (event) => { UI.state.loreSample = event.target.value; paintHits(); });
-    stage.querySelector('#lore-try').onclick = paintHits;
-    paintHits();
+    const applyKeywordSuggestion = async (id,keys) => {
+      const next = structuredClone(UI.state.lib);
+      const entry = next.worldBooks.find(row=>row.id===book.id)?.entries.find(row=>row.id===id);
+      if (!entry?.constant || !keys.length) return;
+      entry.keys = keys; entry.constant = false;
+      await UI.commitLibrary(next);
+      snapLore(); UI.renderStage();
+    };
+    const refreshContext = root.TAContextPanel.mountWorld(stage,book,openEntryField,applyKeywordSuggestion,directory);
+    editor.addEventListener('input',refreshContext);
+    editor.addEventListener('change',refreshContext);
     showReading(stage.querySelector('#book-import'), UI.t('import.bookTitle'), UI.state.bookImportId === book.id ? F.explainBook(book) : null);
     stage.querySelector('#book-drop-btn').onclick = () => importBook();
     mountAiBar(stage.querySelector('#lore-ai') || stage, 'book');
@@ -754,8 +740,9 @@
     };
     mountSticker(stage, book);
     mountJson(stage, 'book', book);
-    stage.querySelector('#new-entry').addEventListener('click', () => snapLore(), true);
-    stage.querySelector('#del-book').addEventListener('click', () => snapLore(), true);
+    editor.addEventListener('focusin', event => { if (event.target.matches('textarea,input,select')) snapLore(); });
+    editor.addEventListener('click', event => { if (event.target.closest('#del-entry,#dup-entry,.chips button')) snapLore(); }, true);
+    stage.querySelector('#new-entry').addEventListener('click', snapLore, true);
     paintEditor();
     function addBook() {
       const created = { id: Store.uid('book'), name: '新世界书', description: '', entries: [] };
@@ -768,15 +755,9 @@
       const file = given || await UI.pickFile('.json,application/json');
       if (!file) return;
       try {
-        const json = await parseJsonFile(file);
-        const imported = F.worldInfoToBook(json, file.name.replace(/\.json$/i, ''));
-        const entries = imported.entries.map(entry => Object.assign(blankEntry(), entry, { id: Store.uid('lore') }));
-        const created = { ...imported, id: Store.uid('book'), entries };
-        lib.worldBooks.unshift(created);
-        UI.state.sel.book = created.id;
-        UI.state.bookImportId = created.id;
-        UI.markDirty();
-        UI.toast(`已导入 ${entries.length} 条`);
+        const {book:created} = await root.TAFolderImport.importDocument('world',file);
+        UI.state.sel.book = UI.state.bookImportId = created.id;
+        UI.toast(UI.t('世界书')+' · '+created.entries.length+' '+UI.t('条'),{kind:'success'});
         UI.renderStage();
       } catch (error) {
         UI.toast(error.message);
@@ -805,19 +786,18 @@
       UI.markDirty();
       UI.renderStage();
     };
-    stage.querySelector('#import-preset').onclick = async () => {
-      const file = await UI.pickFile('.json,application/json');
-      if (!file) return;
+    const importPreset = stage.querySelector('#import-preset');
+    importPreset.onclick = async () => {
       try {
-        const json = await parseJsonFile(file);
-        const imported = F.presetFromImport(json);
+        const file = await UI.pickFile('.json,application/json');
+        if (!file) return;
+        const imported = F.presetFromImport(await parseJsonFile(file));
         imported.id = Store.uid('preset');
         imported.blocks.forEach((block) => { block.id = Store.uid('blk'); });
-        lib.promptPresets.unshift(imported);
-        UI.state.sel.preset = imported.id;
-        UI.markDirty();
+        await commitCurrentLibrary(candidate => candidate.promptPresets.unshift(imported));
+        if (importPreset.isConnected) UI.state.sel.preset = imported.id;
         UI.renderStage();
-      } catch (error) { UI.toast(error.message); }
+      } catch (error) { UI.toast(UI.t(error.message),{kind:'error'}); }
     };
     if (!current) {
       stage.appendChild(UI.empty('还没有预设', '加一组有顺序的提示词块。', '', null));
@@ -1018,20 +998,20 @@
       UI.markDirty();
       UI.renderStage();
     };
+    const importButton = stage.querySelector('#import-chat');
     const importChat = async (file) => {
       if (!file) return;
       try {
         const text = await UI.readText(file);
         const parsed = F.chatFromText(text, file.name);
         parsed.id = Store.uid('chat');
-        lib.chats.unshift(parsed);
-        UI.state.sel.chat = parsed.id;
-        UI.markDirty();
-        UI.toast(`已读入 ${parsed.messages.length} 条消息`);
+        await commitCurrentLibrary(candidate => candidate.chats.unshift(parsed));
+        if (importButton.isConnected) UI.state.sel.chat = parsed.id;
         UI.renderStage();
-      } catch (error) { UI.toast(error.message || '这份聊天认不出'); }
+        UI.toast(`已读入 ${parsed.messages.length} 条消息`,{kind:'success'});
+      } catch (error) { UI.toast(UI.t(error.message || '这份聊天认不出'),{kind:'error'}); }
     };
-    stage.querySelector('#import-chat').onclick = async () => importChat(await UI.pickFile('.json,.jsonl,.txt,application/json'));
+    importButton.onclick = async () => importChat(await UI.pickFile('.json,.jsonl,.txt,application/json'));
     stage.ondragover = (event) => event.preventDefault();
     stage.ondrop = (event) => { event.preventDefault(); importChat(event.dataTransfer.files && event.dataTransfer.files[0]); };
     if (!current) {
@@ -1068,6 +1048,7 @@
         const html = needle ? safe.replace(new RegExp(needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), (hit) => `<mark>${hit}</mark>`) : safe;
         return `<article class="msg ${message.is_user ? 'user' : ''}" data-index="${index}"><header><span class="who">${UI.esc(message.name)}</span><span>${UI.esc(message.send_date || '')}</span></header><div class="body">${html.replace(/\n/g, '<br>')}</div></article>`;
       }).join('');
+      root.TAJournal.markChat(log,current);
       marks = [...log.querySelectorAll('mark')];
       body.querySelector('#hit-count').textContent = needle ? `${marks.length} 处` : `${current.messages.length} 条消息`;
       if (root.TAI18n) root.TAI18n.localize(body.querySelector('#hit-count'));
@@ -1109,25 +1090,35 @@
     };
   }
 
-  async function ingestImages(fileList, kind) {
-    const files = [...fileList];
-    for (const file of files) {
-      if (!file.type.startsWith('image/')) { UI.toast(`${file.name} 不是图片`); continue; }
-      if (file.size > 1.6 * 1024 * 1024) { UI.toast(`${file.name} 超过 1.6MB，请先压过再传`); continue; }
-      if (file.size > 400 * 1024) {
-        const answer = await UI.ask({
-          title: '这张图不小',
-          body: `${file.name} 大约 ${Math.round(file.size / 1024)}KB。素材以文本形式存在浏览器里，太大容易把库写满。`,
-          actions: [{ id: 'yes', label: '仍然收进库', kind: 'btn-primary' }, { id: 'no', label: '取消' }],
-        });
-        if (answer !== 'yes') continue;
+  async function readImage(file) {
+    try { return await UI.readDataUrl(file); }
+    catch (error) { throw new Error(file.name + ' · ' + UI.t(error.message)); }
+  }
+
+  async function ingestImages(files, kind) {
+    if (!files?.length) return;
+    const staged = [];
+    try {
+      for (const file of files) {
+        if (!file.type.startsWith('image/')) throw new Error(file.name + ' · ' + UI.t('不是图片'));
+        if (Store.backend !== 'indexedDB' && file.size > 1.6 * 1024 * 1024) throw new Error(`${file.name} 超过 1.6MB，请先压过再传`);
+        if (Store.backend !== 'indexedDB' && file.size > 400 * 1024) {
+          const answer = await UI.ask({
+            title: '这张图不小',
+            body: `${file.name} 大约 ${Math.round(file.size / 1024)}KB。素材以文本形式存在浏览器里，太大容易把库写满。`,
+            actions: [{ id: 'yes', label: '仍然收进库', kind: 'btn-primary' }, { id: 'no', label: '取消' }],
+          });
+          if (answer !== 'yes') return;
+        }
+        const dataUrl = await readImage(file);
+        staged.push({ id: Store.uid('asset'), name: file.name, kind, dataUrl, mime: file.type, bytes: file.size, createdAt: stamp() });
       }
-      const dataUrl = await UI.readDataUrl(file);
-      if (Store.bytes(UI.state.lib) + dataUrl.length > 4.2 * 1024 * 1024) { UI.toast('库快满了，这张放不下'); continue; }
-      UI.state.lib.assets.unshift({ id: Store.uid('asset'), name: file.name, kind, dataUrl, mime: file.type, bytes: file.size, createdAt: stamp() });
-    }
-    UI.markDirty();
-    UI.renderStage();
+      await commitCurrentLibrary(candidate => {
+        candidate.assets = staged.reverse().concat(candidate.assets);
+        if (Store.backend !== 'indexedDB' && Store.bytes(candidate) > 4.2 * 1024 * 1024) throw new Error('库快满了，这张放不下');
+      });
+      UI.renderStage();
+    } catch (error) { UI.toast(UI.t(error.message),{kind:'error'}); }
   }
 
   function assets(stage) {
@@ -1142,7 +1133,7 @@
       ${['all', 'avatar', 'expression', 'background'].map((value) => `<button type="button" class="btn btn-small${kind === value ? ' btn-primary' : ''}" data-filter="${value}">${{ all: '全部', avatar: '头像', expression: '表情', background: '背景' }[value]}</button>`).join('')}
       <span class="spacer"></span>
       <span class="dark-muted">库约 ${Math.round(Store.bytes(lib) / 1024)} KB</span>
-      ${hint('按种类上传。超过约 400KB 会先问你，超过 1.6MB 不收。拖进来的图先当头像。')}
+      ${hint(Store.backend === 'indexedDB' ? '图片保存在本机。拖入的图片会作为头像。' : '按种类上传。超过约 400KB 会先问你，超过 1.6MB 不收。拖进来的图先当头像。')}
     </div>
     <div class="work"><div class="asset-grid" id="asset-grid">${list.map((item) => `<button type="button" class="paper asset-card${item.id === (asset && asset.id) ? ' on' : ''}" data-id="${UI.esc(item.id)}"><img alt="" src="${UI.esc(item.dataUrl)}"><b>${UI.esc(item.name)}</b><small class="muted">${item.kind} · ${Math.max(1, Math.round((item.bytes || 0) / 1024))}KB</small></button>`).join('')}</div><div id="asset-side"></div></div>`;
     if (!list.length) stage.querySelector('#asset-grid').appendChild(UI.empty('素材库是空的', '上传头像、表情或聊天背景。大图会先提醒你。', '', null));
@@ -1150,10 +1141,10 @@
     stage.querySelectorAll('[data-filter]').forEach((button) => { button.onclick = () => { UI.state.assetKind = button.dataset.filter; UI.renderStage(); }; });
     stage.querySelectorAll('.asset-card').forEach((card) => { card.onclick = () => { UI.state.sel.asset = card.dataset.id; paintSide(); stage.querySelectorAll('.asset-card').forEach((item) => item.classList.toggle('on', item.dataset.id === card.dataset.id)); }; });
     stage.ondragover = (event) => event.preventDefault();
-    stage.ondrop = (event) => { event.preventDefault(); ingestImages(event.dataTransfer.files, 'avatar'); };
+    stage.ondrop = (event) => { event.preventDefault(); return ingestImages([...event.dataTransfer.files], 'avatar'); };
     async function ingestImagesFrom(nextKind) {
       const files = await UI.pickFile('image/*', true);
-      if (files && files.length) ingestImages(files, nextKind);
+      return ingestImages(files, nextKind);
     }
     function paintSide() {
       const current = lib.assets.find((item) => item.id === UI.state.sel.asset);
@@ -1236,13 +1227,14 @@
       UI.showExport('regex-scripts.json', '正则数组。在酒馆的正则扩展里导入。');
     };
     stage.querySelector('#import-rx').onclick = async () => {
-      const file = await UI.pickFile('.json,application/json');
-      if (!file) return;
       try {
-        F.regexFromImport(await parseJsonFile(file)).forEach((item) => { item.id = Store.uid('rx'); lib.regexScripts.push(item); });
-        UI.markDirty();
+        const file = await UI.pickFile('.json,application/json');
+        if (!file) return;
+        const scripts = F.regexFromImport(await parseJsonFile(file));
+        scripts.forEach(item => { item.id = Store.uid('rx'); });
+        await commitCurrentLibrary(candidate => { candidate.regexScripts = candidate.regexScripts.concat(scripts); });
         UI.renderStage();
-      } catch (error) { UI.toast(error.message); }
+      } catch (error) { UI.toast(UI.t(error.message),{kind:'error'}); }
     };
     if (!script) { stage.querySelector('#rx-body').appendChild(UI.empty('还没有脚本', '新建一条，或导入酒馆的正则 JSON。', '', null)); return; }
     stage.querySelector('#del-rx').onclick = () => { lib.regexScripts = lib.regexScripts.filter((item) => item.id !== script.id); UI.markDirty(); UI.renderStage(); };
@@ -1252,12 +1244,14 @@
       ${UI.field('查找', UI.text('findRegex', script.findRegex), '可写 /表达式/gi ，或不加斜杠')}
       <p class="help" id="rx-error"></p>
       ${UI.field('替换', UI.text('replaceString', script.replaceString), '可用 $1')}
+      ${script.trimStrings?.length ? `<details><summary>裁剪字符串</summary>${script.trimStrings.map((value, index) => `<label class="field"><span>#${index + 1}</span><textarea rows="2" data-trim-index="${index}">${UI.esc(value)}</textarea></label>`).join('')}</details>` : ''}
       <div class="stack" id="places">${F.PLACEMENTS.map((place) => `<label class="check"><input type="checkbox" value="${place.id}" ${(script.placement || []).includes(place.id) ? 'checked' : ''}>${place.label}</label>`).join('')}<span class="help">勾选这则脚本作用的位置，与酒馆一致。</span></div>
       <label class="check"><input data-field="disabled" type="checkbox" ${script.disabled ? 'checked' : ''}>停用</label>
       <label class="check"><input data-field="markdownOnly" type="checkbox" ${script.markdownOnly ? 'checked' : ''}>仅 Markdown 显示</label>
       <label class="check"><input data-field="promptOnly" type="checkbox" ${script.promptOnly ? 'checked' : ''}>仅提示词</label>
       <div class="grid-2">${UI.field('最小深度', `<input data-field="minDepth" type="number" value="${script.minDepth ?? ''}">`)}${UI.field('最大深度', `<input data-field="maxDepth" type="number" value="${script.maxDepth ?? ''}">`)}</div>
     </div><aside class="paper stack" id="rx-side"><p class="eyebrow">表达式</p><div id="rx-read"></div><p class="eyebrow">试一句</p>${hint('贴一行字。下面给出匹配、捕获组和替换结果，不写入库。')}<textarea id="lab" rows="6" data-nolen>${UI.esc(UI.state.lab || '')}</textarea><button type="button" class="btn" id="run-rx">试跑</button><pre id="lab-out" class="snippet"></pre></aside></div>`;
+    body.querySelectorAll('[data-trim-index]').forEach(node => { node.oninput = () => { script.trimStrings[Number(node.dataset.trimIndex)] = node.value; UI.markDirty(); }; });
     const paintRegex = () => {
       const described = F.describeRegex(script.findRegex);
       const read = body.querySelector('#rx-read');
@@ -1334,6 +1328,7 @@
       ${hint('一套里有多条短句。导出为 Quick Reply v2；每条颜色记在 atelierColor。点「复制内容」只复制句子。')}
     </div>${UI.picker(sets, set && set.id, (item) => `${item.replies.length} 条`)}<div id="qr-body"></div>`;
     mountPageAssist(stage, 'quick');
+    root.TACreationAssist.selectedReply(stage,set);
     UI.bindPicker(stage, (id) => { UI.state.sel.qr = id; UI.renderStage(); });
     stage.querySelector('#new-qr').onclick = () => {
       const created = { id: Store.uid('qrset'), name: '新的快捷回复', replies: [] };
@@ -1342,18 +1337,18 @@
       UI.markDirty();
       UI.renderStage();
     };
-    stage.querySelector('#import-qr').onclick = async () => {
-      const file = await UI.pickFile('.json,application/json');
-      if (!file) return;
+    const importReplies = stage.querySelector('#import-qr');
+    importReplies.onclick = async () => {
       try {
+        const file = await UI.pickFile('.json,application/json');
+        if (!file) return;
         const imported = F.qrFromImport(await parseJsonFile(file));
         imported.id = Store.uid('qrset');
         imported.replies.forEach((reply) => { reply.id = Store.uid('qr'); });
-        lib.quickReplySets.unshift(imported);
-        UI.state.sel.qr = imported.id;
-        UI.markDirty();
+        await commitCurrentLibrary(candidate => candidate.quickReplySets.unshift(imported));
+        if (importReplies.isConnected) UI.state.sel.qr = imported.id;
         UI.renderStage();
-      } catch (error) { UI.toast(error.message); }
+      } catch (error) { UI.toast(UI.t(error.message),{kind:'error'}); }
     };
     if (!set) { stage.querySelector('#qr-body').appendChild(UI.empty('还没有快捷回复', '做一组可以复制进输入框的短句。', '', null)); return; }
     stage.querySelector('#export-qr').onclick = () => {
@@ -1399,82 +1394,7 @@
   }
 
   function timeline(stage) {
-    const lib = UI.state.lib;
-    const notes = lib.timeline.notes.filter((note) => UI.matchQuery(note.title + note.body));
-    const beats = lib.timeline.beats.filter((beat) => UI.matchQuery(beat.title + beat.summary));
-    const items = [
-      ...beats.map((beat) => ({ kind: 'beat', floor: Number(beat.floor) || 0, order: beat.order || 0, data: beat })),
-      ...notes.map((note) => ({ kind: 'note', floor: Number(note.floor) || 0, order: 0, data: note })),
-    ].sort((a, b) => a.floor - b.floor || a.order - b.order);
-    stage.innerHTML = `<div class="toolbar">
-      <button type="button" class="btn btn-primary" id="add-note">添加楼层注记</button>
-      <button type="button" class="btn" id="add-beat">添加情节</button>
-      <button type="button" class="btn btn-primary" id="export-tl">导出 JSON</button>
-      ${hint('注记钉在某一楼，情节是节拍。点一条再改标题和楼层。')}
-    </div><div class="work"><div><div id="tl-lesson"></div><div class="timeline" id="tl"></div></div><div id="tl-editor"></div></div>`;
-    mountPageAssist(stage, 'timeline');
-    const paintTimelineLesson = () => {
-      const notes = lib.timeline.notes || [];
-      const beats = lib.timeline.beats || [];
-      const steps = [UI.t('tl.lead', { notes: notes.length, beats: beats.length })];
-      notes.forEach((note) => {
-        const bodyText = String(note.body || '').replace(/\s+/g, ' ').trim();
-        steps.push(UI.t('tl.note', { title: note.title || UI.t('未命名'), floor: Number(note.floor) || 0, text: bodyText ? bodyText.slice(0, 36) : UI.t('空') }));
-      });
-      beats.forEach((beat) => {
-        const summary = String(beat.summary || '').replace(/\s+/g, ' ').trim();
-        steps.push(UI.t('tl.beat', { title: beat.title || UI.t('未命名'), order: Number(beat.order) || 0, floor: Number(beat.floor) || 0, text: summary ? summary.slice(0, 36) : UI.t('空') }));
-      });
-      if (!notes.length && !beats.length) steps.push('时间线还是空的。加注记或情节后，这里会逐条说明它们落在哪一楼。');
-      UI.fillLesson(stage.querySelector('#tl-lesson'), steps);
-    };
-    paintTimelineLesson();
-    const tl = stage.querySelector('#tl');
-    tl.innerHTML = items.map((item) => `<button type="button" class="paper tl-item" data-kind="${item.kind}" data-id="${UI.esc(item.data.id)}"><span class="eyebrow">${UI.t('tl.mark', { kind: UI.t(item.kind === 'beat' ? '情节' : '注记'), floor: item.floor })}</span><strong>${UI.esc(item.data.title || '未命名')}</strong><p class="muted">${UI.esc(item.kind === 'beat' ? item.data.summary : item.data.body)}</p></button>`).join('') || '<p class="dark-muted">时间线还是空的。</p>';
-    stage.querySelector('#add-note').onclick = () => {
-      const note = { id: Store.uid('note'), floor: 0, title: '新注记', body: '' };
-      lib.timeline.notes.push(note);
-      UI.state.sel.tlKind = 'note';
-      UI.state.sel.tl = note.id;
-      UI.markDirty();
-      UI.renderStage();
-    };
-    stage.querySelector('#add-beat').onclick = () => {
-      const beat = { id: Store.uid('beat'), order: lib.timeline.beats.length + 1, floor: 0, title: '新情节', summary: '' };
-      lib.timeline.beats.push(beat);
-      UI.state.sel.tlKind = 'beat';
-      UI.state.sel.tl = beat.id;
-      UI.markDirty();
-      UI.renderStage();
-    };
-    stage.querySelector('#export-tl').onclick = () => {
-      UI.downloadJson('timeline.json', F.timelineToExport(lib));
-      UI.toast('已导出时间线');
-      UI.showExport('timeline.json', '工坊自己的时间线 JSON。酒馆没有对应的导入。');
-    };
-    const editor = stage.querySelector('#tl-editor');
-    const paint = (kind, id) => {
-      UI.state.sel.tlKind = kind;
-      UI.state.sel.tl = id;
-      const data = kind === 'beat' ? lib.timeline.beats.find((item) => item.id === id) : lib.timeline.notes.find((item) => item.id === id);
-      if (!data) { editor.innerHTML = ''; return; }
-      editor.innerHTML = `<div class="paper stack">
-        ${UI.field('标题', UI.text('title', data.title))}
-        ${UI.field('楼层', `<input data-field="floor" type="number" value="${Number(data.floor) || 0}">`, '对应聊天消息序号，从 0 开始')}
-        ${kind === 'beat' ? UI.field('顺序', `<input data-field="order" type="number" value="${Number(data.order) || 1}">`) + UI.field('摘要', UI.area('summary', data.summary, 5)) : UI.field('正文', UI.area('body', data.body, 6))}
-        <button type="button" class="btn btn-danger" id="del-tl">删除</button>
-      </div>`;
-      UI.bindFields(editor, data, paintTimelineLesson);
-      UI.mountLengths(editor);
-      editor.querySelector('#del-tl').onclick = () => {
-        if (kind === 'beat') lib.timeline.beats = lib.timeline.beats.filter((item) => item.id !== id);
-        else lib.timeline.notes = lib.timeline.notes.filter((item) => item.id !== id);
-        UI.markDirty();
-        UI.renderStage();
-      };
-    };
-    tl.querySelectorAll('.tl-item').forEach((button) => { button.onclick = () => paint(button.dataset.kind, button.dataset.id); });
-    if (UI.state.sel.tl) paint(UI.state.sel.tlKind, UI.state.sel.tl);
+    root.TAJournal.render(stage,mountPageAssist);
   }
 
   function nodeLabel(node) {
@@ -1677,27 +1597,13 @@
       ]);
       host.innerHTML = `<h3>本地规则检查</h3>${findings.map((item) => `<article class="paper finding"><div class="sev ${item.severity}">${UI.esc(UI.t(item.severity === 'error' ? '冲突' : item.severity === 'warn' ? '存疑' : '备注'))}</div><h3>${UI.esc(UI.t(item.title))}</h3><p>${UI.esc(UI.t(item.detail))}</p>${item.snippet ? `<p class="snippet">${highlight(item.snippet, item.highlight)}</p>` : ''}</article>`).join('') || '<div class="paper empty"><p>本地规则未发现问题；这不代表已经通过 AI 审查。</p></div>'}`;
     };
-    stage.querySelector('#semantic-check').onclick = async () => {
-      if (!root.NIJANModel.configured()) { UI.toast('先在设置里连接模型，并选一个。'); return; }
-      const context = source();
-      if (!context.card) { UI.toast('先选一张角色卡。'); return; }
-      const button = stage.querySelector('#semantic-check');
-      const progress = stage.querySelector('#check-progress');
-      button.disabled = true;
-      progress.textContent = '正在对照原文检查…';
-      try {
-        const result = await root.NIJANModel.runTask('review', context, {label: '逻辑与人设检查'});
-        const report = {id: Store.uid('review'), cardId: context.card.id, bookId: context.book?.id || null, source: JSON.stringify(context), createdAt: stamp(), items: result.items};
-        lib.settings.aiReviews = (lib.settings.aiReviews || []).concat(report).slice(-10);
-        UI.markDirty();
-        paint();
-        progress.textContent = result.items.length ? `检查完成，发现 ${result.items.length} 项问题。` : '检查完成，未发现有原文证据支持的冲突。';
-      } catch (error) { progress.textContent = error.code === 'needs-input' ? `需要补充：${error.message}` : error.message; }
-      finally { button.disabled = false; }
-    };
+    const syncTask = root.TATaskActivity.bindReview(stage.querySelector('#check-progress'), {
+      button:stage.querySelector('#semantic-check'), progress:stage.querySelector('#check-progress'),
+      source, after:paint
+    });
     stage.querySelector('#run-check').onclick = paint;
-    stage.querySelector('#check-char').onchange = (event) => { UI.state.sel.checkChar = event.target.value; stage.querySelector('#check-progress').textContent = ''; paint(); };
-    stage.querySelector('#check-book').onchange = (event) => { UI.state.sel.checkBook = event.target.value; stage.querySelector('#check-progress').textContent = ''; paint(); };
+    stage.querySelector('#check-char').onchange = (event) => { UI.state.sel.checkChar = event.target.value; syncTask(); };
+    stage.querySelector('#check-book').onchange = (event) => { UI.state.sel.checkBook = event.target.value; syncTask(); };
     stage.querySelector('#export-check').onclick = () => {
       paint();
       if (!UI.state.lastFindings) { UI.toast('先选择要检查的角色。'); return; }
@@ -1789,6 +1695,32 @@
     paint();
   }
 
+  function backupContent(library) {
+    return {...library,meta:{...library.meta,updatedAt:undefined}};
+  }
+
+  function discardsRecentEdit(before, current, restored) {
+    if (before === current || current === restored) return false;
+    const values = [before,current,restored];
+    const same = (a,b) => JSON.stringify(a) === JSON.stringify(b);
+    if (values.every(value => value && typeof value === 'object' && !Array.isArray(value))) {
+      const keys = new Set([...Object.keys(before),...Object.keys(current)]);
+      return [...keys].some(key => discardsRecentEdit(before[key],current[key],restored[key]));
+    }
+    if (values.every(Array.isArray)) {
+      const key = ['id','characterId'].find(key => values.every(rows => rows.every(row => row?.[key] != null)));
+      if (key) {
+        const [original,live,result] = values.map(rows => new Map(rows.map(row => [row[key],row])));
+        const ids = new Set([...original.keys(),...live.keys()]);
+        if ([...ids].some(id => discardsRecentEdit(original.get(id),live.get(id),result.get(id)))) return true;
+        // A backup may add records. Compare the order of the ones present in the live collection.
+        const order = [...live.keys()];
+        return !same([...original.keys()],order) && !same(order,[...result.keys()].filter(id => live.has(id)));
+      }
+    }
+    return !same(before,current) && !same(current,restored);
+  }
+
   function backup(stage) {
     const lib = UI.state.lib;
     const rows = [
@@ -1806,6 +1738,7 @@
     stage.innerHTML = `<div class="toolbar">
       <button type="button" class="btn btn-primary" id="save-backup">导出整库</button>
       <button type="button" class="btn" id="load-backup">从备份恢复</button>
+      ${Store.hasMigrationBackup ? '<button type="button" class="btn" id="migration-backup">'+UI.esc(UI.t('下载迁移前存档'))+'</button>' : ''}
       <button type="button" class="btn" id="backup-demo">载入示例</button>
       <button type="button" class="btn btn-danger" id="backup-clear">清空库</button>
       ${hint('导出一份带日期的 JSON。恢复时可把文件拖进来，再选替换或合并。')}
@@ -1816,32 +1749,47 @@
       <h2>${UI.esc(lib.meta.name || '我的酒馆库')}</h2>
       <p>${UI.t('backup.about', { kb: Math.round(Store.bytes(lib) / 1024) })}</p>
       <div class="stats">${rows.map(([label, count]) => `<div class="stat"><b>${count}</b><span>${label}</span></div>`).join('')}</div>
-      <p class="help">恢复时可以整份替换，或按编号合并。合并时同一编号以备份为准。</p>
+      <p class="help">${UI.t('合并会保留本机独有的内容。同一编号的字段采用备份值；已有 HTML 记忆会保留。')}</p>
     </div>`;
     mountPageAssist(stage, 'backup');
     async function restoreFile(file) {
       if (!file) return;
       try {
-        const incoming = F.backupLibrary(await parseJsonFile(file));
-        const normalized = Store.normalize(incoming);
+        const data = await parseJsonFile(file);
+        const incoming = data?.atelier ? F.backupLibrary(data) : data;
+        const normalized = Store.verify(incoming);
+        const atConfirmation = structuredClone(backupContent(UI.state.lib));
         const answer = await UI.ask({
           title: '恢复这份备份',
-          body: `备份里有 ${normalized.characters.length} 张角色、${normalized.worldBooks.length} 本世界书。替换会清掉当前库。合并会保留当前库里备份没有的条目。`,
+          body: `备份里有 ${normalized.characters.length} 张角色、${normalized.worldBooks.length} 本世界书。\n${UI.t('合并会保留本机独有的内容。同一编号的字段采用备份值；已有 HTML 记忆会保留。')}`,
           actions: [
             { id: 'replace', label: '替换当前库', kind: 'btn-danger' },
             { id: 'merge', label: '合并进来', kind: 'btn-primary' },
             { id: 'no', label: '取消' },
           ],
         });
-        if (answer === 'replace') UI.state.lib = normalized;
-        else if (answer === 'merge') UI.state.lib = Store.merge(UI.state.lib, normalized);
-        else return;
+        if (answer !== 'replace' && answer !== 'merge') return;
+        const live = UI.state.lib;
+        const candidate = answer === 'replace' ? normalized : Store.merge(live, incoming);
+        const currentContent = backupContent(live);
+        const stale = answer === 'replace'
+          ? JSON.stringify(atConfirmation) !== JSON.stringify(currentContent)
+          : discardsRecentEdit(atConfirmation,currentContent,backupContent(candidate));
+        if (stale) throw new Error('资料库已变化，请重新打开。');
+        await UI.commitLibrary(candidate);
+        UI.state.loreUndo?.clear();
         UI.applyTheme();
-        UI.flush();
         UI.toast(answer === 'replace' ? '已替换为备份' : '已合并备份');
         UI.renderStage();
-      } catch (error) { UI.toast(error.message); }
+      } catch (error) { UI.toast(UI.t(error.message),{kind:'error'}); }
     }
+    stage.querySelector('#migration-backup')?.addEventListener('click',async () => {
+      try {
+        const raw = await Store.migrationBackup();
+        if (!raw) throw new Error('资料库已变化，请重新打开。');
+        UI.downloadText('Quilvori-before-migration.json',raw);
+      } catch (error) { UI.toast(UI.t(error.message),{kind:'error'}); }
+    });
     stage.querySelector('#save-backup').onclick = () => {
       const date = new Date().toISOString().slice(0, 10);
       const filename = `叙翎集-备份-${date}.json`;
@@ -1989,39 +1937,68 @@
       UI.renderStage();
     };
     host.querySelector('#pack-add').onclick = async () => {
-      const pack = lib.stickerPacks.find((item) => owner && item.id === owner.stickerPackId);
-      if (!pack) { UI.toast('先选定一套表情包'); return; }
-      const files = await UI.pickFile('image/*', true);
-      for (const file of files || []) {
-        pack.stickers.push({ name: file.name, dataUrl: await UI.readDataUrl(file) });
-      }
-      UI.markDirty();
-      UI.renderStage();
+      const packId = owner?.stickerPackId;
+      if (!packId) { UI.toast('先选定一套表情包'); return; }
+      const collection = UI.state.route === 'lore' ? 'worldBooks' : 'characters';
+      try {
+        const files = await UI.pickFile('image/*', true);
+        if (!files?.length) return;
+        const stickers = [];
+        for (const file of files) {
+          stickers.push({name:file.name,dataUrl:await readImage(file)});
+        }
+        await commitCurrentLibrary(candidate => {
+          const pack = candidate.stickerPacks.find(item => item.id === packId);
+          if (!pack || !candidate[collection].some(item => item.id === owner.id)) throw new Error('资料库已变化，请重新打开。');
+          pack.stickers = (pack.stickers || []).concat(stickers);
+        });
+        UI.renderStage();
+      } catch (error) { UI.toast(UI.t(error.message),{kind:'error'}); }
     };
     host.querySelector('#pack-export').onclick = () => {
       const pack = lib.stickerPacks.find((item) => owner && item.id === owner.stickerPackId);
       if (!pack) { UI.toast('这张卡或这本书没有表情包'); return; }
-      exportStickerFiles(pack, (owner && owner.name) || pack.name);
+      return exportStickerFiles(pack, owner.name || pack.name);
     };
   }
 
-  async function exportStickerFiles(pack, characterName) {
-    if (root.nijanDesktop) {
-      const paths = await root.nijanDesktop.getPaths();
-      if (!paths.cards) { UI.toast('先在页面上方设置人物卡文件夹'); return; }
-      const dest = await root.nijanDesktop.writeExpressions({ folder: paths.cards, character: characterName || pack.name, files: pack.stickers || [] });
-      UI.showExport(dest, '表情文件夹已写到人物卡目录下的 expressions。世界书只记录套名，不含这些图片。');
+  async function exportStickerFiles(pack, characterName, cardReceipt) {
+    const report = (message, kind) => {
+      UI.toast(message, {kind});
+      UI.showExport(cardReceipt?.filename || pack.name, [cardReceipt?.message, message].filter(Boolean).join(' '));
+    };
+    const files = pack.stickers || [];
+    if (!files.length) {
+      report(UI.t('这套表情包里还没有图片。'), 'info');
       return;
     }
-    (pack.stickers || []).forEach((sticker) => {
-      const link = document.createElement('a');
-      link.href = sticker.dataUrl;
-      link.download = sticker.name;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-    });
-    UI.showExport(`${characterName}/expressions`, '浏览器会下载表情图片。请放进酒馆该角色的 expressions 文件夹。世界书导出只写套名。');
+    try {
+      if (root.nijanDesktop) {
+        const paths = await root.nijanDesktop.getPaths();
+        if (!paths?.cards) {
+          report(UI.t('请先设置人物卡文件夹，再导出表情。'), 'warning');
+          return;
+        }
+        const dest = await root.nijanDesktop.writeExpressions({folder:paths.cards, character:characterName, files});
+        if (!dest || dest.canceled) {
+          report(UI.t('已取消表情导出。'), 'info');
+          return;
+        }
+        report(UI.t('export.expressionsWritten', {count:files.length, path:dest}), 'success');
+        return;
+      }
+      for (const sticker of files) {
+        const link = document.createElement('a');
+        link.href = sticker.dataUrl;
+        link.download = sticker.name;
+        document.body.appendChild(link);
+        try { link.click(); } finally { link.remove(); }
+      }
+      report(UI.t('export.expressionsRequested', {count:files.length, path:`${characterName}/expressions`}), 'info');
+    } catch (error) {
+      if (error.name === 'AbortError') report(UI.t('已取消表情导出。'), 'info');
+      else report(UI.t('export.expressionsFailed', {reason:UI.t(error.message)}), 'error');
+    }
   }
 
   function mountJson(stage, kind, owner) {
@@ -2029,12 +2006,30 @@
     if (!host || !owner || !root.TAI18n || !root.TAI18n.prefs.jsonMode) { if (host) host.innerHTML = ''; return; }
     const data = kind === 'card' ? F.characterToCard(owner, null) : F.bookToWorldInfo(owner);
     host.innerHTML = `<details class="paper"><summary>JSON 互转</summary><textarea id="json-box" rows="8">${UI.esc(JSON.stringify(data, null, 2))}</textarea><button type="button" class="btn" id="json-back">从 JSON 转回</button></details>`;
-    host.querySelector('#json-back').onclick = () => {
+    host.querySelector('#json-back').onclick = async () => {
       try {
-        const parsed = JSON.parse(host.querySelector('#json-box').value);
-        if (kind === 'card') Object.assign(owner, F.cardToCharacter(parsed));
-        else owner.entries = F.worldInfoToEntries(parsed).map((entry) => Object.assign(blankEntry(), entry, { id: Store.uid('lore') }));
-        UI.markDirty();
+        const raw = host.querySelector('#json-box').value;
+        const next = structuredClone(UI.state.lib);
+        if (kind === 'card') {
+          const target = next.characters.find(row=>row.id===owner.id);
+          const {card} = root.TAFolderImport.parseCard({name:'card.json'},new TextEncoder().encode(raw));
+          if (card.book) {
+            const companion = root.TAFolderImport.makeBook(card.book,card.name+' · '+UI.t('世界书'));
+            next.worldBooks.unshift(companion); card.embeddedBookId = companion.id;
+          }
+          delete card.book;
+          Object.assign(target,card);
+        } else {
+          const target = next.worldBooks.find(row=>row.id===owner.id);
+          const ids = new Map(F.bookToCharacterBook(target).entries.map((entry,index)=>[entry.id,target.entries[index].id]));
+          const book = F.worldInfoToBook(JSON.parse(raw),owner.name);
+          book.entries = book.entries.map(entry => {
+            const id = ids.get(entry.stUid) || Store.uid('lore'); ids.delete(entry.stUid);
+            return {...entry,id};
+          });
+          Object.assign(target,book);
+        }
+        await UI.commitLibrary(next);
         UI.renderStage();
       } catch (error) { UI.toast(error.message || '这份 JSON 转不回来'); }
     };
@@ -2212,22 +2207,27 @@
     paint();
     mountPageAssist(stage, 'memory');
     stage.querySelector('#memory-import').onclick = async () => {
-      const file = await UI.pickFile('.html,.json,text/html,application/json');
-      if (!file) return;
+      const original = UI.state.lib.memoryHtml;
       try {
+        const file = await UI.pickFile('.html,.json,text/html,application/json');
+        if (!file) return;
         const raw = await file.text();
         let html = raw;
         if (/\.json$/i.test(file.name) || raw.trim().startsWith('{')) {
           const data = JSON.parse(raw);
           html = data.html || data.memory || data.content || '';
-          if (!html) throw new Error('这份 JSON 里没有 html');
+          if (typeof html !== 'string' || !html) throw new Error('这份 JSON 里没有 html');
         }
-        area.value = html;
-        lib.memoryHtml = html;
-        UI.markDirty();
-        paint();
-        UI.toast('已导入 HTML 记忆');
-      } catch (error) { UI.toast(error.message || '这份记忆读不了'); }
+        await commitCurrentLibrary(candidate => {
+          if (candidate.memoryHtml !== original) throw new Error('资料库已变化，请重新打开。');
+          candidate.memoryHtml = html;
+        });
+        UI.renderStage();
+        UI.toast('已导入 HTML 记忆',{kind:'success'});
+      } catch (error) {
+        if (area.isConnected && area.value !== UI.state.lib.memoryHtml) UI.renderStage();
+        UI.toast(UI.t(error.message || '这份记忆读不了'),{kind:'error'});
+      }
     };
     stage.querySelector('#memory-export').onclick = () => {
       const filename = '叙翎集-html-memory.html';
@@ -2252,20 +2252,6 @@
     if (!character) { UI.toast('先有一张角色卡'); return; }
     const findings = F.checkConsistency(UI.state.lib, character.id, bookId || null);
     paintFindings(host, findings);
-  }
-
-  async function runLogic(host, character, book) {
-    if (!character && !book) { UI.toast('先选一张角色卡或一本世界书'); return; }
-    if (!root.NIJANModel || !root.NIJANModel.configured()) { UI.toast('先在设置里连接模型，并选一个。'); return; }
-    const note = host.parentElement && host.parentElement.querySelector('.model-progress');
-    if (note) note.textContent = UI.t('正在检查…');
-    const context = { card: root.NIJANStudio.cardContent(character), book: root.NIJANStudio.bookContent(book) };
-    const result = await root.NIJANModel.runTask('review', context, { label: '角色卡与世界书逻辑检查' });
-    const report = { id: Store.uid('review'), cardId: character?.id || null, bookId: book?.id || null, source: JSON.stringify(context), createdAt: stamp(), items: result.items };
-    UI.state.lib.settings.aiReviews = (UI.state.lib.settings.aiReviews || []).concat(report).slice(-10);
-    UI.markDirty();
-    root.NIJANReview.mount(host,report,UI.state.lib);
-    if (note) note.textContent = result.items.length ? `检查完成，发现 ${result.items.length} 项问题` : '检查完成，未发现有原文证据支持的冲突';
   }
 
   async function fillGaps(character) {
@@ -2297,14 +2283,12 @@
       runPersona(out, card, book && book.id);
       progress.textContent = UI.t('检查写完了');
     };
-    host.querySelector('[data-ai="logic"]').onclick = () => {
-      progress.textContent = UI.t('正在检查…');
-      const card = chosenCard();
-      const book = chosenBook();
-      if (card) UI.state.sel.character = card.id;
-      if (book) UI.state.sel.book = book.id;
-      runLogic(out, card, book).catch((error) => { progress.textContent = ''; UI.toast(error.message); });
-    };
+    const syncTask = root.TATaskActivity.bindReview(host,{
+      button:host.querySelector('[data-ai="logic"]'),progress,output:out,
+      source:()=>({card:root.NIJANStudio.cardContent(chosenCard()),book:root.NIJANStudio.bookContent(chosenBook())})
+    });
+    host.querySelector('[data-logic-card]').addEventListener('change',()=>{ UI.state.sel.character=chosenCard()?.id; syncTask(); });
+    host.querySelector('[data-logic-book]').addEventListener('change',()=>{ UI.state.sel.book=chosenBook()?.id; syncTask(); });
     host.querySelector('[data-ai="gaps"]').onclick = () => {
       progress.textContent = '';
       if (page === 'book') {
@@ -2321,36 +2305,14 @@
     box.className = 'paper stack ai-assist';
     box.innerHTML = `<h3>${UI.esc(root.NIJANAI.MODULES[kind] || 'AI 辅助')}</h3><label class="field"><span class="field-label">写下要求</span><textarea rows="3" data-assist></textarea></label><button type="button" class="btn" data-assist-go>生成并预览</button><p class="model-progress" role="status"></p>`;
     stage.prepend(box);
-    box.querySelector('[data-assist-go]').onclick = async () => {
-      const progress = box.querySelector('.model-progress');
-      const note = box.querySelector('[data-assist]').value.trim();
-      if (!note) { UI.toast('先写下要求。'); return; }
-      if (!root.NIJANModel.configured()) { UI.toast('先在设置里连接模型，并选一个。'); return; }
-      const button = box.querySelector('[data-assist-go]');
-      button.disabled = true;
-      progress.textContent = '正在生成…';
-      try {
-        const context = { brief: note, reference: root.NIJANStudio.modelReference(note,[],true), availableCharacters: UI.state.lib.characters.map(({id, name}) => ({id, name})), library: kind === 'backup' ? { characters: UI.state.lib.characters.length, books: UI.state.lib.worldBooks.length } : undefined };
-        const result = await root.NIJANModel.runTask(`create:${kind}`, context, { label: `创作${root.NIJANAI.MODULES[kind]}` });
-        const plan = root.NIJANAI.proposal(UI.state.lib, `create:${kind}`, result, context);
-        if (!plan.operations.length) { progress.textContent = '没有有效内容，原稿保持原样。'; return; }
-        progress.textContent = '内容已校验，等待确认。';
-        const preview = plan.operations.map((op) => `${op.label}\n${root.NIJANStudio.formatValue(op.kind === 'add' ? op.value : op.after)}`).join('\n\n');
-        const answer = await UI.ask({ title: '生成内容预览', body: preview, actions: [{ id: 'no', label: '放弃' }], swipe: '滑开写入对应模块' });
-        if (answer !== 'yes') { progress.textContent = '未应用，原稿保持原样。'; return; }
-        root.NIJANStudio.applyExternal(plan);
-        UI.renderStage();
-        UI.toast('已应用到对应模块，可在 AI 创作台撤销。');
-      } catch (error) { progress.textContent = error.code === 'needs-input' ? `需要补充：${error.message}` : error.message; }
-      finally { button.disabled = false; }
-    };
+    root.TATaskActivity.bindAssist(box,kind);
   }
 
   function studio(stage) {
     if (root.NIJANStudio) root.NIJANStudio.render(stage);
   }
 
-  UI.mount({
+  root.TALibraryDB.start({
     home, resources: stage => root.TAResourcePanel.render(stage), studio, characters, lore, prompts, groups, chat, assets, regex, quick, timeline, graph, check, script, backup, sections, memory, tutorial,
   });
 })(typeof globalThis !== 'undefined' ? globalThis : window);

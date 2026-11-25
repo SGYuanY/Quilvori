@@ -8,4 +8,5 @@ contextBridge.exposeInMainWorld('nijanDesktop', {
   downloadLink: (payload) => ipcRenderer.invoke('links:download', payload),
   cancelLink: (id) => ipcRenderer.invoke('links:cancel', id),
   writeExpressions: (payload) => ipcRenderer.invoke('folders:writeExpressions', payload),
+  installBundle: (files) => ipcRenderer.invoke('bundles:install', files),
 });

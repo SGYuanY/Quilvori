@@ -58,8 +58,9 @@
         saved && typeof saved === "object" ? saved : {},
       );
       state.busy = false;
+      if (root.TAStudioDrafts?.ready()) state.plans = root.TAStudioDrafts.rehydrate(state.plans);
       if (
-        !saved ||
+        saved &&
         !Object.prototype.hasOwnProperty.call(saved, "creationBatchId")
       ) {
         state.creationBatchId =
@@ -74,6 +75,16 @@
           UI().state.sel.book || (lib().worldBooks[0] || {}).id || "";
     }
     return state;
+  }
+  async function migrateSessionDrafts(library) {
+    try {
+      const raw=sessionStorage.getItem(KEY);
+      if(!raw)return;
+      const saved=JSON.parse(raw);
+      if(Array.isArray(saved?.plans) && await root.TAStudioDrafts.importSession(saved.plans,library) && sessionStorage.getItem(KEY)===raw){
+        sessionStorage.setItem(KEY,JSON.stringify(saved));
+      }
+    }catch(_) { /* The durable library still opens when session storage is unavailable. */ }
   }
   function persist() {
     try {
@@ -275,6 +286,9 @@
               "updatedAt",
               "avatarAssetId",
               "expressionAssetIds",
+              "workSource",
+              "creationSource",
+              "messageStamp",
               "x",
               "y",
             ].includes(key),
@@ -315,10 +329,9 @@
     }
   }
   function status(message) {
-    data().status = message;
+    data().status = String(message || "模型没有返回有效答复。");
     persist();
-    const host = document.getElementById("ai-status");
-    if (host) host.textContent = message;
+    for (const node of document.querySelectorAll("#ai-status, #creation-feedback")) node.textContent = UI().t(message);
   }
   function cancel(message) {
     revision += 1;
@@ -328,19 +341,20 @@
     if (message) status(message);
   }
   function changeScope() {
-    cancel();
     data().selection = null;
     data().sourceLocation = null;
-    status("选择已更新，请写下修改要求。");
+    if (!controller) status("选择已更新，请写下修改要求。");
     persist();
     refresh();
   }
   async function execute(label, operation) {
     if (!root.NIJANModel.configured()) {
-      UI().toast("先在设置里连接模型，并选择一个。");
-      return;
+      status("先在设置里连接模型，并选择一个。");
+      UI().openSettings();
+      return false;
     }
-    cancel();
+    if (controller) {UI().toast(UI().t('已有任务正在运行，可先打开其他栏目。'));return false;}
+    const startMode=data().mode, startScope=scopeKey();
     const version = ++revision;
     controller = new AbortController();
     data().busy = true;
@@ -349,6 +363,7 @@
     const signal = controller.signal;
     try {
       await operation(signal, () => version === revision);
+      return version === revision;
     } catch (error) {
       if (version === revision) {
         status(
@@ -356,13 +371,14 @@
             ? `模型需要补充：${error.message}`
             : error.message,
         );
+        UI().toast(UI().t(data().status), {kind: "error"});
         if (error.code === "needs-input") {
-          if (data().mode === "create")
+          if (startMode === "create")
             rememberCreation("assistant", error.message);
           else
             data().history.push({
               role: "assistant",
-              scope: scopeKey(),
+              scope: startScope,
               text: error.message,
             });
         }
@@ -375,6 +391,16 @@
         refresh();
       }
     }
+  }
+  async function protectDraft(plan) {
+    try {
+      await root.TAStudioDrafts.keep(plan);
+    } catch (error) {
+      // Keep a usable model result in the preview even when this device is full.
+      plan.draftSaveError=error.message;
+      UI().toast(UI().t(error.message),{kind:"warning"});
+    }
+    persist();
   }
   function rememberPlan(plan, result, scope) {
     plan.result = AI().copy(result);
@@ -481,16 +507,20 @@
     persist();
   }
   async function generateCreation(instruction) {
+    if(controller) return false;
     const s = data();
     syncCreationInputs();
-    if (!s.brief.trim() || !s.modules.length) {
-      UI().toast("先写下要求，并选择至少一个创作模块。");
+    if (!s.brief.trim()) {
+      UI().toast("先写下创作要求。");
       return false;
     }
     if (!root.NIJANModel.configured()) {
-      UI().toast("先在设置里连接模型，并选择一个。");
+      status("先在设置里连接模型，并选择一个。");
+      UI().openSettings();
       return false;
     }
+    if (!s.modules.length) s.modules = ["character"];
+    const reference = modelReference(s.brief);
     const existing = creationPlans();
     const locked = existing
       .filter((plan) => plan.operations.some((op) => op.applied))
@@ -502,15 +532,16 @@
       UI().toast("所选模块已应用。可到“修改已有”继续修改，或点击“另起一稿”。");
       return false;
     }
-    const snapshot = AI().copy(s),
-      brief = s.brief;
+    // Freeze only the inputs for this request. The session can hold many previous full drafts.
+    const snapshot = {brief:s.brief,modules:[...s.modules],answers:AI().copy(s.answers),ideas:AI().copy(s.ideas),creationHistory:AI().copy(s.creationHistory)},
+      inputs = {brief:snapshot.brief,modules:snapshot.modules,questions:AI().copy(s.questions),answers:snapshot.answers,ideas:snapshot.ideas,cardId:s.cardId,bookId:s.bookId};
     const batchId = s.creationBatchId || root.TAStore.uid("batch");
     s.creationBatchId = batchId;
     if (instruction) {
       rememberCreation("user", instruction);
       s.creationMessage = "";
     }
-    await execute("正在准备创作…", async (signal, active) => {
+    return execute("正在准备创作…", async (signal, active) => {
       const virtual = AI().copy(lib()),
         created = {};
       const previousDrafts = creationDrafts();
@@ -527,71 +558,76 @@
           created[previous.task.slice(7)] =
             previous.result[previous.task.slice(7)];
       }
-      let count = 0;
-      for (const module of modules) {
-        status(
-          UI().t("creation.generating", {
-            module: UI().t(AI().MODULES[module]),
-          }),
-        );
-        const previous = existing.find(
-          (plan) => plan.task === `create:${module}`,
-        );
+      const previousFor=module=>existing.find(row=>row.task==='create:'+module);
+      const contextFor=module=>{
         const context = root.NIJANCreation.context(snapshot, {
           instruction,
           previousDrafts,
           currentDraft: previousDrafts[module],
           created,
-          reference: modelReference(brief),
+          reference,
           availableCharacters: virtual.characters.map(({ id, name }) => ({
             id,
             name,
           })),
         });
-        context.history = AI().copy(s.creationHistory);
-        const result = await root.NIJANModel.runTask(
-          `create:${module}`,
-          context,
-          { signal, label: `创作${AI().MODULES[module]}` },
-        );
-        if (!active()) return;
-        const merged = root.NIJANCreation.mergeResult(previous?.result, result);
-        root.NIJANCreation.withdraw(virtual, previous);
-        const plan = AI().proposal(
-          virtual,
-          `create:${module}`,
-          merged,
-          context,
-        );
-        root.NIJANCreation.preserveIds(plan, previous);
-        plan.batchId = batchId;
-        if (plan.operations.length) AI().commit(virtual, AI().copy(plan));
-        created[module] = merged[module];
-        if (previous) s.plans = s.plans.filter((row) => row.id !== previous.id);
-        rememberPlan(plan, merged, `create:${batchId}:${module}`);
-        count += plan.operations.length;
-      }
-      rememberCreation(
-        "assistant",
-        `${instruction ? "已按本轮建议更新" : "已生成"}${modules.map((module) => AI().MODULES[module]).join("、")}；采用 ${contextIdeas(snapshot).length} 条灵感。${locked.length ? "已应用的模块保留原样。" : ""}请对照预览，应用后才会写入本地库。`,
-      );
-      status(
-        count
-          ? UI().t("creation.finished", { count })
-          : "模型没有提出有效的新内容，原稿保持原样。",
-      );
+        if(module==='quick'){
+          // In a joint commission, link replies to the works just written in this batch.
+          const sourceId=(kind,collection,fallback)=>{
+            if(!snapshot.modules.includes(kind))return fallback;
+            const source=s.plans.find(row=>row.batchId===batchId && row.task==='create:'+kind);
+            return source?.operations.find(op=>op.kind==='add' && op.path[0]===collection)?.value.id || fallback;
+          };
+          const refs=root.TACreationAssist.quickContext(virtual,{
+            characterId:sourceId('character','characters',inputs.cardId),bookId:sourceId('world','worldBooks',inputs.bookId),scope:'relevant',
+          },[snapshot.brief,instruction].filter(Boolean).join('\n'));
+          context.reference=refs.reference;
+          context.quickSource=refs.quickSource;
+          delete context.availableCharacters;
+        }
+        context.history=AI().copy(s.creationHistory);
+        return context;
+      };
+      const {delivered,issues}=await root.TACreativeBatch.run({
+        modules,contextFor,active,
+        request(module,context,offered){
+          status(UI().t("creation.generating",{module:UI().t(AI().MODULES[module])}));
+          return root.NIJANModel.runTask('create:'+module,context,{
+            signal,label:'创作'+AI().MODULES[module],workKinds:offered,workBatch:batchId,
+            collectWorks:root.TACreativeBatch.isWork(module),
+          });
+        },
+        async deliver(module,result,context,sourceKey){
+          const previous=previousFor(module);
+          const plan=root.TACreativeBatch.plan(virtual,module,result,context,{previous,batchId,inputs,sourceKey});
+          created[module]=plan.result[module];
+          if(previous)s.plans=s.plans.filter(row=>row.id!==previous.id);
+          rememberPlan(plan,plan.result,'create:'+batchId+':'+module);
+          await protectDraft(plan);
+        },
+      });
+      if(!active())return;
+      const names=delivered.map(kind=>UI().t(AI().MODULES[kind]));
+      const messages=issues.map(({kind,reason})=>UI().t(AI().MODULES[kind])+' · '+UI().t(reason || '没有有效内容，原稿保持原样。'));
+      if(names.length)messages.unshift(UI().t('已生成草稿')+' · '+names.join(' / '));
+      const message=messages.join('\n') || UI().t('没有有效内容，原稿保持原样。');
+      rememberCreation('assistant',message);
+      status(message);
+      if(issues.length)UI().toast(message,{kind:delivered.length?'warning':'error'});
     });
-    return true;
   }
   function contextIdeas(s = data()) {
     return root.NIJANCreation.selectedIdeas(s.ideas);
   }
   async function sendCreation(adjust) {
+    if (controller) return;
     const s = data();
+    const dialogue = root.NIJANCreativeDialogue;
     syncCreationInputs();
-    const message = s.creationMessage.trim();
-    if (!message) {
-      UI().toast("先写下要和 AI 沟通的建议。");
+    const note = s.creationMessage.trim();
+    const instruction = adjust ? dialogue.revisionInstruction(note, s.creationHistory, s.status) : note;
+    if (!instruction) {
+      UI().toast(UI().t(adjust ? "请先输入修改意见，或聊一聊再改稿。" : "先写下要和 AI 沟通的建议。"));
       return;
     }
     if (!s.brief.trim()) {
@@ -600,78 +636,75 @@
     }
     if (!root.NIJANModel.configured()) {
       UI().toast("先在设置里连接模型。");
+      UI().openSettings();
       return;
     }
-    s.creationMessage = "";
     if (adjust) {
-      const started = await generateCreation(message);
-      if (!started) {
-        s.creationMessage = message;
+      const started = await generateCreation(instruction);
+      if (!started && note && !s.creationMessage) {
+        s.creationMessage = note;
         persist();
         refresh();
       }
       return;
     }
-    rememberCreation("user", message);
-    await execute("正在阅读当前稿和你的建议…", async (signal, active) => {
-      const context = root.NIJANCreation.context(s, {
-        instruction: message,
-        previousDrafts: creationDrafts(),
-        reference: modelReference(s.brief),
-        availableCharacters: lib().characters.map(({ id, name }) => ({
-          id,
-          name,
-        })),
-      });
-      const result = await root.NIJANModel.runTask("discuss", context, {
-        signal,
-        label: "创作沟通",
-      });
+    const context = root.NIJANCreation.context(s, {
+      instruction: note,
+      previousDrafts: creationDrafts(),
+      reference: modelReference(s.brief),
+      availableCharacters: lib().characters.map(({ id, name }) => ({ id, name })),
+    });
+    s.creationMessage = "";
+    rememberCreation("user", note);
+    const submitted = s.creationHistory.at(-1);
+    const completed = await execute("正在阅读当前稿和你的建议…", async (signal, active) => {
+      const result = await root.NIJANModel.runTask("discuss", context, { signal, label: "创作沟通" });
       if (!active()) return;
       rememberCreation("assistant", result.reply);
-      status("AI 已回复。可以继续沟通，或点击“按沟通更新所选模块”。");
+      s.creationHistory.at(-1).kind = "discussion";
+      status("讨论已有答复。可以继续聊，也可以按最近讨论改稿。");
     });
+    if (!completed && s.creationHistory.includes(submitted)) {
+      s.creationHistory = s.creationHistory.filter(item => item !== submitted);
+      if (!s.creationMessage && !controller) s.creationMessage = note;
+      persist();
+      refresh();
+    }
   }
   async function questionsOrIdeas(task) {
-    if (!data().brief.trim()) {
+    syncCreationInputs();
+    const s = data();
+    if (!s.brief.trim()) {
       UI().toast("先写下创作要求。");
       return;
     }
+    const dialogue = root.NIJANCreativeDialogue;
+    const inputs = root.NIJANCreation.context(s);
+    const context = {
+      brief: inputs.brief, modules: inputs.modules, answers: inputs.answers, ideas: inputs.ideas,
+      reference: modelReference(inputs.brief),
+    };
+    const isQuestion = task === "questions";
+    const lang = root.TAI18n?.prefs?.lang;
     await execute(
-      task === "questions" ? "正在梳理必要问题…" : "正在构思创作方向…",
+      isQuestion ? "正在梳理必要问题…" : "正在构思创作方向…",
       async (signal, active) => {
-        const result = await root.NIJANModel.runTask(
-          task,
-          {
-            brief: data().brief,
-            answers: data().answers,
-            modules: data().modules,
-            reference: modelReference(data().brief),
-          },
-          { signal, label: task === "questions" ? "创作追问" : "创作灵感" },
-        );
-        if (!active()) return;
-        if (task === "questions") {
-          data().questions = result.questions;
-          data().answers = result.questions.map((question) => ({
-            question,
-            answer: "",
-          }));
-        } else {
-          const accepted = data().ideas.filter((idea) => idea.accepted);
-          data().ideas = accepted.concat(
-            result.ideas
-              .filter((text) => !accepted.some((idea) => idea.text === text))
-              .map((text) => ({ text, accepted: false })),
-          );
+        let result, error;
+        try {
+          result = await root.NIJANModel.runTask(task, context, { signal, label: isQuestion ? "创作追问" : "创作灵感" });
+        } catch (caught) {
+          error = caught;
         }
-        status(
-          task === "questions"
-            ? result.questions.length
-              ? "已列出需要确认的问题，回答后可以生成。"
-              : "现有信息足够，可以直接生成。"
-            : "可以选择喜欢的方向，也可以直接生成。",
-        );
+        if (!active()) return;
+        const { items, local } = dialogue.options(task, result, error, context, lang);
+        if (isQuestion) {
+          s.answers = dialogue.answeredQuestions(s.answers, items, local);
+          s.questions = s.answers.map(row => row.question);
+          status(local ? "模型没有给出可用问题。下面是本地生成的可选问题。" : "问题已列出。可以选答，也可以直接开始写。");
+        } else {
+          s.ideas = dialogue.availableIdeas(s.ideas, items, local);
+          status(local ? "模型没有给出可用灵感。下面是本地提供的可选方向。" : "可以选择喜欢的方向，也可以直接生成。");
+        }
       },
     );
   }
@@ -742,13 +775,18 @@
           })
         : null;
   }
-  function apply(plan, keys) {
+  async function apply(plan, keys, reason) {
     try {
       const selectedKeys = keys || plan.operations.filter((op) => !op.applied && !op.rejected).map((op) => op.key);
-      data().receipt = AI().commit(lib(), plan, selectedKeys);
-      trackSelection(data().receipt.operations);
-      UI().markDirty();
-      UI().flush();
+      const receipt=await root.TAHistory.apply(plan, selectedKeys, reason);
+      data().receipt=receipt;
+      const work=root.TAStudioDrafts.libraryItem(plan);
+      if(work){
+        // The preview may be dismissed before the author chooses Undo.
+        const {operations,...draft}=plan;
+        receipt.draft=draft;
+      }
+      trackSelection(receipt.operations);
       const adds = plan.operations.filter(
         (op) => op.applied && op.kind === "add",
       );
@@ -763,8 +801,9 @@
       );
       persist();
       refresh();
-      const receipt = data().receipt;
-      UI().toast(UI().t('修改已写入对应栏位。'), { id: 'ai-apply', kind: 'success', title: UI().t('修改已保存'), action: { label: UI().t('撤销'), onClick: () => {
+      if(work){
+        UI().toast(work.name,{id:'ai-apply',kind:'success',title:UI().t('已收入作品库'),action:{label:UI().t('打开已收录作品'),onClick:()=>root.TAStudioDrafts.openWork(plan)}});
+      }else UI().toast(UI().t('修改已写入对应栏位。'), { id: 'ai-apply', kind: 'success', title: UI().t('修改已保存'), action: { label: UI().t('撤销'), onClick: () => {
         if (data().receipt === receipt) undo();
         else UI().toast(UI().t('请使用当前预览中的撤销按钮。'));
       } } });
@@ -774,19 +813,23 @@
       return null;
     }
   }
-  function undo() {
+  async function undo() {
     try {
       const s = data();
-      AI().undo(
-        lib(),
-        s.receipt,
-        s.plans.find((plan) => plan.id === s.receipt.proposalId),
-      );
+      const next = AI().copy(lib()), plan = s.plans.find(item=>item.id===s.receipt?.proposalId);
+      const copy = plan ? AI().copy(plan) : s.receipt?.draft && {...s.receipt.draft,operations:AI().copy(s.receipt.operations)};
+      AI().undo(next,s.receipt,copy);
+      const draft=root.TAStudioDrafts.onUndo(copy);
+      await UI().commitLibrary(next,[],false,draft);
+      if (copy) {
+        if(draft)copy.draftRevision=draft.row.revision;
+        if(plan)Object.assign(plan,copy);
+        else s.plans.push(copy);
+      }
       trackSelection(s.receipt.operations, true);
       s.receipt = null;
-      UI().markDirty();
-      UI().flush();
       status("已撤销上一次应用。");
+      persist();
       refresh();
     } catch (error) {
       UI().toast(error.message);
@@ -839,7 +882,7 @@
         return;
       }
       rememberPlan(plan, result, scopeKey());
-      apply(plan);
+      apply(plan, undefined, "手工改稿前");
     } catch (error) {
       UI().toast(error.message);
     }
@@ -852,36 +895,15 @@
     );
     if (!file) return;
     try {
-      if (kind === "character") {
-        const raw = /\.png$/i.test(file.name)
-          ? root.TAPng.readChara(new Uint8Array(await file.arrayBuffer()))
-          : await file.text();
-        if (!raw) throw new Error("文件中没有角色卡数据。");
-        const value = root.TAFormats.cardToCharacter(JSON.parse(raw));
-        value.id = root.TAStore.uid("ch");
-        lib().characters.push(value);
-        data().cardId = value.id;
-        data().kind = "character";
-        data().focusField = "description";
-      } else {
-        const value = JSON.parse(await file.text()),
-          entries = root.TAFormats.worldInfoToEntries(value);
-        if (!entries.length) throw new Error("文件中没有有效世界书条目。");
-        const row = {
-          id: root.TAStore.uid("book"),
-          name: value.name || file.name.replace(/\.json$/i, ""),
-          description: "",
-          entries: entries.map((entry) =>
-            Object.assign({}, entry, { id: root.TAStore.uid("lore") }),
-          ),
-        };
-        lib().worldBooks.push(row);
-        data().bookId = row.id;
-        data().kind = "world";
-        data().entries = [];
-        data().focus = "";
+      const {card,book,avatarOmitted} = await root.TAFolderImport.importDocument(kind,file);
+      if (card) {
+        data().cardId = card.id; data().kind = "character"; data().focusField = "description";
+        if (avatarOmitted) UI().toast(UI().t("PNG 太大，没有收进素材库，卡面文字已经导入"));
       }
-      UI().markDirty();
+      if (book) {
+        data().bookId = book.id; data().entries = []; data().focus = "";
+        if (!card) data().kind = "world";
+      }
       status("已导入本地库，请选择要修改的内容。");
       changeScope();
     } catch (error) {
@@ -908,7 +930,7 @@
   function preview(plan) {
     const pending = plan.operations.filter((op) => !op.applied && !op.rejected).length;
     const busy = data().busy;
-    return `<section class="ai-plan paper" data-plan="${esc(plan.id)}"><div class="ai-panel-heading"><h3>${esc(plan.task === "edit" ? "修改预览" : AI().MODULES[plan.task.slice(7)] || "整理结果")}</h3><span class="help">${pending ? `${pending} 项待应用` : plan.operations.length ? UI().t('已处理') : "无实际修改"}</span></div><p class="help ai-plan-request">${esc(new Date(plan.createdAt).toLocaleTimeString())}${plan.request ? ` · ${esc(plan.request)}` : ""}</p>${plan.operations.map((op) => `<article class="ai-change${op.applied ? " applied" : ""}${op.rejected ? " rejected" : ""}"><div class="ws-change-heading"><label class="check"><input type="checkbox" data-operation="${esc(op.key)}" ${op.applied || op.rejected ? "disabled" : "checked"}><span data-no-translate>${esc(op.label)}</span>${op.applied ? ` · ${UI().t('已应用')}` : op.rejected ? ` · ${UI().t('已跳过')}` : ""}</label>${!op.applied ? `<div class="ws-change-actions">${!op.rejected ? `<button type="button" class="btn btn-primary" data-apply-one="${esc(plan.id)}" data-key="${esc(op.key)}" ${busy ? 'disabled' : ''}>${UI().t('采用这条')}</button>` : ''}<button type="button" class="btn" data-reject-one="${esc(plan.id)}" data-key="${esc(op.key)}" ${busy ? 'disabled' : ''}>${UI().t(op.rejected ? '再看看' : '先跳过')}</button></div>` : ''}</div><div class="ai-diff"><div><span class="help">${op.kind === "add" ? "目标" : "修改前"}</span><pre data-no-translate>${esc(op.kind === "add" ? "新建到对应模块" : display(op.before))}</pre></div><div><span class="help">${op.kind === "add" ? "生成内容" : "修改后"}</span><pre data-no-translate>${esc(display(op.kind === "add" ? op.value : op.after))}</pre></div></div></article>`).join("") || '<p class="help">没有实际修改。</p>'}<div class="row"><button class="btn btn-primary" type="button" data-apply="${esc(plan.id)}" ${!pending || busy ? "disabled" : ""}>采用勾选的修改</button><button class="btn" type="button" data-discard="${esc(plan.id)}" ${busy ? "disabled" : ""}>关闭这份预览</button></div>${draftEditor(plan)}</section>`;
+    return `<section class="ai-plan paper" data-plan="${esc(plan.id)}"><div class="ai-panel-heading"><h3>${esc(plan.task === "edit" ? "修改预览" : AI().MODULES[plan.task.slice(7)] || "整理结果")}</h3><span class="help">${pending ? `${pending} 项待应用` : plan.operations.length ? UI().t('已处理') : "无实际修改"}</span></div><p class="help ai-plan-request">${esc(new Date(plan.createdAt).toLocaleTimeString())}${plan.request ? ` · ${esc(plan.request)}` : ""}</p>${plan.operations.map((op) => `<article class="ai-change${op.applied ? " applied" : ""}${op.rejected ? " rejected" : ""}"><div class="ws-change-heading"><label class="check"><input type="checkbox" data-operation="${esc(op.key)}" ${op.applied || op.rejected ? "disabled" : "checked"}><span data-no-translate>${esc(op.label)}</span>${op.applied ? ` · ${UI().t('已应用')}` : op.rejected ? ` · ${UI().t('已跳过')}` : ""}</label>${!op.applied ? `<div class="ws-change-actions">${!op.rejected ? `<button type="button" class="btn btn-primary" data-apply-one="${esc(plan.id)}" data-key="${esc(op.key)}" ${busy ? 'disabled' : ''}>${UI().t('采用这条')}</button>` : ''}<button type="button" class="btn" data-reject-one="${esc(plan.id)}" data-key="${esc(op.key)}" ${busy ? 'disabled' : ''}>${UI().t(op.rejected ? '再看看' : '先跳过')}</button></div>` : ''}</div><div class="ai-diff"><div><span class="help">${op.kind === "add" ? "目标" : "修改前"}</span><pre data-no-translate>${esc(op.kind === "add" ? "新建到对应模块" : display(op.before))}</pre></div><div><span class="help">${op.kind === "add" ? "生成内容" : "修改后"}</span><pre data-no-translate>${esc(display(op.kind === "add" ? op.value : op.after))}</pre></div></div></article>`).join("") || '<p class="help">没有实际修改。</p>'}<div class="row"><button class="btn btn-primary" type="button" data-apply="${esc(plan.id)}" ${!pending || busy ? "disabled" : ""}>${root.TAStudioDrafts.isWork(plan) ? UI().t("收入作品库") : UI().t("采用勾选的修改")}</button><button class="btn" type="button" data-discard="${esc(plan.id)}" ${busy ? "disabled" : ""}>关闭这份预览</button></div>${draftEditor(plan)}</section>`;
   }
   function draftRequest(plan) {
     return (
@@ -1023,6 +1045,8 @@
         result,
         context,
       );
+      await protectDraft(refined.plan);
+      if (!active()) return;
       data().plans = data().plans.map((row) =>
         row.id === plan.id ? refined.plan : row,
       );
@@ -1055,7 +1079,7 @@
   function findings() {
     const s = data();
     const report =
-      s.review ||
+      (s.review && (s.review.cardId || "")===s.cardId && (s.review.bookId || "")===s.bookId ? s.review : null) ||
       (lib().settings.aiReviews || []).findLast(
         (item) =>
           (item.cardId || "") === s.cardId && (item.bookId || "") === s.bookId,
@@ -1082,7 +1106,6 @@
       UI().toast("原条目或栏位已不存在，请重新检查。");
       return;
     }
-    cancel();
     s.selection = null;
     s.mode = "edit";
     s.targetQuery = "";
@@ -1123,18 +1146,27 @@
   function paintRecord() {
     const host = document.getElementById("ai-task-record");
     if (!host) return;
+    const log=host.closest('.ai-task-log');
+    if(log){
+      log.ontoggle=()=>{if(log.open)paintRecord();};
+      if(!log.open)return;
+      const paste=log.querySelector('[data-task-paste]');
+      if(paste && !paste.firstChild)root.TACreativeRecovery.mountPaste(paste);
+    }
     const records = root.NIJANModel.history();
     const selected =
       records.find((record) => record.id === taskRecordId) ||
       records[records.length - 1];
     if (!selected) {
-      host.innerHTML = '<p class="help">本次打开还没有模型请求。</p>';
+      if(!host.firstChild)host.innerHTML='<p class="help">'+esc(UI().t('本次打开还没有模型请求。'))+'</p>';
       return;
     }
     const statuses = {
-      running: "接收中",
+      running: ({waiting: selected.httpStatus ? '已连接，正在等待首个数据包' : '等待接口响应', receiving:'正在接收接口数据', reasoning:'正在接收推理', writing:'正在接收正文'})[selected.phase] || "接收中",
       received: "正在校验",
       validated: "已校验",
+      partial: "部分内容可用",
+      received_raw: "已接收正文",
       needs_input: "等待补充",
       cancelled: "已停止",
       error: "未完成",
@@ -1143,21 +1175,25 @@
     const recordKeys = records.map((record) => record.id).join(",");
     if (!select || host.dataset.recordKeys !== recordKeys) {
       host.dataset.recordKeys = recordKeys;
-      host.innerHTML = `<label class="field"><span class="field-label">查看哪一次任务</span><select id="ai-task-select">${records.map((record) => `<option value="${esc(record.id)}">${esc(record.label)} · ${esc(new Date(record.startedAt).toLocaleTimeString())}</option>`).join("")}</select></label><p data-task-status class="help"></p><div data-task-readable></div><details><summary>本次输入范围</summary><pre class="ai-model-thought" data-task-scope></pre></details><details><summary>模型返回的思考</summary><pre class="ai-model-thought" data-task-thought></pre></details><details><summary>原始结果（排查用）</summary><pre class="ai-model-thought" data-task-output></pre></details>`;
+      host.innerHTML = `<label class="field"><span class="field-label">查看哪一次任务</span><select id="ai-task-select">${records.map((record) => `<option value="${esc(record.id)}">${esc(record.label)} · ${esc(new Date(record.startedAt).toLocaleTimeString())}</option>`).join("")}</select></label><p data-task-status class="help"></p><div data-task-readable></div><details><summary>本次输入范围</summary><pre class="ai-model-thought" data-task-scope></pre></details><details><summary>模型返回的思考</summary><pre class="ai-model-thought" data-task-thought data-no-translate></pre></details><details><summary>原始结果（排查用）</summary><pre class="ai-model-thought" data-task-output data-no-translate></pre></details>`;
+      const recovery=document.createElement('div');recovery.dataset.taskRecovery='';host.append(recovery);
       host.querySelector("select").onchange = (event) => {
         taskRecordId = event.target.value;
         paintRecord();
       };
     }
     host.querySelector("select").value = selected.id;
+    const received = selected.bytesReceived ? ' · '+UI().t('已接收')+' '+(selected.bytesReceived < 1024 ? selected.bytesReceived+' B' : (selected.bytesReceived/1024).toFixed(1)+' KiB') : '';
     host.querySelector("[data-task-status]").textContent =
-      `${statuses[selected.status] || selected.status} · ${selected.model}${selected.reasoningEffort && selected.reasoningEffort !== 'auto' ? ` · ${UI().t('推理强度')} ${selected.reasoningEffort}` : ''}${selected.transportNote ? ` · ${selected.transportNote}` : ""}${selected.error ? ` · ${selected.error}` : ""}`;
+      `${UI().t(statuses[selected.status] || selected.status)} · ${selected.model}${received}${selected.reasoningEffort && selected.reasoningEffort !== 'auto' ? ` · ${UI().t('推理强度')} ${selected.reasoningEffort}` : ''}${selected.transportNote ? ` · ${UI().t(selected.transportNote)}` : ""}${selected.error ? ` · ${UI().t(selected.error)}` : ""}`;
     host.querySelector("[data-task-thought]").textContent =
-      selected.reasoning || "这个模型没有返回可显示的思考。";
+      selected.reasoning || UI().t(selected.reasoning===undefined ? '本机返回记录保存了当时收到的正文。' : '这个模型没有返回可显示的思考。');
     host.querySelector("[data-task-output]").textContent =
-      selected.output || "尚未返回结果。";
+      selected.output || UI().t("尚未返回结果。");
     host.querySelector("[data-task-scope]").textContent =
-      selected.scope || "旧记录没有保存输入范围。";
+      selected.scope || UI().t("旧记录没有保存输入范围。");
+    if(selected.archiveWarning)host.querySelector('[data-task-status]').append(' · '+UI().t(selected.archiveWarning));
+    root.TACreativeRecovery.mountRecord(host.querySelector('[data-task-recovery]'),selected);
     const readable = host.querySelector("[data-task-readable]");
     if (
       selected.task === "review" &&
@@ -1179,6 +1215,7 @@
     } else readable.replaceChildren();
   }
   function render(stage) {
+    const logWasOpen=stage.querySelector('.ai-task-log')?.open || false;
     const s = data(),
       currentItem = current(),
       allFields = s.kind === "character" ? AI().CARD_FIELDS : AI().ENTRY_FIELDS;
@@ -1194,6 +1231,8 @@
           }));
     const checked = s.kind === "world" ? s.entries : s.cardFields;
     const config = root.NIJANModel.load();
+    const limits = root.NIJANModel.capabilities();
+    const modelDetails = config.model ? [UI().t("上下文窗口") + " · " + (limits.manual || limits.context || UI().t("接口未提供")), UI().t("推荐推理强度") + " · " + (limits.recommended || UI().t("自动（由接口决定）"))].join("　|　") : "";
     const selectedTargets = list.filter((item) => checked.includes(item.id));
     const contextChips = `<div class="ws-context"><small>${UI().t('这次只改')}</small>${selectedTargets.slice(0, 6).map((item) => `<button type="button" class="ws-context-chip" data-context-remove="${esc(item.id)}" aria-label="${esc(UI().t('移出本次范围'))}: ${esc(item.comment)}"><span data-no-translate>${esc(item.comment)}</span>${root.TAWorkspace.icon('close')}</button>`).join('')}${selectedTargets.length > 6 ? `<span class="ws-context-empty">+${selectedTargets.length - 6}</span>` : ''}${!selectedTargets.length ? `<span class="ws-context-empty">${UI().t('先在左侧选择修改范围')}</span>` : ''}</div>`;
     stage.innerHTML = `<div class="ai-workbench mode-${s.mode}" data-busy="${s.busy}"><header class="ws-studio-heading"><div><h2>${UI().t(s.mode === 'create' ? '先写个大概 💭' : s.mode === 'review' ? '查查有没有矛盾 🔎' : '想改哪儿？')}</h2><p>${UI().t(s.mode === 'create' ? '人物、背景，或者一段还没成形的想法，都可以。' : s.mode === 'review' ? '对照你选的卡和世界书，把说不通的地方找出来。' : '左边选内容，右边说要求。改完先看稿，再决定用不用。')}</p></div></header>
@@ -1208,7 +1247,8 @@
         )
         .join(
           "",
-        )}</div><button type="button" class="btn btn-small" id="ai-connection">${esc(config.model || "连接模型")}</button></div>
+        )}</div><button type="button" class="btn btn-small" id="ai-connection">${esc(config.model || "连接模型")}</button><label>${UI().t("模型配置")} <select id="studio-profile" data-no-translate ${s.busy ? "disabled" : ""}>${root.NIJANModel.profiles().map(row=>`<option value="${esc(row.id)}" ${row.active?"selected":""}>${esc(row.name)}</option>`).join("")}</select></label></div>
+      ${modelDetails ? `<p class="help" data-no-translate>${esc(modelDetails)}</p>` : ""}
       <div class="ai-reference-grid">${choice("ai-card-pick", s.mode === "edit" && s.kind === "character" ? "正在修改的角色卡" : "参考角色卡", lib().characters, s.cardId)}${choice("ai-book-pick", s.mode === "edit" && s.kind === "world" ? "正在修改的世界书" : "参考世界书", lib().worldBooks, s.bookId)}<div class="ai-import-actions"><button type="button" class="btn btn-small" id="ai-import-card">导入角色卡文件</button><button type="button" class="btn btn-small" id="ai-import-world">导入世界书文件</button></div></div>
       ${book() && book().entries.length > 50 ? '<p class="help">大书按相关性提供参考，选中原文会完整发送；本次参考范围可在任务记录中查看。</p>' : ""}
       <p class="ai-task-status" role="status" id="ai-status">${esc(s.status)}</p>${s.sourceLocation ? `<div class="review-location-notice"><span>原文地址：${esc(s.sourceLocation.label)}</span>${s.sourceReport ? '<button type="button" class="btn btn-small" id="ai-return-review">返回检查报告</button>' : ""}</div>` : ""}
@@ -1260,17 +1300,17 @@
               )
               .join(
                 "",
-              )}</fieldset><p class="help">勾上需要的就好。写完先看稿，喜欢了再收进资料库。</p><div class="row"><button type="button" class="btn" id="ai-questions" ${s.busy ? "disabled" : ""}>先问我几个问题</button><button type="button" class="btn" id="ai-ideas" ${s.busy ? "disabled" : ""}>来点灵感 💡</button><button type="button" class="btn btn-primary" id="ai-create">${s.busy ? "按新想法继续写" : s.creationHistory.length ? "照刚才聊的写" : "开始写"}</button>${s.busy ? '<button class="btn" type="button" id="ai-stop">停止</button>' : ""}</div>${s.questions.map((question, index) => `<label class="field"><span class="field-label">${esc(question)}</span><input data-answer="${index}" value="${esc((s.answers[index] && s.answers[index].answer) || "")}"></label>`).join("")}<fieldset class="ai-idea-options"><legend>生成的灵感（勾选即采用）</legend>${s.ideas.map((idea, index) => `<label class="check"><input type="checkbox" data-idea="${index}" ${idea.accepted ? "checked" : ""}>${esc(idea.text)}</label>`).join("") || '<p class="help">没想好？点一下“来点灵感”，也许就有头绪了。</p>'}</fieldset><div class="ai-adopted-ideas" id="ai-adopted-ideas"><strong>${UI().t("creation.adopted", { count: contextIdeas(s).length })}</strong>${contextIdeas(
+              )}</fieldset><p class="help">勾上需要的就好。写完先看稿，喜欢了再收进资料库。</p><div class="row"><button type="button" class="btn" id="ai-questions" ${s.busy ? "disabled" : ""}>先问我几个问题</button><button type="button" class="btn" id="ai-ideas" ${s.busy ? "disabled" : ""}>来点灵感 💡</button><button type="button" class="btn btn-primary" id="ai-create" ${s.busy ? "disabled" : ""}>开始写</button>${s.busy ? '<button class="btn" type="button" id="ai-stop">停止</button>' : ""}</div><p id="creation-feedback" class="help" aria-live="polite">${esc(UI().t(s.status))}</p>${s.questions.map((question, index) => `<label class="field"><span class="field-label"><span data-no-translate>${esc(question)}</span>${s.answers[index]?.local ? ` <small class="muted">${esc(UI().t("本地提问"))}</small>` : ""}</span><input data-answer="${index}" value="${esc((s.answers[index] && s.answers[index].answer) || "")}"></label>`).join("")}<fieldset class="ai-idea-options"><legend>生成的灵感（勾选即采用）</legend>${s.ideas.map((idea, index) => `<label class="check"><input type="checkbox" data-idea="${index}" ${idea.accepted ? "checked" : ""}><span data-no-translate>${esc(idea.text)}</span>${idea.local ? ` <small class="muted">${esc(UI().t("本地灵感"))}</small>` : ""}</label>`).join("") || '<p class="help">没想好？点一下“来点灵感”，也许就有头绪了。</p>'}</fieldset><div class="ai-adopted-ideas" id="ai-adopted-ideas"><strong>${UI().t("creation.adopted", { count: contextIdeas(s).length })}</strong>${contextIdeas(
               s,
             )
               .map((idea) => `<p>${esc(idea)}</p>`)
               .join("")}</div></section>
-        <section class="paper ai-create-dialog"><h3>边聊边改</h3><p class="help">想换个方向，直接说。会参考当前稿子和你选的灵感，写到一半也能补充。</p><div class="ai-creation-conversation" aria-live="polite">${s.creationHistory.map((item) => `<article class="ai-conversation-item"><b>${item.role === "user" ? "我" : "AI／任务反馈"}</b><p>${esc(item.text)}</p></article>`).join("") || '<p class="help">有想法就直接说，边聊边把稿子改顺。</p>'}</div><label class="field"><span class="field-label">还有什么想补充的？</span><textarea id="ai-creation-message" rows="3" placeholder="例如：人物不要一开始就认识主角，先从借书相识；先和我讨论这样安排是否合理。">${esc(s.creationMessage)}</textarea></label><div class="row"><button type="button" class="btn" id="ai-discuss">聊一聊</button><button type="button" class="btn btn-primary" id="ai-create-adjust">按这条改稿</button><button type="button" class="btn btn-small" id="ai-create-new" ${s.busy ? "disabled" : ""}>另起一稿</button></div></section></div>`
+        <section class="paper ai-create-dialog"><h3>边聊边改</h3><p class="help">${esc(UI().t(s.busy ? '可以先写下下一条想法，本轮完成后再发送。' : '讨论或修改时，会参考当前稿件和已选灵感。'))}</p><div class="ai-creation-conversation" aria-live="polite">${s.creationHistory.map((item) => `<article class="ai-conversation-item"><b>${item.role === "user" ? "我" : item.kind === "discussion" ? "AI" : "AI／任务反馈"}</b><p>${esc(item.text)}</p></article>`).join("") || '<p class="help">有想法就直接说，边聊边把稿子改顺。</p>'}</div><label class="field"><span class="field-label">还有什么想补充的？</span><textarea id="ai-creation-message" rows="3" placeholder="例如：人物不要一开始就认识主角，先从借书相识；先和我讨论这样安排是否合理。">${esc(s.creationMessage)}</textarea></label><div class="row"><button type="button" class="btn" id="ai-discuss" ${s.busy ? "disabled" : ""}>聊一聊</button><button type="button" class="btn btn-primary" id="ai-create-adjust" ${s.busy ? "disabled" : ""}>${esc(UI().t(!s.creationMessage.trim() && root.NIJANCreativeDialogue.lastDiscussion(s.creationHistory, s.status) ? "按最近讨论改稿" : "按输入改稿"))}</button>${s.busy ? '<button type="button" class="btn" id="ai-discuss-stop">停止</button>' : ""}<button type="button" class="btn btn-small" id="ai-create-new" ${s.busy ? "disabled" : ""}>另起一稿</button></div></section></div>`
           : ""
       }
       ${s.mode === "review" ? `<section class="paper ai-review"><div class="ai-panel-heading"><h3>逻辑与人设检查</h3><button class="btn btn-primary" id="ai-review" type="button" ${s.busy ? "disabled" : ""}>对照原文检查</button></div><p class="help">检查所选角色卡和世界书，展示原文证据、位置和原因。可选空栏不算错误。</p>${book() && s.entries.length ? `<label class="check"><input type="checkbox" id="ai-review-all" ${s.reviewAll ? "checked" : ""}>检查整本世界书（${book().entries.length} 条）</label><p class="help">${s.reviewAll ? "本次检查整本书。" : `本次只检查已选的 ${s.entries.length} 条，报告不会代表整本书。`}</p>` : '<p class="help">大书可以先在“修改已有”勾选条目，再回这里分批检查。</p>'}${s.busy ? '<button class="btn" type="button" id="ai-stop">停止</button>' : ""}${findings()}</section>` : ""}
-      <section class="ai-previews"><div class="ai-panel-heading"><h3>看看这一版</h3><button class="btn btn-small" id="ai-undo" type="button" ${s.receipt && !s.busy ? "" : "disabled"}>撤销上一次应用</button></div>${previewPlans().map(preview).join("") || '<p class="help">写好会放在这里。对照着看，合适的再留下。</p>'}</section>
-      <details class="paper ai-task-log"><summary>任务记录与模型返回</summary><div id="ai-task-record"></div></details>
+      <section class="ai-previews"><div class="ai-panel-heading"><h3>看看这一版</h3><button class="btn btn-small" id="ai-undo" type="button" ${s.receipt && !s.busy ? "" : "disabled"}>撤销上一次应用</button></div>${previewPlans().map(plan => root.TAStudioDrafts.delivery(plan) + preview(plan)).join("") || '<p class="help">写好会放在这里。对照着看，合适的再留下。</p>'}</section>
+      <details class="paper ai-task-log" ${logWasOpen ? 'open' : ''}><summary>任务记录与模型返回</summary><div id="ai-task-record"></div><div data-task-paste></div></details>
     </div>`;
     const bind = (selector, event, fn) => {
       const element = stage.querySelector(selector);
@@ -1293,6 +1333,7 @@
           changeScope();
         }),
     );
+    bind("#studio-profile", "change", event => { syncCreationInputs(); root.NIJANModel.selectProfile(event.target.value); refresh(); });
     bind("#ai-connection", "click", () =>
       document.querySelector('[data-shell="settings"]').click(),
     );
@@ -1365,7 +1406,6 @@
     });
     bind("#ai-allow-clear", "change", (event) => {
       s.allowClear = event.target.checked;
-      cancel();
       persist();
       refresh();
     });
@@ -1386,7 +1426,6 @@
         UI().toast("先保存手工修改，再选择文字。");
         return;
       }
-      cancel();
       const focusField = s.focusField;
       s.selection = {
         id: selected.item.id,
@@ -1444,13 +1483,18 @@
     bind("#ai-create", "click", create);
     bind("#ai-creation-message", "input", (event) => {
       s.creationMessage = event.target.value;
+      const button = stage.querySelector("#ai-create-adjust");
+      const hasDiscussion = root.NIJANCreativeDialogue.lastDiscussion(s.creationHistory, s.status);
+      if (button) button.textContent = UI().t(!s.creationMessage.trim() && hasDiscussion ? "按最近讨论改稿" : "按输入改稿");
       persist();
     });
+    bind("#ai-discuss-stop", "click", () => stage.querySelector("#ai-stop")?.click());
     bind("#ai-discuss", "click", () => sendCreation(false));
     bind("#ai-create-adjust", "click", () => sendCreation(true));
     bind("#ai-create-new", "click", () => {
       s.creationBatchId = "";
       s.creationHistory = [];
+      s.questions=[]; s.answers=[]; s.ideas=[];
       s.creationMessage = "";
       status("已另起一稿；之前的预览仍保留在下方。");
       persist();
@@ -1463,11 +1507,11 @@
     bind("#ai-return-review", "click", returnToReview);
     bind("#ai-review-all", "change", (event) => {
       s.reviewAll = event.target.checked;
-      cancel();
       persist();
       refresh();
     });
     bind("#ai-undo", "click", undo);
+    stage.querySelectorAll("[data-open-delivery]").forEach(btn => { btn.onclick=()=>root.TAStudioDrafts.openWork(s.plans.find(plan=>plan.id===btn.dataset.openDelivery)); });
     stage.querySelectorAll("[data-apply]").forEach(
       (button) =>
         (button.onclick = () => {
@@ -1497,7 +1541,9 @@
     });
     stage.querySelectorAll("[data-discard]").forEach(
       (button) =>
-        (button.onclick = () => {
+        (button.onclick = async () => {
+          const dropping=s.plans.find(row=>row.id===button.dataset.discard);
+          try { await root.TAStudioDrafts.discard(dropping); } catch(error){ UI().toast(UI().t(error.message),{kind:"error"});return; }
           s.plans = s.plans.filter(
             (plan) => plan.id !== button.dataset.discard,
           );
@@ -1556,7 +1602,6 @@
     }
   }
   function openFor(options) {
-    cancel();
     const s = data();
     const sameScope = options.kind === 'character'
       ? s.kind === 'character' && s.cardId === options.cardId
@@ -1574,15 +1619,49 @@
       s.entries = entry ? [entry.id] : []; s.focus = entry?.id || '';
       s.entryFields = ['content']; s.focusField = 'content';
     }
-    s.status = '已定位到原文，请写下本次修改要求。';
+    if(!controller)s.status = '已定位到原文，请写下本次修改要求。';
     persist(); UI().go('studio');
   }
   if (root.addEventListener) {
     root.addEventListener("pagehide", persist);
     root.addEventListener("nijan-task", () => paintRecord());
   }
+  async function recoverWork(kind,result,sourceKey,record) {
+    if(controller)throw new Error('已有任务正在运行，可先打开其他栏目。');
+    const batchId=record?.workBatch || 'recovered_'+sourceKey;
+    const inputs={brief:record?.workBrief || '',modules:record?.workKinds || [kind]};
+    const plan=root.TACreativeBatch.plan(structuredClone(lib()),kind,result,{brief:inputs.brief},{batchId,inputs,sourceKey});
+    await root.TAStudioDrafts.keep(plan);
+    rememberPlan(plan,plan.result,'create:'+batchId+':'+kind);
+    return plan;
+  }
+  async function openDraft(id) {
+    const s=data();
+    const saved=root.TAStudioDrafts.pending().find(row=>row.plan.id===id);
+    if(!saved)return;
+    let plan=s.plans.find(row=>row.id===id);
+    if(!plan || plan.draftRevision!==saved.revision){
+      plan=structuredClone(saved.plan);
+      s.plans=s.plans.filter(row=>row.batchId!==plan.batchId || row.task!==plan.task).concat(plan);
+    }
+    if(!controller){
+      if(s.creationBatchId!==plan.batchId || !s.brief){
+        const input=plan.creationInput || {brief:plan.request,modules:s.plans.filter(row=>row.batchId===plan.batchId).map(row=>row.task.slice(7))};
+        Object.assign(s,{brief:input.brief || '',modules:[...input.modules],questions:structuredClone(input.questions || []),
+          answers:structuredClone(input.answers || []),ideas:structuredClone(input.ideas || []),cardId:input.cardId || '',bookId:input.bookId || '',
+          creationHistory:[],creationMessage:''});
+      }
+      s.mode="create";s.creationBatchId=plan.batchId;
+    }
+    persist();
+    await UI().go("studio");
+    const node=document.querySelector('[data-plan="'+CSS.escape(plan.id)+'"]');
+    node?.scrollIntoView({block:"start"});
+    node?.querySelector("[data-apply]")?.focus({preventScroll:true});
+  }
   root.NIJANStudio = {
-    render, openFor,
+    render, openFor, openDraft, recoverWork, migrateSessionDrafts,
+    resetAfterClear:()=>{cancel();state=null;root.TACreativeRecovery?.clear();try{sessionStorage.removeItem(KEY);}catch(_){}}, running:()=>!!controller,
     entryTitle,
     cardContent,
     bookContent,
@@ -1591,9 +1670,9 @@
     openSource,
     editContext,
     formatValue: display,
-    applyExternal: (plan) => {
+    applyExternal: async (plan) => {
       data().plans.push(plan);
-      const receipt = apply(plan);
+      const receipt = await apply(plan);
       if (!receipt) throw new Error("未应用，原稿发生了变化。");
       return receipt;
     },

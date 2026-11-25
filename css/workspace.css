@@ -104,6 +104,11 @@ input:disabled, select:disabled, textarea:disabled, [aria-disabled="true"] { cur
 .search #search-results:empty { display: none; }
 #search-results a { border-bottom: 1px solid var(--line); padding: 11px 14px; font-size: calc(13px * var(--ui-scale, 1)); }
 #search-results a:hover { background: var(--accent-soft); }
+#search-results strong, #search-results small { display: block; overflow-wrap: anywhere; }
+#search-results small { margin-top: .25rem; color: var(--muted); line-height: 1.45; }
+.search-pages { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; }
+#search-results .search-pages { padding: .5rem; }
+.ws-command .search-pages:empty { display: none; }
 .ws-command-trigger { display: flex; align-items: center; justify-content: center; gap: 7px; height: 34px; padding: 0 9px; border-radius: 8px; background: transparent; color: var(--muted); border: 1px solid var(--line); }
 .ws-command-trigger .ws-icon { width: 15px; }
 .save-wrap .note { display: none; }
@@ -217,6 +222,10 @@ select option, select optgroup { background: #282c25; color: #e0e4d4; }
 .gallery-open img, .gallery-open .seal-fallback { height: 210px; object-fit: cover; }
 .gallery-meta strong { font-family: var(--sans); font-size: calc(15px * var(--ui-scale, 1)); letter-spacing: 0; }
 .gallery-card:hover { border-color: var(--accent-line); }
+.gallery-pagination { justify-content: flex-end; gap: 10px; }
+.gallery-pagination [data-page] { font-size: calc(12px * var(--ui-scale, 1)); font-variant-numeric: tabular-nums; }
+.collection-home > .gallery-pagination { margin: 0 12px 12px; }
+#char-body > .row:has([data-card-pages]) { justify-content: space-between; margin-bottom: 12px; }
 .ai-toolbar { padding: 14px; margin-bottom: 15px; }
 .ai-toolbar > .row:first-child { flex-wrap: nowrap; }
 .ai-toolbar .field { flex: 1; min-width: 0; }
@@ -944,3 +953,7 @@ body.collection-page.collection-custom-theme {
 .collection-repository:hover { color:var(--ink); text-decoration:underline; text-underline-offset:4px; }
 .collection-repository:focus-visible { outline:2px solid var(--brass); outline-offset:3px; }
 @container workspace (max-width:630px) { .collection-project { text-align:left; } }
+
+.revision-diff > details { border-block-start: 1px solid var(--line); padding-block: .6rem; }
+.revision-diff > details > small { display: block; margin-block-start: .65rem; }
+.revision-diff pre { white-space: pre-wrap; overflow-wrap: anywhere; max-block-size: 16rem; overflow: auto; font: inherit; margin-block: .35rem; }

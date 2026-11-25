@@ -19,7 +19,9 @@ Preserve applicable copyright and license notices when redistributing this
 software. Contributors and third-party authors retain their copyrights.
 
 Third-party material has separate terms:
-- Sarasa UI fonts: fonts/OFL-Sarasa.txt and fonts/README.md.
+- Sarasa UI SC and the Quilvori Section subset use fonts/OFL-Sarasa.txt.
+- The Quilvori Wing Han wordmark uses fonts/OFL-QuilvoriWingHan.txt.
+  The original Wing Latin wordmark uses the project license. See fonts/README.md.
 - Resource-directory artwork: img/resources/ATTRIBUTION.md and the respective
   original authors' terms. These previews are not relicensed under GPLv3 by
   this repository.

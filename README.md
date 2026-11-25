@@ -88,12 +88,15 @@ Open **Settings → Model connection**:
 
 1. Enter your provider's API base URL, such as `https://api.openai.com/v1`, rather than a complete request endpoint.
 2. Enter your API key, choose a protocol, and connect.
-3. Select a model from the list returned by the service. Use the short message test to verify connectivity.
-4. Optionally select reasoning effort. The default sends no extra reasoning parameter; supported levels depend on the service and model.
+3. Select a model from the provider list or enter a model ID. The settings display the context window and reasoning levels when the provider supplies them. You can enter a known context length manually.
+4. Save separate named profiles for writing and review. Switch profiles in the AI creation workspace.
+5. Optionally select reasoning effort. The default sends no extra reasoning parameter; supported levels depend on the service and model.
 
 Both OpenAI-compatible **Responses** and **Chat Completions** are supported. Automatic mode tries Responses first and switches when the endpoint is unsupported. Choose Chat Completions explicitly for services that only support it. Authentication failures and invalid responses are reported as errors.
 
 Higher reasoning effort usually takes longer. If a level is unsupported, select the model default or a supported level. Availability, output quality, and fees depend on your model provider.
+
+Each model profile has an idle timeout of 1–60 minutes, with a default of 5 minutes. Each incoming chunk starts a new interval. The task record distinguishes waiting for the first data from a stream that has stalled.
 
 Manual work can stay offline. When you request AI generation, organization, discussion, or review, the selected source text, references, instructions, and relevant conversation are sent to your configured endpoint. The API key stays in local browser or desktop storage and is not included in character exports or full-library backups.
 
@@ -107,11 +110,13 @@ Omitted fields retain their values. Clearing existing content requires explicit 
 
 ### Create and continue a draft
 
-Describe your goal and choose the modules to create. You can first answer necessary questions or request ideas; only adopted ideas become constraints for subsequent generation.
+Describe your goal and press **Start writing**. Choose modules if needed. **Questions** and **Ideas** are optional. Only answered questions and checked ideas enter the writing request.
 
-The creation conversation includes current drafts and adopted ideas. Discuss an approach or ask for a revision. Sending new requirements during generation stops the current output while keeping completed drafts. Character and world-book previews also support revising only selected parts.
+The creation conversation uses the current draft and your selected ideas. You can visit other pages in the same window while generation, discussion, organization or review runs. Return to the work that started the task to see its progress or result. Character and world-book previews support revising selected fields or entries.
 
-Results enter a preview before joining the library. Apply a generated character before applying a group, script, or relationship graph that references it.
+New character cards and world books are saved locally as drafts. Find **AI drafts awaiting review** in the Collection or the corresponding editor, review the draft, and apply it. **Open in collection** takes you to the saved work. Apply a generated character before applying a group, script or relationship graph that references it.
+
+When a provider returns a character and a world book together, Quilvori checks the selected works separately. A valid work appears in the draft shelf even if the other needs attention. The last 24 card and world-book responses with output are kept on this device. Open **AI studio → Task log and model output** to recover drafts from a response, or paste a response copied from an older version. Recovery runs locally. Discussion accepts ordinary text, and you can revise the draft directly from the latest reply.
 
 ### Review logic and characterization
 
@@ -144,6 +149,12 @@ Use **Organize entries with AI** for the current entry, untitled entries or entr
 
 Every suggestion includes evidence and a reason. Apply selected entries and undo as needed. Categories are exported through the `realmweave_category` extension field in world books and embedded character books; they do not replace SillyTavern activation settings.
 
+## Context tools and search
+
+Character fields and world-book entries show character counts and estimated tokens. The world-book editor shows enabled always-on costs, keyword conflicts and possible entry links. Paste one message per line, set a scan depth and token budget, then inspect the ordered text for each injection position. Counts use a local estimate. Model tokenizers, macros, probability and other SillyTavern runtime settings can change the result.
+
+The export preview lets you omit disabled entries, compact whitespace, remove repeated paragraphs, split long entries or select a core edition. These choices apply to the exported copy. In either search box, find text across cards, entries, prompts and regex scripts. **Ctrl+K** or **Cmd+K** also opens pages and offers organize and export actions for named works.
+
 ## Pages and tools
 
 | Page | Purpose |
@@ -158,9 +169,9 @@ Every suggestion includes evidence and a reason. Apply selected entries and undo
 | Group cast | Select characters and set scenarios, talkativeness, and speaking behavior. |
 | Chat reader | Read JSONL or message arrays; search, bookmark, and copy. |
 | Assets | Manage avatars, expressions, and backgrounds saved with the library. |
-| Regex scripts | Edit and export SillyTavern Regex extension data. |
-| Quick replies | Edit buttons and messages; export Quick Reply v2. |
-| Author notes and timeline | Place notes and story beats by chat floor. |
+| Regex scripts | Enter original text, the expected result and an optional example to leave unchanged. Test a local template or ask AI to propose a rule for those examples. Export the finished script to the SillyTavern Regex extension. |
+| Quick replies | Create a general set or choose a reference character and world book. Ask for relevant entries or select individual entries. Review the buttons and messages before exporting Quick Reply v2. |
+| Story journal | Plan a scene or link a note or story beat to an imported chat message. Open the source from the journal, or open its notes from the message in the chat reader. |
 | Relationship graph | Edit nodes and links and export a world book. |
 | Consistency checks | Read local/AI reports and navigate to their sources. |
 | Group script | Arrange character lines, narration, and triggers. |
@@ -178,16 +189,20 @@ Appearance, language, writing preferences, and models live in Settings. The Chin
 | World book | World Info JSON, including support for character-book `entries` arrays. Import in World Info. |
 | Regex | JSON array, imported through the Regex extension. |
 | Quick replies | Quick Reply v2 JSON, imported through that extension. |
-| Expressions | Image files in the character's `expressions` folder. A world book records the pack name, not the images. |
+| Expressions | Bundles install sprites at `characters/<character>/<expression>.<ext>`. The standalone expression-folder export uses an `expressions` subfolder. |
 | Prompts | Block configuration for reference, not a complete API preset that replaces model or temperature settings. |
 | Group cast | A roster for creating a group after importing its characters, not a universal group import file. |
-| Chat reader/timeline/script | Workshop reading or planning files; they are not written directly to SillyTavern chat storage. |
+| Chat reader, story journal and scripts | Quilvori reading and planning files. Configure SillyTavern’s Author’s Note in its chat to inject instructions into the model context. |
 | HTML memory | Import as an HTML script in JS-Slash-Runner. |
 | Full-library backup | Quilvori library JSON, not a full SillyTavern server backup. |
 
+### Export a character bundle
+
+In the character editor, select a companion world book and expand the SillyTavern bundle. Choose expressions and Quick Reply sets, then review the paths. The ZIP contains a character PNG with the embedded book, the separate World Info JSON, and your selected assets. Extract the ZIP into a SillyTavern user folder. On desktop, **Install into a SillyTavern user folder** writes the same layout and stops if a target filename already exists.
+
 ### Read local folders
 
-In the desktop app, expand **Local folders**, select the card and world-book directories, and read existing files. It reads top-level character JSON/PNG and world-book JSON, including books embedded in imported cards.
+Expand **Local folders → Scan a SillyTavern user folder** and choose a profile such as `data/default-user`. Review the counts for `characters/*.png|json`, `worlds/*.json` and `chats/<character>/*.jsonl` before importing. The desktop app also supports separate card and world-book folders.
 
 Duplicates are skipped. A changed source is imported as another version, preserving local edits. A bad file does not stop the other imports, and failures appear in the details. Large avatars are reduced; newly imported avatars may be omitted if storage is full so text can be saved. Reading folders does not modify source cards or books. Explicit desktop expression exports write to the chosen destination.
 
@@ -219,7 +234,11 @@ An “unknown” usage status is not permission to redistribute. Public visibili
 
 ## Storage, backups, and updates
 
-Your library lives in the current browser or desktop app's `localStorage`; it is not automatically committed to GitHub. Browser profiles, ports, `localhost` versus `127.0.0.1`, file pages, and Electron can each have separate libraries. Use a consistent entry point and move data with full-library export/restore.
+Your library and revision history use IndexedDB in the current browser or desktop profile. On upgrade, Quilvori migrates the previous localStorage library and archives the original bytes in the same transaction. **Full-library backup → Download pre-migration library** retrieves that copy. Browser profiles, addresses and ports can have separate libraries. Use the same entry point each time and move your current library with backup export and restore.
+
+Merging backups retains independent edits, including bookmarks and distinct images in an expression pack. For chats with no stable message IDs, a shared prefix allows Quilvori to keep the longer history. Conflicting branches and same-name images with different contents are reported before anything is written.
+
+Open **Version history** in either editor to save a named snapshot, compare fields and world-book entries, or restore one work. Applying AI edits also saves its previous version. The full-library JSON carries the current works. Revision history and model credentials stay in the local profile.
 
 The Windows desktop app retains `%APPDATA%\nijan` for its profile and `folders.json`. This internal directory name preserves compatibility; the displayed project name is Quilvori / 叙翎集.
 

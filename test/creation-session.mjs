@@ -19,7 +19,7 @@ const root = vm.createContext({
   TextDecoder,
   crypto: webcrypto,
 });
-for (const name of ["formats", "store", "ai-tasks", "creation"])
+for (const name of ["formats", "store", "creative-dialogue", "ai-tasks", "creation-output", "creation"])
   vm.runInContext(
     fs.readFileSync(new URL(`../js/${name}.js`, import.meta.url), "utf8"),
     root,

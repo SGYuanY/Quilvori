@@ -1,0 +1,11 @@
+/* Authored text and work references in the local writing tools. */
+.reply-reference,.regex-examples { background:var(--paper-2,var(--paper)); padding:12px 15px; border-radius:9px; }
+.reply-reference h4,.regex-examples summary,.studio-draft-shelf summary {font:600 14px/1.55 var(--sans);margin:0 0 6px;}
+.regex-examples summary,.studio-draft-shelf summary {cursor:pointer;}
+.regex-template-grid {display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,130px),1fr));gap:9px;}
+.reply-entry-choices,.draft-shelf-list {max-height:20rem;overflow:auto;}
+.reply-entry-choices {display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,12rem),1fr));gap:4px 10px;}
+.draft-delivery {display:flex;gap:.8em;align-items:center;flex-wrap:wrap;margin:14px 0 0;color:var(--ink);font:400 13px/1.6 var(--sans);}
+.draft-delivery strong,.draft-shelf-list strong {font-weight:600;}
+.studio-draft-shelf {margin-block:12px;}.draft-shelf-list .row {justify-content:space-between;padding-block:4px;}
+.regex-examples .snippet {white-space:pre-wrap;overflow-wrap:anywhere;max-height:12rem;overflow:auto;}

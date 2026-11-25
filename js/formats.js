@@ -44,10 +44,33 @@
 
   const resourceSource = value => root.TAResourceSource?.clean(value) || null;
 
+  function otherFields(value, excluded) {
+    const fields = Object.entries(value || {}).filter(([key]) =>
+      !excluded.includes(key) && !['__proto__', 'constructor', 'prototype'].includes(key));
+    return JSON.parse(JSON.stringify(Object.fromEntries(fields)));
+  }
+  const cardFields = ['name', 'description', 'personality', 'scenario', 'first_mes', 'mes_example',
+    'creator_notes', 'system_prompt', 'post_history_instructions', 'alternate_greetings', 'tags', 'creator', 'character_version'];
+
+  function signatureMetadata(card) {
+    const info = card.stMetadata || {};
+    const header = { ...info.header };
+    for (const key of ['spec', 'spec_version', 'create_date', 'talkativeness']) delete header[key];
+    const extensions = { ...info.extensions };
+    delete extensions.talkativeness;
+    return Object.keys(header).length || Object.keys(info.extra || {}).length || Object.keys(extensions).length
+      ? { stMetadata: { header, extra: info.extra || {}, extensions } } : {};
+  }
+
   function characterToCard(character, book) {
     const talk = String(character.talkativeness ?? 0.5);
     const source = resourceSource(character.source);
+    const original = character.stMetadata || {};
+    const extensions = otherFields(original.extensions, ['quilvori_source']);
+    const originalTalk = extensions.talkativeness ?? original.header?.talkativeness;
+    const talkValue = originalTalk !== undefined && Number(originalTalk) === Number(talk) ? originalTalk : talk;
     const data = {
+      ...original.extra,
       name: character.name || '',
       description: character.description || '',
       personality: character.personality || '',
@@ -62,15 +85,17 @@
       creator: character.creator || '',
       character_version: character.character_version || '',
       extensions: {
-        talkativeness: talk,
         fav: false,
-        world: book ? (book.name || '') : '',
         depth_prompt: { depth: 4, prompt: '', role: 'system' },
+        ...extensions,
+        talkativeness: talkValue,
+        world: book ? (book.name || '') : (extensions.world ?? ''),
         ...(source ? { quilvori_source: source } : {}),
       },
     };
-    if (book && book.entries && book.entries.length) data.character_book = bookToCharacterBook(book);
+    if (Array.isArray(book?.entries)) data.character_book = bookToCharacterBook(book);
     return {
+      ...original.header,
       name: data.name,
       description: data.description,
       personality: data.personality,
@@ -78,24 +103,33 @@
       first_mes: data.first_mes,
       mes_example: data.mes_example,
       creatorcomment: data.creator_notes,
-      avatar: 'none',
-      chat: '',
-      talkativeness: talk,
-      fav: false,
+      avatar: original.header?.avatar ?? 'none',
+      chat: original.header?.chat ?? '',
+      talkativeness: original.header?.talkativeness !== undefined && Number(original.header.talkativeness) === Number(talk) ? original.header.talkativeness : talkValue,
+      fav: original.header?.fav ?? extensions.fav ?? false,
       tags: data.tags,
-      spec: 'chara_card_v2',
-      spec_version: '2.0',
+      spec: original.header?.spec || 'chara_card_v2',
+      spec_version: original.header?.spec_version || '2.0',
       data,
-      create_date: character.createdAt || '',
+      create_date: original.header?.create_date ?? character.createdAt ?? '',
     };
   }
 
+  function singleCard(input) {
+    if (!Array.isArray(input)) return input;
+    if (input.length > 1) throw Object.assign(new Error('这个文件包含多张角色卡。请把每张卡分别导入。'), {code:'multiple-cards'});
+    if (!input.length) throw new Error('这个文件不是角色卡。');
+    return input[0];
+  }
   function cardToCharacter(input) {
-    let json = input;
-    if (Array.isArray(json)) json = json[0];
-    if (json && json.character && json.character.data) json = json.character;
+    const single = singleCard(input);
+    const json = single?.character?.data ? single.character : single;
+    if (!json || typeof json !== 'object' || Array.isArray(json)) throw new Error('这个文件不是角色卡。');
     const data = (json && json.data && typeof json.data === 'object') ? json.data : (json || {});
     const extensions = data.extensions || {};
+    const header = otherFields(json, [...cardFields, 'data', 'character_book', 'creatorcomment', 'extensions', 'source']);
+    const extra = data === json ? {} : otherFields(data, [...cardFields, 'extensions', 'character_book']);
+    const talk = Number(extensions.talkativeness ?? json.talkativeness ?? 0.5);
     const source = resourceSource(extensions.quilvori_source);
     return {
       name: data.name ?? json.name ?? '',
@@ -111,18 +145,46 @@
       tags: asArray(data.tags || json.tags || []),
       creator: data.creator ?? json.creator ?? '',
       character_version: data.character_version ?? '',
-      talkativeness: Number(extensions.talkativeness ?? json.talkativeness ?? 0.5) || 0.5,
+      talkativeness: Number.isFinite(talk) ? talk : 0.5,
+      stMetadata: { header, extra, extensions: otherFields(extensions, ['quilvori_source']) },
       book: data.character_book || null,
       ...(source ? { source } : {}),
     };
   }
 
+  const stExtensionNames = {
+    scanDepth: 'scan_depth', caseSensitive: 'case_sensitive', matchWholeWords: 'match_whole_words',
+    excludeRecursion: 'exclude_recursion', preventRecursion: 'prevent_recursion',
+    delayUntilRecursion: 'delay_until_recursion', ignoreBudget: 'ignore_budget',
+    displayIndex: 'display_index', outletName: 'outlet_name', role: 'role',
+    probability: 'probability', useProbability: 'useProbability', group: 'group',
+    groupWeight: 'group_weight', groupOverride: 'group_override', sticky: 'sticky',
+    cooldown: 'cooldown', delay: 'delay', automationId: 'automation_id', vectorized: 'vectorized',
+    triggers:'triggers',useGroupScoring:'use_group_scoring',matchPersonaDescription:'match_persona_description',
+    matchCharacterDescription:'match_character_description',matchCharacterPersonality:'match_character_personality',
+    matchCharacterDepthPrompt:'match_character_depth_prompt',matchScenario:'match_scenario',matchCreatorNotes:'match_creator_notes',
+  };
+  function entryNumbers(entries) {
+    const reserved = new Set(entries.map(entry => entry.stUid).filter(Number.isSafeInteger));
+    const used = new Set();
+    let next = 0;
+    return entries.map(entry => {
+      if (Number.isSafeInteger(entry.stUid) && entry.stUid >= 0 && !used.has(entry.stUid)) {
+        used.add(entry.stUid);
+        return entry.stUid;
+      }
+      while (reserved.has(next) || used.has(next)) next++;
+      used.add(next);
+      return next++;
+    });
+  }
   function bookToWorldInfo(book) {
     const entries = {};
+    const ids = entryNumbers(book.entries || []);
     (book.entries || []).forEach((entry, index) => {
       const position = positionById(entry.position);
-      entries[String(index)] = {
-        uid: index,
+      entries[String(ids[index])] = {
+        uid: ids[index],
         key: [...(entry.keys || [])],
         keysecondary: [...(entry.secondaryKeys || entry.secondary_keys || [])],
         comment: entry.comment || '',
@@ -160,14 +222,16 @@
         matchCharacterPersonality: false,
         matchScenario: false,
         matchCreatorNotes: false,
-        ...(entry.category ? { extensions: { realmweave_category: entry.category } } : {}),
+        ...entry.stSettings,
+        ...((entry.stExtensions || entry.category) ? { extensions: { ...entry.stExtensions, ...(entry.category ? { realmweave_category: entry.category } : {}) } } : {}),
       };
     });
     const source = resourceSource(book.source);
-    return { entries, ...(source ? { extensions: { quilvori_source: source } } : {}) };
+    return { ...book.stBookFields, ...(book.name ? {name:book.name} : {}), ...(book.description ? {description:book.description} : {}), entries, ...(book.stOriginalData ? {originalData:bookToCharacterBook(book)} : {}), ...((book.stBookExtensions || source) ? { extensions: { ...book.stBookExtensions, ...(source ? { quilvori_source: source } : {}) } } : {}) };
   }
 
   function bookToCharacterBook(book) {
+    const ids = entryNumbers(book.entries || []);
     const source = resourceSource(book.source);
     return {
       name: book.name || '',
@@ -175,11 +239,12 @@
       scan_depth: 2,
       token_budget: 512,
       recursive_scanning: false,
-      extensions: source ? { quilvori_source: source } : {},
+      ...book.stBookFields,
+      extensions: { ...book.stBookExtensions, ...(source ? { quilvori_source: source } : {}) },
       entries: (book.entries || []).map((entry, index) => {
         const position = positionById(entry.position);
         return {
-          id: index,
+          id: ids[index],
           keys: [...(entry.keys || [])],
           secondary_keys: [...(entry.secondaryKeys || [])],
           comment: entry.comment || '',
@@ -189,6 +254,7 @@
           insertion_order: Number(entry.order ?? 100),
           enabled: entry.enabled !== false,
           position: position.st === 0 ? 'before_char' : 'after_char',
+          ...(entry.stEmbedded || {}),
           extensions: {
             position: position.st,
             depth: Number(entry.depth ?? 4),
@@ -200,6 +266,10 @@
             exclude_recursion: false,
             prevent_recursion: false,
             delay_until_recursion: false,
+            ...entry.stExtensions,
+            ...Object.fromEntries(Object.entries(entry.stSettings || {}).filter(([key]) => stExtensionNames[key]).map(([key,val]) => [stExtensionNames[key], val])),
+            ...(entry.caseSensitive != null ? { case_sensitive: entry.caseSensitive } : {}),
+            ...(entry.matchWholeWords != null ? { match_whole_words: entry.matchWholeWords } : {}),
             ...(entry.category ? { realmweave_category: entry.category } : {}),
           },
         };
@@ -216,9 +286,8 @@
   }
 
   function looksLikeEntry(obj) {
-    return !!(obj && typeof obj === 'object' && !Array.isArray(obj) && (
-      obj['条目名'] || obj['触发关键词'] || obj['正文'] || obj.body || obj.comment || obj.content || obj.key || obj.keys
-    ));
+    return !!(obj && typeof obj === 'object' && !Array.isArray(obj) &&
+      ['条目名','触发关键词','正文','body','comment','content','key','keys'].some(key=>Object.hasOwn(obj,key)));
   }
 
   function unwrapEntry(entry) {
@@ -236,20 +305,37 @@
 
   function worldInfoToEntries(json) {
     if (!json || typeof json !== 'object') throw new Error('世界书不是 JSON 对象');
-    let source = null;
+    let source;
     if (Array.isArray(json)) source = json;
-    else if (json['条目名'] || json['触发关键词'] || ((json['正文'] || json.body) && !json.entries)) source = [json];
-    else source = json.entries || (json.data && json.data.entries) || json.character_book?.entries;
-    if (!source) {
-      const values = Object.values(json).filter(looksLikeEntry);
-      if (values.length) source = values;
+    else if (Object.hasOwn(json,'entries')) source = json.entries;
+    else if (json.data && Object.hasOwn(json.data,'entries')) source = json.data.entries;
+    else if (json.character_book && Object.hasOwn(json.character_book,'entries')) source = json.character_book.entries;
+    else if (looksLikeEntry(json)) source = [json];
+    else {
+      // Older exports sometimes consist of an entry map with metadata alongside it.
+      const rows = Object.entries(json).filter(([key,row])=>/^(0|[1-9]\d*)$/.test(key) || looksLikeEntry(row));
+      if (rows.length) source = Object.fromEntries(rows);
     }
-    if (!source) throw new Error('找不到 entries');
-    const list = Array.isArray(source) ? source : Object.values(source);
-    return list.filter(Boolean).map((raw) => {
+    if (source === undefined) throw new Error('找不到 entries');
+    const rows = source && typeof source === 'object' ? Object.values(source) : null;
+    if (!rows || !rows.every(looksLikeEntry)) throw Object.assign(new Error('世界书的条目列表包含无效数据。请检查原始文件。'), {code:'invalid-entries'});
+    const list = Array.isArray(source) ? source : Object.entries(source).map(([key,row]) => row.uid == null && /^(0|[1-9]\d*)$/.test(key) ? {...row,uid:Number(key)} : row);
+    return list.map((raw) => {
       const entry = unwrapEntry(raw);
       const content = entry['正文'] ?? entry.body ?? entry.content ?? '';
+      const embedded = Object.hasOwn(entry, 'insertion_order') || Object.hasOwn(entry, 'secondary_keys');
+      const extras = otherFields(entry, ['uid','id','comment','name','content','body','key','keys','keysecondary','secondary_keys','secondaryKeys','constant','selective','order','insertion_order','position','enabled','disable','depth','outletName','selectiveLogic','caseSensitive','matchWholeWords','category','extensions','条目名','触发关键词','正文']);
+      const extensions = otherFields(entry.extensions, ['position','depth','outlet_name','selectiveLogic','realmweave_category','case_sensitive','match_whole_words']);
+      const settings = embedded ? {} : extras;
+      for (const [key, alias] of Object.entries(stExtensionNames)) {
+        if (!['caseSensitive', 'matchWholeWords', 'outletName'].includes(key) && entry.extensions?.[alias] !== undefined && settings[key] === undefined) settings[key] = entry.extensions[alias];
+      }
+      const uid = entry.uid ?? entry.id;
       return {
+        ...(Number.isSafeInteger(uid) ? { stUid: uid } : {}),
+        ...(Object.keys(settings).length ? { stSettings: settings } : {}),
+        ...(embedded && Object.keys(extras).length ? { stEmbedded: extras } : {}),
+        ...(Object.keys(extensions).length ? { stExtensions: extensions } : {}),
         comment: entry['条目名'] || entry.comment || entry.name || '',
         content: typeof content === 'string' ? content : (content == null ? '' : JSON.stringify(content)),
         keys: asArray(entry['触发关键词'] || entry.key || entry.keys || []),
@@ -262,8 +348,8 @@
         depth: Number(entry.depth ?? entry.extensions?.depth ?? 4),
         outletName: entry.outletName || entry.extensions?.outlet_name || '',
         selectiveLogic: Number(entry.selectiveLogic ?? entry.extensions?.selectiveLogic ?? 0),
-        caseSensitive: entry.caseSensitive ?? null,
-        matchWholeWords: entry.matchWholeWords ?? null,
+        caseSensitive: entry.caseSensitive ?? entry.extensions?.case_sensitive ?? null,
+        matchWholeWords: entry.matchWholeWords ?? entry.extensions?.match_whole_words ?? null,
         ...((entry.category || entry.extensions?.realmweave_category) ? { category: entry.category || entry.extensions.realmweave_category } : {}),
       };
     });
@@ -279,10 +365,26 @@
     // must never be mistaken for the attribution of its embedded companion book.
     const source = resourceSource(spec?.extensions?.quilvori_source)
       || (!embedded ? resourceSource(wrapped?.extensions?.quilvori_source) : null);
+    const original = Array.isArray(spec?.originalData?.entries) ? spec.originalData : null;
+    const entries = worldInfoToEntries(spec);
+    if (original) {
+      const companions = new Map(worldInfoToEntries(original).map((entry,index)=>[entry.stUid ?? index,entry]));
+      for (const entry of entries) {
+        const companion = companions.get(entry.stUid);
+        if (!companion) continue;
+        if (companion.stEmbedded) entry.stEmbedded = companion.stEmbedded;
+        if (companion.stExtensions) entry.stExtensions = {...companion.stExtensions,...entry.stExtensions};
+      }
+    }
     return {
-      name: typeof spec?.name === 'string' && spec.name.trim() ? spec.name : String(fallbackName || ''),
-      description: typeof spec?.description === 'string' ? spec.description : '',
-      entries: worldInfoToEntries(spec),
+      name: typeof spec?.name === 'string' && spec.name.trim() ? spec.name : String(fallbackName || original?.name || ''),
+      description: typeof spec?.description === 'string' ? spec.description : String(original?.description || ''),
+      entries,
+      ...(original ? {stOriginalData:true} : {}),
+      ...(spec && !Array.isArray(spec) && spec.entries ? {
+        stBookFields: {...otherFields(original, ['name','description','entries','extensions']), ...otherFields(spec, ['name','description','entries','extensions','originalData'])},
+        stBookExtensions: otherFields({...original?.extensions,...spec.extensions}, ['quilvori_source']),
+      } : {}),
       ...(source ? { source } : {}),
     };
   }
@@ -360,48 +462,56 @@
   }
 
   function qrToExport(set) {
-    const list = set.replies || [];
-    return {
-      version: 2,
-      name: set.name || '快捷回复',
-      disableSend: false,
-      placeBeforeInput: false,
-      injectInput: false,
-      color: list[0]?.color || '',
-      onlyBorderColor: false,
-      qrList: list.map((reply, index) => ({
-        id: index + 1,
-        showLabel: true,
-        label: reply.label || '',
-        title: reply.title || '',
-        message: reply.message || '',
-        contextList: [],
-        preventAutoExecute: true,
-        isHidden: false,
-        executeOnStartup: false,
-        executeOnUser: false,
-        executeOnAi: false,
-        executeOnChatChange: false,
-        executeOnGroupMemberDraft: false,
-        executeOnNewChat: false,
-        executeBeforeGeneration: false,
-        automationId: '',
-        atelierColor: reply.color || '',
-      })),
-      idIndex: list.length + 1,
+    const list = set.replies || [], original = set.stSettings;
+    const validId = id => Number.isSafeInteger(id) && id >= 0;
+    const reserved = new Set(list.map(reply=>reply.stSettings?.id).filter(validId)), used = new Set();
+    let highest = validId(original?.idIndex) ? original.idIndex : 0;
+    for (const id of reserved) highest = Math.max(highest,id);
+    let next = highest < Number.MAX_SAFE_INTEGER ? highest + 1 : 1;
+    let allocated = false;
+    function replyId(reply) {
+      const old = reply.stSettings?.id;
+      if (validId(old) && !used.has(old)) { used.add(old); return old; }
+      while (reserved.has(next) || used.has(next)) next = next < Number.MAX_SAFE_INTEGER ? next + 1 : 1;
+      const id = next;
+      next = id < Number.MAX_SAFE_INTEGER ? id + 1 : 1;
+      used.add(id); highest = Math.max(highest,id); allocated = true;
+      return id;
+    }
+    const qrList = list.map(reply => {
+      const saved = reply.stSettings;
+      // Fields edited in Quilvori win. ST's triggers, context links and extension fields travel with the reply.
+      const base = saved ? otherFields(saved, []) : {
+        showLabel:true, contextList:[], preventAutoExecute:true, isHidden:false,
+        executeOnStartup:false, executeOnUser:false, executeOnAi:false, executeOnChatChange:false,
+        executeOnGroupMemberDraft:false, executeOnNewChat:false, executeBeforeGeneration:false, automationId:'',
+      };
+      const result = {...base, id:replyId(reply), label:reply.label ?? '', title:reply.title ?? '', message:reply.message ?? ''};
+      if (!saved || reply.color !== (saved.atelierColor ?? saved.color ?? '#c6a15a')) result.atelierColor = reply.color ?? '';
+      return result;
+    });
+    const base = original ? otherFields(original, []) : {
+      disableSend:false, placeBeforeInput:false, injectInput:false, color:list[0]?.color || '', onlyBorderColor:false,
     };
+    const result = {...base,version:2,name:set.name || '快捷回复',qrList};
+    if (!original) result.idIndex = list.length + 1;
+    else if (allocated || !validId(original.idIndex)) result.idIndex = highest;
+    return result;
   }
 
   function qrFromImport(json) {
-    const source = json.qrList || json.replies || [];
+    const source = json.qrList ?? json.replies ?? [];
     if (!Array.isArray(source)) throw new Error('快捷回复里没有 qrList');
+    const native = Array.isArray(json.qrList);
     return {
       name: json.name || '导入的快捷回复',
-      replies: source.map((reply) => ({
-        label: reply.label || reply.title || '未命名',
-        message: reply.message || reply.mes || '',
-        color: reply.atelierColor || reply.color || '#c6a15a',
-        title: reply.title || '',
+      ...(native ? {stSettings:otherFields(json,['name','qrList'])} : {}),
+      replies: source.map(reply => ({
+        label: reply.label ?? reply.title ?? '未命名',
+        message: reply.message ?? reply.mes ?? '',
+        color: reply.atelierColor ?? reply.color ?? '#c6a15a',
+        title: reply.title ?? '',
+        ...(native ? {stSettings:otherFields(reply,['label','title','message'])} : {}),
       })),
     };
   }
@@ -478,8 +588,10 @@
   }
 
   function normalizeMessage(message) {
+    if (!message || typeof message !== 'object' || Array.isArray(message)) throw new Error('认不出的聊天格式');
     const isUser = !!(message.is_user || message.isUser || message.role === 'user');
     return {
+      ...otherFields(message,['name','is_user','is_system','mes','send_date']),
       name: message.name || (isUser ? '你' : '角色'),
       is_user: isUser,
       is_system: !!(message.is_system || message.role === 'system'),
@@ -493,16 +605,17 @@
     if (!trimmed) throw new Error('文件是空的');
     const baseName = String(filename || '导入的聊天').replace(/\.(jsonl|json|txt)$/i, '');
     const lines = trimmed.split(/\r?\n/).filter((line) => line.trim());
-    const jsonl = lines.length > 1 && lines.every((line) => line.trim().startsWith('{'));
+    const jsonl = (/\.jsonl$/i.test(filename) || lines.length > 1) && lines.every((line) => line.trim().startsWith('{'));
     let userName = '你';
     let characterName = '';
     let name = baseName;
-    let messages = [];
+    let messages = [], stHeader;
     if (jsonl) {
       const objects = lines.map((line) => JSON.parse(line));
       let start = 0;
       const head = objects[0] || {};
       if (head.mes == null && (head.user_name || head.character_name || head.chat_metadata)) {
+        stHeader = otherFields(head,[]);
         userName = head.user_name || userName;
         characterName = head.character_name || '';
         start = 1;
@@ -524,7 +637,7 @@
       const first = messages.find((message) => !message.is_user && !message.is_system);
       characterName = first ? first.name : '角色';
     }
-    return { name, userName, characterName, messages, bookmarks: [] };
+    return { name, userName, characterName, messages, bookmarks: [], ...(stHeader ? {stHeader} : {}) };
   }
 
   function timelineToExport(library) {
@@ -1232,7 +1345,8 @@
     ACTIVATION,
     positionById,
     positionFromSt,
-    characterToCard,
+    characterToCard, signatureMetadata,
+    singleCard,
     cardToCharacter,
     bookToWorldInfo,
     bookToCharacterBook,

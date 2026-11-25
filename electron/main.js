@@ -5,6 +5,7 @@ const { preserveLegacyProfile } = require('./profile');
 const { downloadRemote } = require('./remote-import');
 const { isTrustedSender, installNavigationPolicy } = require('./navigation');
 const { exportExpressions } = require('./expression-export');
+const { installBundle } = require('./st-bundle');
 const appRoot = path.resolve(__dirname, '..');
 const linkRequests = new Map();
 
@@ -104,3 +105,9 @@ handleTrusted('links:download', async (event, payload) => {
 });
 handleTrusted('links:cancel', (event, id) => { linkRequests.get(`${event.sender.id}/${id}`)?.abort(); });
 handleTrusted('folders:writeExpressions', (event, payload) => exportExpressions(payload, fs));
+handleTrusted('bundles:install', async (event, files) => {
+  const result = await dialog.showOpenDialog({ properties:['openDirectory'] });
+  if (result.canceled || !result.filePaths[0]) return {canceled:true};
+  try { return {ok:true,...await installBundle(result.filePaths[0],files)}; }
+  catch (err) { return {ok:false,code:err.file !== undefined ? err.code : 'write-failed',file:err.file || ''}; }
+});

@@ -119,7 +119,9 @@
 
   function charaPayload(jsonText) {
     const b64 = utf8ToB64(jsonText);
-    const keyword = new TextEncoder().encode('chara');
+    let name = 'chara';
+    try { if (JSON.parse(jsonText).spec === 'chara_card_v3') name = 'ccv3'; } catch (_) {}
+    const keyword = new TextEncoder().encode(name);
     const text = new TextEncoder().encode(b64);
     const data = new Uint8Array(keyword.length + 1 + text.length);
     data.set(keyword, 0);
@@ -132,8 +134,8 @@
     const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
     const chunks = parseChunks(bytes);
     const texts = chunks.filter((chunk) => chunk.type === 'tEXt' || chunk.type === 'iTXt');
-    const preferred = texts.find((chunk) => keywordOf(chunk) === 'chara')
-      || texts.find((chunk) => keywordOf(chunk) === 'ccv3');
+    const preferred = texts.find((chunk) => keywordOf(chunk) === 'ccv3')
+      || texts.find((chunk) => keywordOf(chunk) === 'chara');
     if (!preferred) return null;
     const raw = textOf(preferred).trim();
     if (!raw) return null;

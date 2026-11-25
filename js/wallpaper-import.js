@@ -109,7 +109,7 @@
     if (options.url) source.url = root.TALinkImport.safeUrl(options.url);
     const asset = { id: root.TAStore.uid('asset'), name, kind: 'background', ...encoded, width: prepared.width, height: prepared.height, createdAt: stamp, source };
     const next = copy(library); next.assets ||= []; next.assets.unshift(asset);
-    if (JSON.stringify(next).length > MAX_LIBRARY_SIZE) throw fail('wallpaper-capacity');
+    if (root.TAStore?.backend !== 'indexedDB' && JSON.stringify(next).length > MAX_LIBRARY_SIZE) throw fail('wallpaper-capacity');
     return { library: next, assetId: asset.id, receipt: { assetId: asset.id, snapshot: JSON.stringify(asset) } };
   }
   function undo(library, receipt) {
@@ -169,25 +169,21 @@
     } catch (error) { if (session === current && current.controller === controller) { current.failed = true; current.status = message(error); } }
     finally { if (session === current && current.controller === controller) { current.busy = false; render(); } }
   }
-  function persist(library) {
-    root.TAStore.save(library);
-    clearTimeout(UI().state.timer); UI().state.lib = library; UI().state.save = 'saved';
-  }
   function reveal(id, preserveUndo = false) {
     close(); UI().state.assetKind = 'all'; UI().state.sel.asset = id;
     // A full-page navigation would destroy the undo receipt held by the toast.
     if (preserveUndo && document.body?.dataset?.page && document.body.dataset.page !== 'assets') UI().renderStage();
     else UI().go('assets');
   }
-  function apply(current) {
+  async function apply(current) {
     try {
       if (session !== current || current.busy || !current.prepared) return;
       if (!current.sourceConfirmed) throw fail('wallpaper-confirm-source');
       const result = buildImport(UI().state.lib, current.prepared, { title: current.title, attribution: current.attribution, url: current.downloadUrl });
       if (result.existingId) { reveal(result.existingId); UI().toast(tr('这张图片已在素材库，已为你打开。')); return; }
-      persist(result.library); reveal(result.assetId, true);
-      UI().toast(tr('壁纸已导入，聊天背景保持不变。'), { kind: 'success', action: { label: tr('撤销'), onClick: () => {
-        try { persist(undo(UI().state.lib, result.receipt)); if (UI().state.sel.asset === result.assetId) UI().state.sel.asset = null; UI().renderStage(); UI().toast(tr('已撤销壁纸导入。')); }
+      await UI().commitLibrary(result.library); reveal(result.assetId, true);
+      UI().toast(tr('壁纸已导入，聊天背景保持不变。'), { kind: 'success', action: { label: tr('撤销'), onClick: async () => {
+        try { await UI().commitLibrary(undo(UI().state.lib, result.receipt)); if (UI().state.sel.asset === result.assetId) UI().state.sel.asset = null; UI().renderStage(); UI().toast(tr('已撤销壁纸导入。')); }
         catch (error) { UI().toast(message(error), { kind: 'error' }); }
       } } });
     } catch (error) { current.failed = true; current.status = error.code === 'quota' || error.code === 'no-storage' ? tr(error.message) : message(error); render(); }

@@ -71,4 +71,24 @@ await test('avatar thumbnails stay within a bounded local storage budget',async(
  const result=await I.importAll(S.emptyLibrary(),{cards:'/cards'},adapter(files),{makeAvatar:async()=>({dataUrl:'data:image/jpeg;base64,AA==',mime:'image/jpeg',bytes:240000})});
  assert.equal(result.report.cards,8);assert.ok(result.library.assets.reduce((sum,asset)=>sum+asset.bytes,0)<=750000);assert.equal(result.library.assets[0].mime,'image/jpeg');
 });
+await test('multiple cards in one JSON or PNG are refused while batch siblings import normally',async()=>{
+ const multi=[card('First'),card('Second')], png=ctx.TAPng.embedChara(pixel,JSON.stringify(multi));
+ assert.throws(()=>ctx.TAFormats.cardToCharacter(multi),e=>e.code==='multiple-cards');
+ assert.equal(ctx.TAFormats.cardToCharacter([multi[0]]).name,'First');
+ const result=await I.importAll(S.emptyLibrary(),{cards:'/cards'},adapter({'/cards/pair.json':json(multi),'/cards/pair.png':png,'/cards/valid.json':json(card('Only imported'))}));
+ assert.equal(result.report.cards,1);assert.equal(result.report.failed.length,2);
+ assert.ok(result.report.failed.every(row=>row.reason.includes('多张角色卡')));assert.deepEqual(Array.from(result.library.characters,c=>c.name),['Only imported']);
+});
+await test('malformed books cannot partially enter the library; explicit empty books and literal blank entries remain valid',async()=>{
+ const saved=[];ctx.TAUI={state:{lib:S.emptyLibrary()},t:key=>key,commitLibrary:async value=>saved.push(value)};
+ const file=value=>({name:'book.json',arrayBuffer:async()=>json(value).buffer});
+ for(const entries of [null,'bad',[null],['x'],[{},4],{0:{key:[],content:'Valid'},1:'invalid'}]){
+   await assert.rejects(()=>I.importDocument('world',file({entries})),e=>e.code==='invalid-entries');
+ }
+ assert.equal(saved.length,0);
+ const withBadBook=card('Surviving character');withBadBook.data.character_book={entries:'bad'};
+ const result=await I.importAll(S.emptyLibrary(),{cards:'/cards',worlds:'/worlds'},adapter({'/cards/a.json':json(withBadBook),'/worlds/bad.json':json({entries:[null]}),'/worlds/empty.json':json({entries:{}}),'/worlds/blank.json':json({entries:[{comment:'',content:''}]})}));
+ assert.equal(result.report.cards,1);assert.equal(result.report.books,2);assert.equal(result.report.failed.length,2);
+ assert.equal(result.library.worldBooks.reduce((n,b)=>n+b.entries.length,0),1);
+});
 console.log(`${total} folder import checks passed`);
