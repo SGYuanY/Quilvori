@@ -8,6 +8,23 @@
 
 Quilvori は SillyTavern 用の素材を作るためのアプリです。キャラクターカードやワールドブックを編集し、自分で設定したモデルと相談して推敲し、SillyTavern に読み込めるファイルへ書き出せます。手動編集、インポート、ローカル検査、バックアップは単独で使えます。AI 機能には別途モデルサービスが必要です。
 
+## 画面紹介
+
+架空のサンプル作品で、コレクション、キャラクター編集、ワールドブックの発動プレビューを表示しています。
+
+<a href="docs/screenshots/collection.png"><img src="docs/screenshots/collection.png" alt="コレクションに並んだカードとワールドブックの表紙"></a>
+
+<table>
+  <tr>
+    <td width="50%"><a href="docs/screenshots/character-editor.png"><img src="docs/screenshots/character-editor.png" alt="キャラクター編集とプレビュー"></a></td>
+    <td width="50%"><a href="docs/screenshots/world-book-trigger.png"><img src="docs/screenshots/world-book-trigger.png" alt="会話に一致したワールドブックの項目"></a></td>
+  </tr>
+  <tr>
+    <td align="center">キャラクター編集</td>
+    <td align="center">ワールドブックの発動プレビュー</td>
+  </tr>
+</table>
+
 ## コレクション、画面の配色、素材カタログ
 
 ホームはキャラクターの肖像とワールドブックの表紙を大きく並べるコレクションです。検索、種類別の絞り込み、原文プレビュー、新しいカード／本の作成を利用できます。肖像がない作品には文字の表紙を表示し、代わりの作品画像は生成しません。蔵書票風の飾り罫、表紙の角飾り、蔵書印を添えています。

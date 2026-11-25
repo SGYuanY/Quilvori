@@ -8,6 +8,23 @@
 
 Quilvori는 SillyTavern용 자료를 만드는 도구입니다. 캐릭터 카드와 월드북을 편집하고, 직접 연결한 모델과 원고를 다듬은 뒤 SillyTavern으로 내보낼 수 있습니다. 수동 편집, 가져오기, 로컬 검사, 백업은 독립적으로 사용할 수 있습니다. AI 기능에는 별도로 설정한 모델 서비스가 필요합니다.
 
+## 화면 미리보기
+
+가상의 예시 작품으로 컬렉션, 캐릭터 편집기와 월드북 발동 미리보기를 보여 줍니다.
+
+<a href="docs/screenshots/collection.png"><img src="docs/screenshots/collection.png" alt="캐릭터 카드와 월드북 표지가 있는 컬렉션"></a>
+
+<table>
+  <tr>
+    <td width="50%"><a href="docs/screenshots/character-editor.png"><img src="docs/screenshots/character-editor.png" alt="캐릭터 편집기와 실시간 미리보기"></a></td>
+    <td width="50%"><a href="docs/screenshots/world-book-trigger.png"><img src="docs/screenshots/world-book-trigger.png" alt="예시 대화에 반응한 월드북 항목"></a></td>
+  </tr>
+  <tr>
+    <td align="center">캐릭터 편집기</td>
+    <td align="center">월드북 발동 미리보기</td>
+  </tr>
+</table>
+
 ## 컬렉션, 페이지 색상, 리소스 목록
 
 홈에서는 캐릭터 초상과 월드북 표지를 크게 진열합니다. 검색, 종류별 필터, 원문 미리보기, 카드와 월드북 작성 입구가 있습니다. 초상이 없으면 글자 표지를 사용하며 작가의 그림을 대신할 이미지를 생성하지 않습니다. 책 장식 테두리, 모서리 무늬와 장서인이 분위기를 더합니다.

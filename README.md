@@ -8,6 +8,23 @@ A local collection room and writing workspace for SillyTavern characters and wor
 
 Quilvori prepares material for SillyTavern. Edit character cards and world books, work with a model you configure, and export the results to SillyTavern. Manual editing, importing, local checks, and backups work independently; AI features require a separate model service.
 
+## See the workbench
+
+The collection, character editor and world-book trigger preview below use a fictional sample library.
+
+<a href="docs/screenshots/collection.png"><img src="docs/screenshots/collection.png" alt="Collection with character portraits and a world-book cover"></a>
+
+<table>
+  <tr>
+    <td width="50%"><a href="docs/screenshots/character-editor.png"><img src="docs/screenshots/character-editor.png" alt="Character editor showing Iris Vale and her live card preview"></a></td>
+    <td width="50%"><a href="docs/screenshots/world-book-trigger.png"><img src="docs/screenshots/world-book-trigger.png" alt="World-book trigger test showing the entries matched by a sample conversation"></a></td>
+  </tr>
+  <tr>
+    <td align="center">Character editor</td>
+    <td align="center">World-book trigger preview</td>
+  </tr>
+</table>
+
 ## What you can do
 
 - Browse your collection as a portrait and book-cover gallery, with a distinct color palette for each workspace.
