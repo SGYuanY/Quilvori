@@ -520,85 +520,6 @@
     };
   }
 
-  function presetToExport(preset) {
-    const blocks = preset.blocks || [];
-    const prompts = blocks.map((block, index) => ({
-      identifier: block.stIdentifier ?? String(block.id ?? `atelier_${index}`),
-      name: block.name || '未命名块',
-      role: block.role || 'system',
-      content: block.content || '',
-      system_prompt: (block.role || 'system') === 'system',
-      marker: false,
-      enabled: block.enabled !== false,
-      injection_position: block.kind === 'author_note' ? 1 : 0,
-      injection_depth: block.kind === 'author_note' ? 4 : 0,
-      forbid_overrides: false,
-      atelier_kind: block.kind || 'custom',
-    }));
-    return {
-      format: 'tavern-atelier.prompt.v1',
-      name: preset.name || '提示词预设',
-      note: '这是可抄进 SillyTavern 预设编辑器的块，不是整份 API 预设。不要用它覆盖温度和模型。',
-      prompts,
-      prompt_order: [{
-        character_id: preset.stOrderCharacterId ?? 100001,
-        order: prompts.filter((prompt,i) => !blocks[i].stOrderOmitted || prompt.enabled)
-          .map(prompt => ({identifier:prompt.identifier,enabled:prompt.enabled})),
-      }],
-    };
-  }
-
-  function presetOrderScopes(json) {
-    return Array.isArray(json?.prompt_order) ? json.prompt_order.filter(scope=>Array.isArray(scope?.order)) : [];
-  }
-
-  function presetFromImport(json, scopeIndex) {
-    const prompts = json?.prompts ?? json?.blocks;
-    if (!Array.isArray(prompts)) throw new Error('预设里没有 prompts');
-    const scopes = presetOrderScopes(json);
-    const scope = scopeIndex === undefined ? scopes.find(row=>String(row.character_id)==='100001') ?? scopes[0] : scopes[scopeIndex];
-    const definitions = [], byIdentifier = new Map();
-    for (const block of prompts) {
-      if (!block || block.marker === true) continue;
-      const identifier = block.identifier ?? block.id;
-      const imported = {
-        name: block.name || '未命名块',
-        role: block.role || 'system',
-        kind: block.atelier_kind || kindFromName(block.name),
-        content: typeof block.content === 'string' ? block.content : typeof block.system_prompt === 'string' ? block.system_prompt : '',
-        enabled: block.enabled !== false,
-      };
-      if ((typeof identifier === 'string' && identifier.length) || Number.isSafeInteger(identifier)) {
-        if (byIdentifier.has(String(identifier))) throw new Error('预设内有重复的提示块标识');
-        imported.stIdentifier = identifier;
-        byIdentifier.set(String(identifier),imported);
-      }
-      definitions.push(imported);
-    }
-    const preset = {name:json.name || '导入的预设',blocks:definitions};
-    if (!scope) return preset;
-    const ordered = new Set();
-    for (const row of scope.order) {
-      const block = row && byIdentifier.get(String(row.identifier));
-      if (!block || ordered.has(block)) continue;
-      if (typeof row.enabled === 'boolean') block.enabled = row.enabled;
-      ordered.add(block);
-    }
-    const omitted = definitions.filter(block=>!ordered.has(block));
-    for (const block of omitted) { block.enabled = false; block.stOrderOmitted = true; }
-    preset.blocks = [...ordered,...omitted];
-    preset.stOrderCharacterId = scope.character_id ?? 100001;
-    return preset;
-  }
-
-  function kindFromName(name) {
-    const text = String(name || '').toLowerCase();
-    if (text.includes('author') || String(name).includes('作者')) return 'author_note';
-    if (text.includes('jail')) return 'jailbreak';
-    if (text.includes('style') || String(name).includes('文风')) return 'style';
-    return 'system';
-  }
-
   function groupToExport(group, library) {
     const byId = new Map((library.characters || []).map((character) => [character.id, character]));
     return {
@@ -1518,9 +1439,7 @@
     explainBook,
     qrToExport,
     qrFromImport,
-    presetToExport,
-    presetFromImport,
-    presetOrderScopes,
+    ...root.TAPromptPresets,
     groupToExport,
     chatFromText,
     timelineToExport,

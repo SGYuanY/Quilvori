@@ -836,7 +836,10 @@
           }
         }
         UI.renderStage();
-      } catch (error) { UI.toast(UI.t(error.message),{kind:'error'}); }
+      } catch (error) {
+        const field = error.presetField ? ' · ' + error.presetField : '';
+        UI.toast(UI.t(error.message) + field,{kind:'error'});
+      }
     };
     if (!current) {
       stage.appendChild(UI.empty('还没有预设', '加一组有顺序的提示词块。', '', null));

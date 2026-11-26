@@ -54,5 +54,14 @@ suite('prompt-order', async ({run,open,wait,click,input,file,download}) => {
   const legacy=await exported();
   assert.deepEqual(legacy.prompt_order[0].order.map(p=>p.identifier),['a','b','unused']);
   assert.ok(legacy.prompts.every(p=>p.enabled));
-  console.log('Prompt editor: empty system blocks, native identifiers, order, scopes, omitted definitions, filters and repeat import/export passed.');
+  const before=await run(()=>TAUI.state.lib.promptPresets);
+  for (const [row,field] of [[{content:{text:'Save this'}},'content'],[{enabled:'false'},'enabled']]) {
+    await file({prompts:[{content:'First valid row'},row]}); await click('#import-preset');
+    await wait(path=>[...document.querySelectorAll('.toast-message')].some(el=>el.textContent.includes(path)),
+      'validation feedback for '+field,'prompts[1].'+field);
+    assert.deepEqual(await run(()=>TAUI.state.lib.promptPresets),before,'failed import preserves the entire library list');
+  }
+  await open('prompts');
+  assert.deepEqual(await run(()=>TAUI.state.lib.promptPresets),before,'presets after reopening');
+  console.log('Prompt editor: native and legacy round trips, scopes, filters and rejected imports without partial saves passed.');
 });

@@ -12,7 +12,7 @@ const context = {
 context.globalThis = context;
 context.window = context;
 vm.createContext(context);
-for (const file of ['png.js', 'formats.js', 'store.js']) {
+for (const file of ['png.js', 'prompt-presets.js', 'formats.js', 'store.js']) {
   vm.runInContext(fs.readFileSync(path.join(dir, file), 'utf8'), context, { filename: file });
 }
 

@@ -303,7 +303,7 @@ npm ci
 npm run validate
 ```
 
-`npm run check` 检查 JavaScript 语法，`npm test` 运行行为测试，`npm run validate` 合并执行两者。CI 在 Ubuntu 和 Windows 上使用 Node.js 22、24 运行检查。
+`npm run validate` 依次检查 JavaScript 语法、提示词预设转换的类型（`npm run typecheck`），并运行业为测试（`npm test`）。CI 在 Ubuntu 和 Windows 上使用 Node.js 22、24 运行检查。
 
 测试使用示例数据和模拟接口，不调用真实付费模型。覆盖导入导出、文件夹去重、原文分栏、元数据整理、字段范围、留白、过期预览、应用与撤销、检查依据、协议传输、推理参数和多语言。
 

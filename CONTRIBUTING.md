@@ -72,10 +72,13 @@ The individual commands are:
 
 ```bash
 npm run check
+npm run typecheck
 npm test
 ```
 
-The syntax check parses the project's JavaScript. Behavior tests use fixtures and mock interfaces; they do not require a paid AI endpoint or real account credentials. CI runs the checks with Node.js 22 and 24 on Ubuntu and Windows. Keep test paths and temporary files portable across those environments.
+The syntax check parses the project's JavaScript. The TypeScript pilot checks the JSDoc types in `js/prompt-presets.js` with `noEmit`. Treat imported JSON as `unknown` until its fields have been validated. The browser and desktop app load this JavaScript directly.
+
+Behavior tests use fixtures and mock interfaces. CI runs the checks with Node.js 22 and 24 on Ubuntu and Windows. Keep test paths and temporary files portable across those environments.
 
 For a UI change, also check the affected workflow in the web app and, when desktop behavior is involved, in Electron. Useful cases include an empty library, existing data, long names, missing images, a narrow window, keyboard navigation, a second interface language, and a saved custom theme. Recheck the relevant save, import, preview, or undo behavior. `test/browser.mjs` is a separate browser helper with its own environment assumptions; it is not part of the default `npm test` command.
 

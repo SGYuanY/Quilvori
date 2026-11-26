@@ -291,7 +291,7 @@ npm ci
 npm run validate
 ```
 
-`npm run check`는 JavaScript 문법을, `npm test`는 동작을 검사합니다. `npm run validate`는 둘 다 실행합니다. CI는 Ubuntu와 Windows의 Node.js 22·24에서 검사합니다.
+`npm run validate`는 JavaScript 문법 검사, 프롬프트 프리셋 변환의 타입 검사(`npm run typecheck`), 동작 테스트(`npm test`)를 실행합니다. CI는 Ubuntu와 Windows에서 Node.js 22와 24를 사용합니다.
 
 테스트는 예제와 모의 API를 사용하며 실제 유료 모델을 호출하지 않습니다. 형식 입출력, 중복 방지, 원문 이동, 메타데이터 정리, 편집 범위, 빈 필드, 오래된 미리보기, 적용·취소, 인용 근거, 프로토콜, 추론 매개변수, 언어를 검사합니다.
 
