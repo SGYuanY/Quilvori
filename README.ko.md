@@ -49,6 +49,12 @@ Quilvori는 SillyTavern용 자료를 만드는 도구입니다. 캐릭터 카드
 - 설정, 사실, 시간선을 검사하고 인용문과 읽기 쉬운 원문 위치를 확인합니다.
 - 프롬프트, 정규식, 빠른 답장, 관계도, 시간선, HTML 메모리를 관리합니다.
 
+### SillyTavern 테마 공방
+
+테마 공방에서 JSON 파일을 열거나 Discord 원문 및 첨부 링크를 붙여 넣으세요. Selenis의 Lavender Blossoms, Dascard의 Inkflow Radiance(PC), GrizzyBurr의 Solarized Light에 원문 링크와 작가 이름이 표시됩니다. 기기에 사본이 없으면 원문에서 받을 수 있습니다. 색·투명도·흐림과 배경을 미리 보고, 작가 CSS와 출처가 포함된 ST JSON을 내보낼 수 있습니다.
+
+데스크톱 버전에서 SillyTavern 설치 폴더, data 또는 사용자 폴더를 입력하고 대상을 선택하면 기존 테마를 읽고 전환하거나 수정한 사본을 설치할 수 있습니다. 열려 있는 SillyTavern 탭은 새로고침하세요. 적용 시 작가의 CSS를 사용할지 직접 선택합니다. 배경과 Info Board는 별도 리소스입니다.
+
 ## 빠른 시작
 
 저장소를 다운로드하거나 Git으로 복제합니다.

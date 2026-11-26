@@ -17,7 +17,7 @@
     home:'collection',studio:'studio',characters:'portrait',lore:'atlas',
     sections:'manuscript',prompts:'manuscript',graph:'structure',regex:'structure',quick:'structure',
     chat:'reading',memory:'reading',tutorial:'reading',groups:'narrative',script:'narrative',timeline:'narrative',
-    assets:'art',resources:'art',check:'utility',backup:'utility',
+    assets:'art',resources:'art',themes:'art',check:'utility',backup:'utility',
   };
   const legacy = [
     {bg:'#1c1c1c',lacquer:'#141414',paper:'#2e2e2e',ink:'#e8e8e8',accent:'#d0d0d0'},

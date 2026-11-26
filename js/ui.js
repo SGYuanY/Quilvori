@@ -3,6 +3,7 @@
   const ROUTES = [
     { id: 'home', mark: '01', label: '收藏室', eyebrow: 'HOME', title: '收藏室', search: false, blurb: 'blurb.home' },
     { id: 'resources', mark: '19', label: '资源目录', eyebrow: 'RESOURCES', title: '资源目录', search: false, blurb: '' },
+    { id: 'themes', mark: '20', label: '主题工坊', eyebrow: 'THEMES', title: '主题工坊', search: false, blurb: '' },
     { id: 'studio', mark: '02', label: 'AI 创作', eyebrow: 'STUDIO', title: 'AI 创作', search: false, blurb: 'blurb.studio' },
     { id: 'sections', mark: '03', label: '段落预设', eyebrow: 'SECTIONS', title: '段落预设', search: false, blurb: 'blurb.sections' },
     { id: 'characters', mark: '04', label: '角色卡', eyebrow: 'CARD V2', title: '角色卡', search: true, placeholder: '搜角色、标签', blurb: 'blurb.characters' },
@@ -338,7 +339,7 @@
       if(draft)root.TAStudioDrafts.committed(draft);
       if(clearVersions){
         state.replyReference=null;state.regexExamples=null;state.journalScope=null;state.journalJump=null;state.lab='';
-        root.NIJANModel?.clearHistory();root.TATaskActivity?.clear();root.NIJANOrganizePanel?.clear();root.TAStudioDrafts?.reset();root.NIJANStudio?.resetAfterClear?.();
+        root.TAThemeWorkshop?.reset();root.NIJANModel?.clearHistory();root.TATaskActivity?.clear();root.NIJANOrganizePanel?.clear();root.TAStudioDrafts?.reset();root.NIJANStudio?.resetAfterClear?.();
       }
       if (typeof warning === 'string') toast(root.TAI18n.t(warning),{kind:'warning'});
       root.TASearch?.invalidate();
@@ -349,8 +350,7 @@
     } finally { replacing = false; app.inert = wasInert; paintSave(); }
   }
 
-  function ensureTheme() {
-    const lib = state.lib;
+  function ensureTheme(lib=state.lib) {
     if (!lib.themes.length) {
       lib.themes.push({ id: 'theme_live', name: '夜漆', vars: { bg: '#1c1c1c', lacquer: '#141414', paper: '#2e2e2e', ink: '#e8e8e8', accent: '#d0d0d0', fontScale: 1, radius: 10 } });
     }
@@ -375,6 +375,7 @@
       'font-scale':String(resolved.fontScale),radius:`${resolved.radius}px`,
       'bubble-radius':`${Math.max(8,resolved.radius-2)}px`,
     })) style.setProperty(`--${key}`,value);
+    root.TAThemeAppearance?.apply(theme,state.lib,resolved);
   }
 
 
@@ -843,6 +844,7 @@
       <label class="check stretch"><input id="set-adult" type="checkbox"> 允许成人内容。模型倾向为审核严时，打开也不会写进提示。</label>
       <p class="help">AI 建议先预览，点击应用后保存到对应栏位。可以撤销上一次应用。</p>
       <p class="field-label">主题</p>
+      <div id="theme-import-panel" class="stack"></div>
       <label class="check"><input id="set-room-palette" type="checkbox"><span>按功能分区配色</span></label><p class="help">各页面使用专属色调；调整下方颜色后使用自定义配色。</p><label class="field"><span class="field-label">背景</span><input id="set-bg" type="color"></label>
       <label class="field"><span class="field-label">纸色</span><input id="set-paper" type="color"></label>
       <label class="field"><span class="field-label">墨色</span><input id="set-ink" type="color"></label>
@@ -891,18 +893,19 @@
     host.querySelector('#set-length').value = prefs.replyLength || 'medium';
     host.querySelector('#set-chars').value = String(prefs.replyChars || 600);
     host.querySelector('#set-adult').checked = !!prefs.adult;
-    const theme = ensureTheme();
-    const vars = theme.vars;
     const themeChoice = host.querySelector('#set-room-palette');
     const syncThemeInputs = () => {
-      const active = root.TARoomTheme.resolve(state.route, vars, theme.useRoomPalette);
+      const theme=ensureTheme();
+      const active = root.TARoomTheme.resolve(state.route, theme.vars, theme.useRoomPalette);
       themeChoice.checked = active.useRooms;
       for (const key of ['bg','paper','ink','accent']) host.querySelector(`#set-${key}`).value = active.colors[key];
       host.querySelector('#set-radius').value = String(active.radius);
     };
     syncThemeInputs();
-    themeChoice.onchange = () => { theme.useRoomPalette = themeChoice.checked; applyTheme(); syncThemeInputs(); markDirty(); };
+    root.TAThemeLibrary.mountSettings(host.querySelector('#theme-import-panel'),syncThemeInputs);
+    themeChoice.onchange = () => { ensureTheme().useRoomPalette = themeChoice.checked; applyTheme(); syncThemeInputs(); markDirty(); };
     const paintTheme = (key, value) => {
+      const theme=ensureTheme(), vars=theme.vars;
       if (key !== 'radius') {
         // Start custom editing from the colors actually displayed, preserving the other choices.
         const active = root.TARoomTheme.resolve(state.route, vars, theme.useRoomPalette);
@@ -1054,7 +1057,7 @@
     const icon = (name) => root.TAWorkspace ? root.TAWorkspace.icon(name) : '';
     const commandKey = /Mac|iPhone|iPad/i.test(root.navigator?.platform || '') ? '⌘' : 'Ctrl';
     const navButton = (route) => `<button type="button" class="nav-btn" data-nav="${route.id}" title="${esc(route.label)}" aria-label="${esc(route.label)}">${icon(route.id)}<span data-label>${route.label}</span></button>`;
-    const primary = ['home', 'resources', 'studio', 'characters', 'lore'];
+    const primary = ['home', 'resources', 'studio', 'characters', 'lore','themes'];
     const writing = ['sections', 'prompts', 'graph', 'check'];
     app.innerHTML = `<div class="shell">
       <aside class="nav">
@@ -1151,7 +1154,7 @@
       if (openAddress(link.href)) event.preventDefault();
     });
     window.addEventListener('beforeunload', event => {
-      if (root.TATaskActivity?.pending() || root.NIJANStudio?.running() || root.NIJANOrganizePanel?.running()) {
+      if (root.TAThemeWorkshop?.unsaved() || root.TATaskActivity?.pending() || root.NIJANStudio?.running() || root.NIJANOrganizePanel?.running()) {
         event.preventDefault(); event.returnValue = '';
       }
       if (state.save === 'saved') return;

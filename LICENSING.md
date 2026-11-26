@@ -67,6 +67,7 @@ This project uses GPLv3, not the GNU Affero General Public License.
 | Sarasa UI SC and Quilvori Section | SIL Open Font License 1.1. See [font license](fonts/OFL-Sarasa.txt) and [font provenance](fonts/README.md). |
 | Quilvori wordmarks | The Chinese Wing Han font uses its [SIL Open Font License 1.1](fonts/OFL-QuilvoriWingHan.txt). The original Wing Latin font is part of the GPL-3.0-only project. |
 | Resource-directory preview artwork | Original authors retain their rights. See [preview attribution](img/resources/ATTRIBUTION.md). No general external redistribution license was found in the reviewed posts; this repository does not grant permission on their behalf. |
+| Linked SillyTavern community themes | The catalog credits the original author and links to their post. Locally obtained presets and their CSS, art, and companion files retain the creators’ terms. |
 | Referenced character cards, world books, and full-resolution wallpapers | The original authors' terms apply. Links and attribution do not place those works under GPLv3. Their original resource files are not bundled in the directory. |
 | npm dependencies | Their own license files and notices apply. The lockfile records versions, not a replacement license for those packages. |
 | A user's imported cards, books, chats, images, and other authored data | Users and the respective authors retain their rights. Using Quilvori does not automatically relicense or publish that content. |

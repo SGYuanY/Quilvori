@@ -12,7 +12,7 @@ try {
   const phases={
     exercise:'workbench-ui.cjs', restart:'workbench-ui.cjs', navigation:'ai-navigation-ui.cjs',
     compatibility:'creative-compat-ui.cjs', 'compatibility-restart':'creative-compat-ui.cjs',
-    expressions:'expression-export-ui.cjs',
+    expressions:'expression-export-ui.cjs', themes:'theme-import-ui.cjs','theme-panel':'theme-st-panel-ui.cjs', 'theme-workshop':'theme-workshop-ui.cjs',
   };
   for (const [phase,test] of Object.entries(phases)) {
     const entry = fileURLToPath(new URL('../test/'+test,import.meta.url));

@@ -1,0 +1,117 @@
+/* SillyTavern presentation is scoped to the active imported theme. Fonts and authored artwork stay native. */
+/* Component type scales consume --ui-scale; combine the user's interface preference with the imported scale. */
+html:has(>body.st-imported-theme) { --st-interface-scale:calc(var(--ui-scale,1) * 1); }
+body.room-theme.st-imported-theme {
+  --ui-scale:calc(var(--st-interface-scale,1) * var(--st-font-scale,1));
+  --bg:var(--st-canvas);
+  --paper:var(--st-panel);
+  --lacquer:var(--st-rail);
+  --ink:var(--st-canvas-ink);
+  --foam:var(--ink);
+  --ink-soft:var(--st-canvas-ink);
+  --muted:var(--st-canvas-muted);
+  --brass:var(--st-canvas-accent);
+  --brass-2:var(--brass);
+  --on-accent:var(--st-on-accent);
+  --line:var(--st-border);
+  --control-bg:var(--st-control);
+  --paper-2:color-mix(in srgb,var(--st-panel) 92%,var(--st-panel-ink));
+  --accent-soft:color-mix(in srgb,var(--st-accent) 14%,transparent);
+  --accent-line:color-mix(in srgb,var(--st-accent) 54%,var(--st-border));
+  --shadow:var(--st-shadow);
+  --st-panel-fill:color-mix(in srgb,var(--st-panel) var(--st-panel-alpha),transparent);
+  --st-nav-fill:color-mix(in srgb,var(--st-rail) var(--st-panel-alpha),transparent);
+  --st-chat-fill:color-mix(in srgb,var(--st-panel) var(--st-chat-alpha),transparent);
+  color:var(--ink);
+  font-size:calc(14px * var(--ui-scale));
+  background:var(--bg);
+  color-scheme:var(--st-scheme);
+}
+body.room-theme.st-imported-theme.st-theme-wallpaper {
+  background-image:linear-gradient(color-mix(in srgb,var(--bg) 80%,transparent),color-mix(in srgb,var(--bg) 80%,transparent)),var(--st-wallpaper);
+  background-position:center;
+  background-size:cover;
+  background-repeat:no-repeat;
+  background-attachment:fixed;
+}
+body.room-theme.st-imported-theme :is(.shell,.main,.stage,.chat-wrap) { background:transparent; }
+body.room-theme.st-imported-theme .nav {
+  --ink:var(--st-nav-ink); --foam:var(--ink); --ink-soft:var(--ink); --muted:var(--st-nav-muted); --brass:var(--st-nav-accent);
+  color:var(--ink); background:var(--st-nav-fill); border-color:var(--line); box-shadow:var(--shadow);
+}
+body.room-theme.st-imported-theme .top {
+  --ink:var(--st-panel-ink); --muted:var(--st-panel-muted); --brass:var(--st-panel-accent);
+  color:var(--ink); background:var(--st-panel-fill); border-bottom:1px solid var(--line);
+}
+body.room-theme.st-imported-theme :is(.brand strong,.top h1,.nav-btn.on) { color:var(--ink); }
+body.room-theme.st-imported-theme :is(.brand em,.nav-section-label,.rail-label,.nav-tools>summary,.nav-library>summary,.rail-char,.nav-btn,.nav-local,.top .ws-icon-button,.top .ws-command-trigger) { color:var(--muted); }
+body.room-theme.st-imported-theme .nav-btn.on { color:var(--ink); background:var(--accent-soft); box-shadow:inset 3px 0 var(--brass); }
+body.room-theme.st-imported-theme :is(.nav-btn:hover,.rail-char:hover,.ws-icon-button:hover) { color:var(--ink); background:var(--accent-soft); }
+
+body.room-theme.st-imported-theme :is(
+  .paper,.board,.column,.pick,.entry,.gallery-card,.asset-card,.stat,.block,.finding,.script-page,
+  .toolbar,.dropwell,.ai-plan,.ai-review,.ai-reference-grid,.ai-target-panel,.ai-source-panel,.ai-chat-panel,.ai-create-dialog,
+  .organize-controls,.link-preview,.resource-card,.ctx-panel,.qc-book-toolbar,.draft-shelf,.workspace-peek,
+  #char-form,#lore-editor
+) {
+  --ink:var(--st-panel-ink); --foam:var(--ink); --ink-soft:var(--ink); --muted:var(--st-panel-muted); --brass:var(--st-panel-accent);
+  color:var(--ink); background:var(--st-panel-fill); border-color:var(--line);
+}
+body.room-theme.st-imported-theme.st-theme-wallpaper :is(.nav,.top,.paper,.board,.qc-book-toolbar,.workspace-peek,.modal) {
+  backdrop-filter:blur(var(--st-blur));
+}
+body.room-theme.st-imported-theme .paper .paper { backdrop-filter:none; }
+body.room-theme.st-imported-theme :is(.paper,.workspace-peek,.gallery-card,.asset-card,.resource-card,.qc-book-toolbar) { box-shadow:var(--shadow); }
+body.room-theme.st-imported-theme :is(.help,.note,.field-label,.dark-muted,.ws-entry-snippet,.ws-entry-meta,.ws-peek-meta) { color:var(--muted); }
+body.room-theme.st-imported-theme :is(.btn,.qc-current-card,.dark-select-value,select,textarea,input:not([type="color"],[type="range"],[type="checkbox"],[type="radio"])) {
+  color:var(--st-control-ink); background:var(--control-bg); border-color:var(--st-border); color-scheme:var(--st-scheme);
+}
+body.room-theme.st-imported-theme :is(input,textarea)::placeholder { color:var(--st-control-muted); opacity:1; }
+body.room-theme.st-imported-theme :is(select option,select optgroup,.dark-select-menu,.workspace-context,.ws-command) {
+  color:var(--st-control-ink); background:var(--control-bg); border-color:var(--st-border); color-scheme:var(--st-scheme);
+}
+body.room-theme.st-imported-theme :is(input[type="range"],input[type="checkbox"],input[type="radio"]) { color-scheme:var(--st-scheme); }
+body.room-theme.st-imported-theme :is(.btn-primary,.paper .btn-primary,#new-book,#export-book),
+body.room-theme.st-imported-theme :is(.btn-primary,.paper .btn-primary,#new-book,#export-book):hover:not(:disabled) {
+  color:var(--st-on-accent); background:var(--st-accent); border-color:var(--st-accent);
+}
+body.room-theme.st-imported-theme .btn-danger { color:var(--st-danger); }
+body.room-theme.st-imported-theme :is(button,a,input,select,textarea,summary):focus-visible { outline:2px solid var(--brass); outline-offset:2px; }
+body.room-theme.st-imported-theme .modal.ws-settings {
+  --bg:var(--st-canvas); --lacquer:var(--st-rail); --paper:var(--st-panel);
+  --paper-2:color-mix(in srgb,var(--st-panel) 92%,var(--st-panel-ink));
+  --ink:var(--st-panel-ink); --foam:var(--ink); --ink-soft:var(--ink); --muted:var(--st-panel-muted);
+  --brass:var(--st-panel-accent); --brass-2:var(--brass); --on-accent:var(--st-on-accent);
+  --line:var(--st-border); --control-bg:var(--st-control);
+  --accent-soft:color-mix(in srgb,var(--st-accent) 14%,transparent);
+  --accent-line:color-mix(in srgb,var(--st-accent) 54%,var(--st-border));
+  background:var(--paper); color:var(--ink); border-color:var(--line);
+}
+
+/* Keep the entire gallery on the same backdrop; images on authored book covers retain their own colors. */
+body.room-theme.st-imported-theme .collection-home { --ornament-gold:var(--st-canvas-accent); --ornament-silver:var(--st-canvas-muted); }
+body.room-theme.st-imported-theme :is(.collection-heading h2,.collection-caption h3,.collection-empty h3) { color:var(--st-canvas-ink); }
+body.room-theme.st-imported-theme :is(.collection-heading p,.collection-caption p,.collection-foot,.collection-empty) { color:var(--st-canvas-muted); }
+body.room-theme.st-imported-theme :is(.collection-imprint,.collection-category,.collection-recent,.collection-foot-mark) { color:var(--st-canvas-accent); }
+body.room-theme.st-imported-theme .collection-home .collection-filters { background:var(--st-control); color:var(--st-control-ink); }
+body.room-theme.st-imported-theme .collection-home .collection-filters button { color:var(--st-control-muted); }
+body.room-theme.st-imported-theme .collection-filters::before { background:var(--st-accent); }
+body.room-theme.st-imported-theme .collection-home .collection-filters button[aria-pressed="true"] { color:var(--st-on-accent); background:transparent; }
+body.room-theme.st-imported-theme :is(.nav-import,.collection-create,.qc-book-actions) > .btn {
+  color:var(--st-control-ink); background:linear-gradient(165deg,var(--paper-2),var(--st-control)); border-color:var(--line);
+}
+
+/* Chat transparency affects the reading paper; the two role tints remain independent RGBA layers. */
+body.room-theme.st-imported-theme .chat-paper { background-color:var(--st-chat-fill); }
+body.room-theme.st-imported-theme :is(.bubble,.msg .body,.ai-conversation-item) {
+  color:var(--st-bot-ink); background:var(--st-bot); border-color:var(--st-border); border-radius:var(--bubble-radius);
+}
+body.room-theme.st-imported-theme .msg.user .body { color:var(--st-user-ink); background:var(--st-user); }
+body.room-theme.st-imported-theme .ai-conversation-item p { color:inherit; }
+body.room-theme.st-imported-theme :is(.msg,.bubble,.snippet,.review-card,.ai-conversation-item,.ws-peek-content) :is(em,i) { color:var(--st-italic); }
+body.room-theme.st-imported-theme :is(blockquote,.msg q,.bubble q,.snippet q) { color:var(--st-quote); border-inline-start-color:var(--st-quote); }
+body.room-theme.st-imported-theme :is(.msg,.bubble,.snippet,.review-card,.ws-peek-content) u { text-decoration-color:var(--st-underline); }
+@media (prefers-reduced-transparency:reduce) {
+  body.room-theme.st-imported-theme { --st-panel-fill:var(--st-panel); --st-nav-fill:var(--st-rail); --st-chat-fill:var(--st-panel); }
+  body.room-theme.st-imported-theme.st-theme-wallpaper :is(.nav,.top,.paper,.board,.qc-book-toolbar,.workspace-peek,.modal) { backdrop-filter:none; }
+}

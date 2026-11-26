@@ -6,8 +6,9 @@ import { EventEmitter } from 'node:events';
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-const require = createRequire(import.meta.url);
-const policy = require('../electron/navigation');
+const mainEntry = new URL('../electron/main.js', import.meta.url);
+const mainRequire = createRequire(mainEntry);
+const policy = mainRequire('./navigation');
 const appRoot = fileURLToPath(new URL('../', import.meta.url));
 const local = name => pathToFileURL(path.join(appRoot, name)).href;
 const native = value => JSON.parse(JSON.stringify(value));
@@ -129,14 +130,14 @@ function mainEnvironment(options = {}) {
   const get = name => {
     if (name === 'electron') return electron;
     if (name === 'fs') return fakeFs;
-    if (name === './profile') return { preserveLegacyProfile: app => require('../electron/profile').preserveLegacyProfile(app, fakeFs) };
+    if (name === './profile') return { preserveLegacyProfile: app => mainRequire(name).preserveLegacyProfile(app, fakeFs) };
     if (name === './remote-import') return { downloadRemote: async () => { calls.push('download'); return { bytes: new Uint8Array([1]), url: 'https://example.com/file.json' }; } };
     if (name === './navigation') return policy;
-    if (name === './expression-export') return require('../electron/expression-export');
+
     if (name === './st-bundle') return { installBundle: async (directory,files) => { calls.push('install'); return {directory,count:files.length}; } };
-    return require(name);
+    return mainRequire(name);
   };
-  vm.runInNewContext(fs.readFileSync(new URL('../electron/main.js', import.meta.url), 'utf8'), {
+  vm.runInNewContext(fs.readFileSync(mainEntry, 'utf8'), {
     require: get, __dirname: path.join(appRoot, 'electron'), process: { platform: options.platform || process.platform }, Buffer, AbortController, console,
   }, { filename: 'electron/main.js' });
   return { calls, handlers, windows, configured, app, paths, lifecycle };
@@ -144,7 +145,10 @@ function mainEnvironment(options = {}) {
 
 await test('every registered privileged IPC rejects remote and subframe callers before filesystem or network work', async () => {
   const env = mainEnvironment();
-  assert.deepEqual([...env.handlers.keys()].sort(), ['folders:get', 'folders:pick', 'folders:list', 'folders:read', 'folders:writeExpressions', 'bundles:install', 'links:download', 'links:cancel'].sort());
+  assert.deepEqual([...env.handlers.keys()].sort(), [
+    'folders:get','folders:pick','folders:list','folders:read','folders:writeExpressions','bundles:install',
+    'links:download','links:cancel','themes:pick','themes:inspect','themes:read','themes:activate','themes:install','themes:sample',
+  ].sort());
   for (const kind of ['remote', 'iframe', 'unknown-local']) {
     const web = contents(kind === 'remote' ? 'https://example.com' : kind === 'unknown-local' ? local('unknown.html') : local('index.html'));
     const frame = kind === 'iframe' ? { url: local('index.html'), parent: web.mainFrame } : web.mainFrame;
