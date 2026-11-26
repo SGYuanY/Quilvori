@@ -748,9 +748,9 @@
   function destination(lib, operation) {
     const collection = at(lib, operation.path);
     if (operation.kind === "add") return collection;
-    if (operation.id) {
+    if (operation.id!=null) {
       const item = (collection || []).find((row) => row.id === operation.id);
-      return operation.entryId
+      return operation.entryId!=null
         ? ((item && item.entries) || []).find(
             (entry) => entry.id === operation.entryId,
           )
@@ -970,7 +970,7 @@
           ["quickReplySets"],
           {
             id: uid("qrset"),
-            ...(context.quickSource && (context.quickSource.characterId || context.quickSource.bookId) ? {workSource:copy(context.quickSource)} : {}),
+            ...(context.quickSource && [context.quickSource.characterId,context.quickSource.bookId].some(id=>id!=null && id!=='') ? {workSource:copy(context.quickSource)} : {}),
             name: value.name,
             replies: value.replies.map((reply) =>
               Object.assign(

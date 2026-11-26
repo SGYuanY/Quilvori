@@ -241,7 +241,8 @@
       +'</div><p role="status" aria-live="polite" data-bundle-status data-no-translate></p></div>';
     stage.querySelector('.toolbar').after(details);
     const field = key=>details.querySelector('[data-'+key+']');
-    const selected = key=>[...details.querySelectorAll('[data-'+key+']:checked')].map(node=>node.value);
+    const selected = (key,rows)=>[...details.querySelectorAll('[data-'+key+']:checked')]
+      .map(node=>root.TAStore.byId(rows,node.value)?.id).filter(id=>id!=null);
     const status = field('bundle-status');
     let busy = false;
     function message(err) {
@@ -249,7 +250,7 @@
     }
     function currentPlan() {
       return plan(lib,character,bookOf(),{name:field('bundle-name').value,worldFile:field('world-file').checked,
-        packs:selected('pack'), expressions:selected('expression'), quickReplies:selected('qr')});
+        packs:selected('pack',lib.stickerPacks), expressions:selected('expression',assets), quickReplies:selected('qr',lib.quickReplySets)});
     }
     function preview(keepStatus = false) {
       if (busy || !details.isConnected) return;

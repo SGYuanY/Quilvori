@@ -47,7 +47,7 @@
   }
 
   function portrait(card, size='') {
-    const asset = card?.avatarAssetId ? ui().assetById(card.avatarAssetId) : null;
+    const asset = ui().assetById(card?.avatarAssetId);
     const initial = [...String(card?.name || tr('未命名')).trim()][0] || '·';
     return '<span class="qc-portrait '+size+'" aria-hidden="true">'
       +(asset?.dataUrl ? '<img alt="" src="'+text(asset.dataUrl)+'" decoding="async">' : text(initial))+'</span>';
@@ -83,9 +83,10 @@
       return results.querySelector('button');
     }
     function select(id) {
-      if (!id) return;
+      const card=root.TAStore.byId(matches,id);
+      if (!card) return;
       dialog.close('selected');
-      choose(id);
+      choose(card.id);
     }
     function movePage(delta) {page+=delta;const first=paint();first?.focus();}
     prev.onclick = ()=>movePage(-1); next.onclick = ()=>movePage(1);

@@ -31,6 +31,7 @@
     close: '<path d="m6 6 12 12M6 18 18 6"/>',
     arrow: '<path d="M4 12h16m-6-6 6 6-6 6"/>',
     plus: '<path d="M12 4v16M4 12h16"/>',
+    pin: '<path d="M7 3h10l-2 3v4l3 3v2H6v-2l3-3V6Zm5 12v6"/>',
     eye: '<path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/>',
     settings: '<path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3"/><circle cx="16" cy="17" r="3"/>',
     chevron: '<path d="m9 5 7 7-7 7"/>',
@@ -56,19 +57,26 @@
   }
   function editWithAI(ref) {
     closeCommand(); closePeek();
-    if (ref.kind === 'character') root.NIJANStudio.openFor({ kind: 'character', cardId: ref.id });
-    else root.NIJANStudio.openFor({ kind: 'world', bookId: ref.bookId || ref.id, entryId: ref.kind === 'entry' ? ref.id : '' });
+    const lib=UI().state.lib;
+    if (ref.kind === 'character') {
+      const card=root.TAStore.byId(lib.characters,ref.id);
+      if(card)root.NIJANStudio.openFor({kind:'character',cardId:card.id});
+    } else {
+      const book=root.TAStore.byId(lib.worldBooks,ref.bookId ?? ref.id);
+      const entry=ref.kind==='entry' && root.TAStore.byId(book?.entries,ref.id);
+      if(book)root.NIJANStudio.openFor({kind:'world',bookId:book.id,entryId:entry?.id ?? ''});
+    }
   }
   function lookup(ref) {
     const library = UI().state.lib;
     if (ref.kind === 'character') {
-      const card = library.characters.find((item) => item.id === ref.id);
+      const card = root.TAStore.byId(library.characters,ref.id);
       return card && { name: card.name, address: tr('角色卡'), text: card.description || card.personality || '', meta: (card.tags || []).join(' · ') };
     }
-    const book = library.worldBooks.find((item) => item.id === (ref.bookId || ref.id));
+    const book = root.TAStore.byId(library.worldBooks,ref.bookId ?? ref.id);
     if (!book) return null;
     if (ref.kind === 'entry') {
-      const entry = book.entries.find((item) => item.id === ref.id);
+      const entry = root.TAStore.byId(book.entries,ref.id);
       return entry && { name: entry.comment || tr('未命名'), address: book.name, text: entry.content || '', meta: (entry.keys || []).join(' · ') };
     }
     return { name: book.name, address: tr('世界书'), text: book.description || book.entries.slice(0, 8).map((item) => item.comment).join('\n'), meta: `${book.entries.length} ${tr('条')}` };
@@ -183,8 +191,10 @@
   }
   function runCommand(index) { const action = commandItems[index]; if (!action) return; closeCommand(); action.run(); }
   function openCommand() {
-    closePeek();
     const host = document.getElementById('workspace-command');
+    if (!host || !host.hidden) return;
+    if ([...document.querySelectorAll('dialog[open], [aria-modal="true"]')].some(el => el.getClientRects().length)) return;
+    closePeek();
     returnFocus = document.activeElement; host.hidden = false;
     const input = host.querySelector('input'); input.value = ''; paintCommand(''); input.focus();
   }

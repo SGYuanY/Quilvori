@@ -53,7 +53,7 @@
   }
   function validate(task, result, context) {
     if (task === 'organize:character') { movesWithRanges(result, context); return; }
-    need(task === 'organize:world' && context.book?.id && Array.isArray(context.book.entries), '请先选择要整理的世界书。');
+    need(task === 'organize:world' && context.book?.id!=null && Array.isArray(context.book.entries), '请先选择要整理的世界书。');
     need(Array.isArray(result.entries) && Object.keys(result).every((key) => key === 'entries'), '整理结果需要条目建议清单。');
     const ids = new Set();
     result.entries.forEach((row) => {

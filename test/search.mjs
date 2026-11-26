@@ -26,6 +26,7 @@ const ctx = vm.createContext({
   TAUI:{state:{lib,sel:{},save:'saved'},t:key=>key,toast:msg=>calls.push(['toast',msg]),
     go:page=>calls.push(['go',page])},
 });
+vm.runInContext(fs.readFileSync(new URL('../js/store.js',import.meta.url),'utf8'),ctx);
 vm.runInContext(fs.readFileSync(path,'utf8'),ctx);
 const search = ctx.TASearch;
 ctx.TAUI.openAddress=href=>{

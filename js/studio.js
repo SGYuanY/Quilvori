@@ -69,10 +69,10 @@
       }
       if (!saved || !Object.prototype.hasOwnProperty.call(saved, "cardId"))
         state.cardId =
-          UI().state.sel.character || (lib().characters[0] || {}).id || "";
+          UI().state.sel.character ?? lib().characters[0]?.id ?? "";
       if (!saved || !Object.prototype.hasOwnProperty.call(saved, "bookId"))
         state.bookId =
-          UI().state.sel.book || (lib().worldBooks[0] || {}).id || "";
+          UI().state.sel.book ?? lib().worldBooks[0]?.id ?? "";
     }
     return state;
   }
@@ -581,7 +581,7 @@
           const sourceId=(kind,collection,fallback)=>{
             if(!snapshot.modules.includes(kind))return fallback;
             const source=s.plans.find(row=>row.batchId===batchId && row.task==='create:'+kind);
-            return source?.operations.find(op=>op.kind==='add' && op.path[0]===collection)?.value.id || fallback;
+            return source?.operations.find(op=>op.kind==='add' && op.path[0]===collection)?.value.id ?? fallback;
           };
           const refs=root.TACreationAssist.quickContext(virtual,{
             characterId:sourceId('character','characters',inputs.cardId),bookId:sourceId('world','worldBooks',inputs.bookId),scope:'relevant',
@@ -1084,10 +1084,10 @@
   function findings() {
     const s = data();
     const report =
-      (s.review && (s.review.cardId || "")===s.cardId && (s.review.bookId || "")===s.bookId ? s.review : null) ||
+      (s.review && (s.review.cardId ?? "")===s.cardId && (s.review.bookId ?? "")===s.bookId ? s.review : null) ||
       (lib().settings.aiReviews || []).findLast(
         (item) =>
-          (item.cardId || "") === s.cardId && (item.bookId || "") === s.bookId,
+        (item.cardId ?? "") === s.cardId && (item.bookId ?? "") === s.bookId,
       );
     if (!report) return '<p class="help">检查只生成报告，原文保持原样。</p>';
     s.review = report;
@@ -1137,8 +1137,8 @@
     const s = data(),
       report = s.sourceReport;
     if (!report) return;
-    s.cardId = report.cardId || "";
-    s.bookId = report.bookId || "";
+    s.cardId = report.cardId ?? "";
+    s.bookId = report.bookId ?? "";
     s.entries = report.entryIds || [];
     s.reviewAll = !report.entryIds;
     s.review = report;
@@ -1211,8 +1211,8 @@
         {
           items: selected.result.items,
           source: selected.reviewSource,
-          cardId: source.card?.id || null,
-          bookId: source.book?.id || null,
+          cardId: source.card?.id ?? null,
+          bookId: source.book?.id ?? null,
           entryIds: source.book?.scope?.entryIds || null,
         },
         lib(),
@@ -1343,11 +1343,11 @@
       document.querySelector('[data-shell="settings"]').click(),
     );
     bind("#ai-card-pick", "change", (event) => {
-      s.cardId = event.target.value;
+      s.cardId = root.TAStore.byId(lib().characters,event.target.value)?.id ?? '';
       changeScope();
     });
     bind("#ai-book-pick", "change", (event) => {
-      s.bookId = event.target.value;
+      s.bookId = root.TAStore.byId(lib().worldBooks,event.target.value)?.id ?? '';
       s.targetQuery = "";
       s.entries = [];
       s.focus = "";
@@ -1362,13 +1362,14 @@
       (input) =>
         (input.onchange = () => {
           const values = s.kind === "world" ? s.entries : s.cardFields;
+          const target = s.kind === 'world' ? root.TAStore.byId(book()?.entries,input.dataset.target)?.id : input.dataset.target;
+          if(target==null)return;
           if (input.checked) {
-            if (!values.includes(input.dataset.target))
-              values.push(input.dataset.target);
-            s.focus = input.dataset.target;
+            if (!values.includes(target)) values.push(target);
+            s.focus = target;
             if (s.kind === "character") s.focusField = input.dataset.target;
           } else {
-            const index = values.indexOf(input.dataset.target);
+            const index = values.indexOf(target);
             if (index >= 0) values.splice(index, 1);
           }
           changeScope();
@@ -1377,7 +1378,7 @@
     stage.querySelectorAll("[data-focus]").forEach(
       (button) =>
         (button.onclick = () => {
-          s.focus = button.dataset.focus;
+          s.focus = s.kind==='world' ? root.TAStore.byId(book()?.entries,button.dataset.focus)?.id ?? '' : button.dataset.focus;
           if (s.kind === "character") s.focusField = button.dataset.focus;
           persist();
           refresh();
@@ -1615,13 +1616,13 @@
     s.mode = 'edit'; s.kind = options.kind === 'character' ? 'character' : 'world';
     s.selection = null; s.sourceLocation = null; s.sourceReport = null; s.targetQuery = '';
     if (s.kind === 'character') {
-      s.cardId = options.cardId || '';
+      s.cardId = root.TAStore.byId(lib().characters,options.cardId)?.id ?? '';
       s.cardFields = (options.fields || ['description']).filter((field) => Object.hasOwn(AI().CARD_FIELDS, field));
       s.focusField = s.cardFields[0] || 'description'; s.focus = s.focusField;
     } else {
-      s.bookId = options.bookId || '';
-      const entry = book()?.entries.find((item) => item.id === options.entryId);
-      s.entries = entry ? [entry.id] : []; s.focus = entry?.id || '';
+      s.bookId = root.TAStore.byId(lib().worldBooks,options.bookId)?.id ?? '';
+      const entry = root.TAStore.byId(book()?.entries,options.entryId);
+      s.entries = entry ? [entry.id] : []; s.focus = entry?.id ?? '';
       s.entryFields = ['content']; s.focusField = 'content';
     }
     if(!controller)s.status = '已定位到原文，请写下本次修改要求。';
@@ -1656,7 +1657,7 @@
       if(s.creationBatchId!==plan.batchId || !s.brief){
         const input=plan.creationInput || {brief:plan.request,modules:s.plans.filter(row=>row.batchId===plan.batchId).map(row=>row.task.slice(7))};
         Object.assign(s,{brief:input.brief || '',modules:[...input.modules],questions:structuredClone(input.questions || []),
-          answers:structuredClone(input.answers || []),ideas:structuredClone(input.ideas || []),cardId:input.cardId || '',bookId:input.bookId || '',
+          answers:structuredClone(input.answers || []),ideas:structuredClone(input.ideas || []),cardId:input.cardId ?? '',bookId:input.bookId ?? '',
           creationHistory:[],creationMessage:''});
       }
       s.mode="create";s.creationBatchId=plan.batchId;

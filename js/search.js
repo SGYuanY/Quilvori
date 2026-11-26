@@ -30,7 +30,7 @@
   function buildIndex(library) {
     const names = [], fields = [];
     function indexItem(kind, item, parent) {
-      if (!item?.id) return;
+      if (item?.id==null) return;
       const type = types[kind];
       for (const [field, label] of Object.entries(type.fields)) {
         const value = item[field], values = Array.isArray(value) ? value : [value];
@@ -90,8 +90,9 @@
     const type = types[target?.kind];
     if (!type || !Object.hasOwn(types, target.kind) || !Object.hasOwn(type.fields, target.field)) return null;
     let owner = library;
-    if (type.parent) owner = library[types[type.parent].collection]?.find(item => item.id === target.parentId);
-    return owner?.[type.collection]?.find(item => item.id === target.id) || null;
+    if (type.parent) owner = root.TAStore.byId(library[types[type.parent].collection],target.parentId);
+    const item=root.TAStore.byId(owner?.[type.collection],target.id);
+    return item ? {...target,id:item.id,...(type.parent?{parentId:owner.id}:{})} : null;
   }
   function href(target) {
     const type = types[target.kind], params = new URLSearchParams();
@@ -120,7 +121,8 @@
   }
   function choose(target) {
     const state = root.TAUI.state;
-    if (!resolve(state.lib, target)) return false;
+    target=resolve(state.lib,target);
+    if (!target) return false;
     const type = types[target.kind], owner = type.parent ? types[type.parent] : type;
     state.sel[owner.selection] = type.parent ? target.parentId : target.id;
     state.openFold ||= {};

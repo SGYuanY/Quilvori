@@ -5,7 +5,6 @@
   "工作状态备份格式不受支持": ["Unsupported working-state backup format","未対応の作業状態バックアップ形式です","Формат копии рабочего состояния не поддерживается","지원하지 않는 작업 상태 백업 형식입니다","ไม่รองรับรูปแบบสำรองสถานะงานนี้"],
   "完整工作状态需要 IndexedDB": ["Restoring the complete working state requires IndexedDB.","作業状態全体の復元には IndexedDB が必要です。","Для восстановления полного рабочего состояния требуется IndexedDB.","전체 작업 상태 복원에는 IndexedDB가 필요합니다.","ต้องใช้ IndexedDB เพื่อกู้คืนสถานะงานทั้งหมด"],
   "请先结束正在运行的任务，再恢复工作状态。": ["Finish or cancel running tasks before restoring working state.","実行中のタスクを完了またはキャンセルしてから作業状態を復元してください。","Завершите или отмените текущие задачи перед восстановлением рабочего состояния.","실행 중인 작업을 완료하거나 취소한 뒤 작업 상태를 복원하세요.","ให้ทำงานที่กำลังดำเนินอยู่ให้เสร็จหรือยกเลิกก่อนกู้คืนสถานะงาน"],
-  "草稿 {d} · 快照 {v} · 作品保留策略 {p} · 模型返回 {r}": ["{d} drafts · {v} snapshots · {p} retention rules · {r} model responses","下書き {d} 件 · スナップショット {v} 件 · 保存設定 {p} 件 · モデル応答 {r} 件","Черновиков {d} · снимков {v} · правил хранения {p} · ответов модели {r}","초안 {d}개 · 스냅샷 {v}개 · 보관 규칙 {p}개 · 모델 응답 {r}개","แบบร่าง {d} · สแนปช็อต {v} · กฎการเก็บ {p} · คำตอบโมเดล {r}"],
   "备份内的工作状态": ["Working state in the file","ファイル内の作業状態","Рабочее состояние в файле","파일의 작업 상태","สถานะงานในไฟล์"],
   "当前设备的工作状态": ["Working state on this device","この端末の作業状態","Рабочее состояние на устройстве","이 기기의 작업 상태","สถานะงานบนอุปกรณ์นี้"],
   "替换会用备份中的草稿、快照、保留策略和返回记录替换本机对应资料。": ["Replace restores the drafts, snapshots, retention rules and responses in the file in place of those on this device.","置き換えると、この端末の下書き、履歴、保存設定、応答記録をファイルの内容に置き換えます。","При замене черновики, снимки, правила хранения и ответы на устройстве будут заменены содержимым файла.","교체하면 이 기기의 초안, 스냅샷, 보관 규칙과 응답 기록을 파일에 담긴 내용으로 바꿉니다.","การแทนที่จะเปลี่ยนแบบร่าง สแนปช็อต กฎการเก็บ และคำตอบในเครื่องให้เป็นรายการในไฟล์"],
@@ -155,4 +154,10 @@
   root.TAI18n.add(Object.fromEntries(Object.entries(rows).map(([key,values]) => [key,
     Object.fromEntries(['en','ja','ru','ko','th'].map((lang,i)=>[lang,values[i]])),
   ])));
+  root.TAI18n.add({},{
+    'backup.workCounts':{zh:'草稿 {d} · 快照 {v} · 作品保留策略 {p} · 模型返回 {r}',en:'{d} drafts · {v} snapshots · {p} retention rules · {r} model responses',ja:'下書き {d} 件 · スナップショット {v} 件 · 保存設定 {p} 件 · モデル応答 {r} 件',ru:'Черновиков {d} · снимков {v} · правил хранения {p} · ответов модели {r}',ko:'초안 {d}개 · 스냅샷 {v}개 · 보관 규칙 {p}개 · 모델 응답 {r}개',th:'แบบร่าง {d} · สแนปช็อต {v} · กฎการเก็บ {p} · คำตอบโมเดล {r}'},
+    'backup.filename':{zh:'叙翎集-备份-{day}.json',en:'Quilvori-backup-{day}.json',ja:'Quilvori-バックアップ-{day}.json',ru:'Quilvori-резервная-копия-{day}.json',ko:'Quilvori-백업-{day}.json',th:'Quilvori-สำรองข้อมูล-{day}.json'},
+    'graph.exportSaved':{zh:'已保存世界书《{name}》，并已发起 JSON 下载。',en:'Saved the world book “{name}” and requested its JSON download.',ja:'ワールドブック「{name}」を保存し、JSON のダウンロードを開始しました。',ru:'Книга мира «{name}» сохранена. Начата загрузка JSON.',ko:'세계관 책 “{name}”을 저장하고 JSON 다운로드를 시작했어요.',th:'บันทึกสมุดโลก “{name}” และเริ่มดาวน์โหลด JSON แล้ว'},
+    'graph.exportRetained':{zh:'图中已移除的 {count} 条关系仍有引用或手工修改，已保留为普通条目。',en:'Kept {count} removed relationships as ordinary entries because they have references or manual edits.',ja:'参照または手動編集があるため、図から削除した関係 {count} 件を通常の項目として残しました。',ru:'Удалённые из графа связи ({count}) сохранены как обычные записи: на них есть ссылки или в них есть ручные правки.',ko:'참조 또는 직접 편집한 내용이 있는 삭제된 관계 {count}개를 일반 항목으로 보존했어요.',th:'เก็บความสัมพันธ์ที่ลบจากแผนผัง {count} รายการเป็นรายการปกติ เพราะมีการอ้างอิงหรือแก้ไขด้วยตนเอง'}
+  });
 })(globalThis);

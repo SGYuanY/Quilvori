@@ -289,15 +289,15 @@
   }
 
   function assetById(id) {
-    return (state.lib.assets || []).find((asset) => asset.id === id) || null;
+    return TAStore.byId(state.lib.assets,id);
   }
 
   function charById(id) {
-    return (state.lib.characters || []).find((character) => character.id === id) || null;
+    return TAStore.byId(state.lib.characters,id);
   }
 
   function selected(list, id) {
-    return (list || []).find((item) => item.id === id) || (list || [])[0] || null;
+    return TAStore.byId(list,id) || list?.[0] || null;
   }
 
   function matchQuery(text) {
@@ -700,7 +700,7 @@
   }
 
   let lastAddress = '';
-  function openAddress(value, push = true) {
+  function setAddress(value, push = true) {
     const url = new URL(value, location.href);
     const here = new URL(location.href);
     const file = url.pathname.split('/').pop() || 'index.html';
@@ -715,8 +715,13 @@
     const fragment = '/' + route + (stateParams.size ? '?' + stateParams : '');
     if (push && here.hash.slice(1) !== fragment) history.pushState(null,'','#' + fragment);
     lastAddress = location.href;
-    if (id) root.TASearch?.restoreAddress(route,url);
-    show(route);
+    return {url,route};
+  }
+  function openAddress(value, push = true) {
+    const address=setAddress(value,push);
+    if(!address)return false;
+    if (address.url.hash) root.TASearch?.restoreAddress(address.route,address.url);
+    show(address.route);
     return true;
   }
   function followLocation() {
@@ -823,12 +828,12 @@
 
   function picker(items, currentId, subtitle) {
     if (!items.length) return '';
-    return `<div class="picker">${items.map((item) => `<button type="button" class="pick${item.id === currentId ? ' on' : ''}" data-id="${esc(item.id)}"><b data-no-translate>${esc(root.TAIntegrityPanel.displayName(item))}</b><small>${esc(subtitle ? subtitle(item) : '')}</small></button>`).join('')}</div>`;
+    return `<div class="picker">${items.map((item) => `<button type="button" class="pick${item.id === currentId ? ' on' : ''}" data-id="${esc(item.id)}"${Number.isSafeInteger(item.id) ? ' data-numeric-id' : ''}><b data-no-translate>${esc(root.TAIntegrityPanel.displayName(item))}</b><small>${esc(subtitle ? subtitle(item) : '')}</small></button>`).join('')}</div>`;
   }
 
   function bindPicker(rootNode, assign) {
     rootNode.querySelectorAll('.pick').forEach((button) => {
-      button.onclick = () => assign(button.dataset.id);
+      button.onclick = () => assign(button.hasAttribute('data-numeric-id') ? Number(button.dataset.id) : button.dataset.id);
     });
   }
 
@@ -1387,7 +1392,7 @@
 
   root.TAUI = {
     ROUTES, state, esc, toast, ask, dialogTabStops, downloadBlob, downloadText, downloadJson, pickFile, readText, readDataUrl, copyText,
-    safeName, assetById, charById, selected, matchQuery, markDirty, flush, commitLibrary, applyTheme, ensureTheme, go, openAddress, renderStage, show, flyPlane,
+    safeName, assetById, charById, selected, matchQuery, markDirty, flush, commitLibrary, applyTheme, ensureTheme, go, openAddress, setAddress, renderStage, show, flyPlane,
     openSettings, field, fold, mountFolds, area, text, bindFields, picker, bindPicker, empty, confirmLoadDemo, confirmClear, mount,
     t: (key, vars) => (root.TAI18n ? root.TAI18n.t(key, vars) : key),
     estimateLength, mountLengths, showExport, fillLesson, enhanceSelect, readFolders,

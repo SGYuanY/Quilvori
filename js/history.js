@@ -147,7 +147,7 @@
       if (item) targets.set(idFor(kind,item.id),version(kind,item,reason));
     }
     const snapshots = [...targets.values()];
-    const scoped=chosen.length && chosen.every(op=>op.kind==='set' && op.path.length===1 && op.id && targets.has(idFor(op.path[0],op.id)));
+    const scoped=chosen.length && chosen.every(op=>op.kind==='set' && op.path.length===1 && op.id!=null && targets.has(idFor(op.path[0],op.id)));
     const next=scoped ? {...ui.state.lib} : structuredClone(ui.state.lib);
     if (scoped) {
       for (const kind of new Set(snapshots.map(row=>row.kind))) {

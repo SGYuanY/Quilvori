@@ -20,8 +20,8 @@
     select.value=selected;return select;
   }
   function quickContext(lib,setting,brief){
-    const card=lib.characters.find(item=>item.id===setting.characterId);
-    const book=lib.worldBooks.find(item=>item.id===setting.bookId);
+    const card=root.TAStore.byId(lib.characters,setting.characterId);
+    const book=root.TAStore.byId(lib.worldBooks,setting.bookId);
     let referenceBook=null;
     if(book){
       const value=root.NIJANStudio.bookContent(book);
@@ -34,7 +34,7 @@
       }
     }
     return {brief,reference:{card:card?root.NIJANStudio.cardContent(card):null,book:referenceBook},
-      quickSource:{characterId:card?.id||'',characterName:card?.name||'',bookId:book?.id||'',bookName:book?.name||'',scope:setting.scope==='selected'?'selected':'relevant',
+      quickSource:{characterId:card?.id??'',characterName:card?.name||'',bookId:book?.id??'',bookName:book?.name||'',scope:setting.scope==='selected'?'selected':'relevant',
         entryIds:(referenceBook?.entries||[]).map(e=>e.id)}};
   }
   function quickFields(box){
@@ -65,13 +65,14 @@
       scope.onchange=()=>{s.scope=scope.value;paintBook();};
     }
     card.onchange=()=>{
-      s.characterId=card.value;
-      if(!s.bookId){
-        const current=lib.characters.find(item=>item.id===card.value),id=current?.embeddedBookId??current?.source?.embeddedBookId;
-        if(lib.worldBooks.some(item=>item.id===id)){s.bookId=id;book.value=id;paintBook();}
+      const current=root.TAStore.byId(lib.characters,card.value);
+      s.characterId=current?.id ?? '';
+      if(s.bookId==null || s.bookId===''){
+        const attached=root.TAStore.byId(lib.worldBooks,current?.embeddedBookId ?? current?.source?.embeddedBookId);
+        if(attached){s.bookId=attached.id;book.value=attached.id;paintBook();}
       }
     };
-    book.onchange=()=>{s.bookId=book.value;s.entryIds=[];paintBook();};
+    book.onchange=()=>{s.bookId=root.TAStore.byId(lib.worldBooks,book.value)?.id ?? '';s.entryIds=[];paintBook();};
     paintBook();
   }
   // Literal templates let the user define exactly what can match; the replacement stays literal in ST.
@@ -167,7 +168,7 @@
   }
   function selectedReply(stage,set){
     const src=set?.workSource;if(!src)return;
-    const lib=ui().state.lib,names=[lib.characters.find(c=>c.id===src.characterId)?.name || src.characterName,lib.worldBooks.find(b=>b.id===src.bookId)?.name || src.bookName].filter(Boolean);
+    const lib=ui().state.lib,names=[root.TAStore.byId(lib.characters,src.characterId)?.name || src.characterName,root.TAStore.byId(lib.worldBooks,src.bookId)?.name || src.bookName].filter(Boolean);
     if(!names.length)return;
     const line=node('p');line.className='help';line.textContent=tr('这组回复参考的作品')+' · '+names.join(' / ');line.dataset.noTranslate='';
     stage.querySelector('#qr-body').before(line);

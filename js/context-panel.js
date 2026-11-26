@@ -87,7 +87,7 @@
     function row(item) {
       const chosen=item.id===ui().state.sel.entry, enabled=item.enabled!==false;
       const label=esc(title(item));
-      return `<article class="entry${chosen?' on':''}${enabled?'':' off'}${active.has(item.id)?' hit':''}" data-id="${esc(item.id)}" data-no-translate tabindex="0" aria-label="${label}">
+      return `<article class="entry${chosen?' on':''}${enabled?'':' off'}${active.has(String(item.id))?' hit':''}" data-id="${esc(item.id)}" data-no-translate tabindex="0" aria-label="${label}">
         <b>${label}</b><button type="button" class="btn btn-small" data-toggle="${esc(item.id)}">${esc(tr(enabled?'启用':'停用'))}</button>
         <span class="ws-entry-snippet">${esc(String(item.content || '').replace(/\s+/g,' ').slice(0,90))}</span>
         <small class="ctx-entry-size" data-entry-size="${esc(item.id)}">${esc(sizeText(C.entrySize(item)))}</small>
@@ -101,7 +101,7 @@
       empty.hidden=!!result.count; pager.hidden=result.pages<=1;
       previous.disabled=!page; next.disabled=page+1>=result.pages;
       pager.querySelector('output').textContent=(result.count ? result.start+1 : 0)+'–'+result.end+' / '+result.count;
-      if (reveal) requestAnimationFrame(()=>{
+      if (reveal!=null) requestAnimationFrame(()=>{
         const selected=rows.querySelector('.entry.on');
         if (!selected || !board.isConnected) return;
         const box=board.getBoundingClientRect(), item=selected.getBoundingClientRect();
@@ -129,8 +129,10 @@
     rows.onclick=event=>{
       const target=event.target.closest('.entry');
       if (!target || event.target.closest('[data-peek-entry]')) return;
-      if (event.target.closest('[data-toggle]')) {toggle(target.dataset.id); return;}
-      select(target.dataset.id);
+      const entry=root.TAStore.byId(book.entries,target.dataset.id);
+      if(!entry)return;
+      if (event.target.closest('[data-toggle]')) {toggle(entry.id); return;}
+      select(entry.id);
       rows.querySelectorAll('.entry').forEach(item=>item.classList.toggle('on',item===target));
     };
     rows.onkeydown=event=>{
@@ -141,7 +143,7 @@
     search.oninput=()=>{ui().state.loreFilter=search.value; draw(0); board.scrollTop=0;};
     draw(0,ui().state.sel.entry);
     return {reveal,edit,setHits(ids) {
-      active=ids;
+      active=new Set(Array.from(ids,String));
       rows.querySelectorAll('.entry').forEach(item=>item.classList.toggle('hit',active.has(item.dataset.id)));
     }};
   }
@@ -204,7 +206,7 @@
       if (sources.some(entry=>entry.id===previous)) pick.value = previous;
       const graph = () => {
         settings.source = pick.value; list.replaceChildren();
-        const source = sources.find(entry=>entry.id===pick.value);
+        const source = root.TAStore.byId(sources,pick.value);
         paged(list,C.relations(book,source),edge=>{
           const line = node('div',undefined,'ctx-edge');
           line.append(entryButton(edge.from),node('span','→','ctx-edge-arrow'),node('small',tr(edge.explicit?'显式出口引用':'可能的关键词触发')+' · '+edge.key),node('span','→','ctx-edge-arrow'),entryButton(edge.to));
@@ -225,6 +227,7 @@
     }
     let frame = 0;
     function refresh() {
+      edition.invalidate();
       if (frame) return;
       frame = requestAnimationFrame(()=>{
         frame = 0;
@@ -232,7 +235,6 @@
         metrics();
         const entry = book.entries.find(row=>row.id===ui().state.sel.entry);
         directory.edit(entry);
-        edition.invalidate();
         for (const key of ['health','links','trigger']) if (sectionNodes[key].details.open) paint[key]();
       });
     }

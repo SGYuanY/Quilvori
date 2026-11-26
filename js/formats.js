@@ -230,6 +230,10 @@
     return { ...book.stBookFields, ...(book.name ? {name:book.name} : {}), ...(book.description ? {description:book.description} : {}), entries, ...(book.stOriginalData ? {originalData:bookToCharacterBook(book)} : {}), ...((book.stBookExtensions || source) ? { extensions: { ...book.stBookExtensions, ...(source ? { quilvori_source: source } : {}) } } : {}) };
   }
 
+  function nextEntryUid(entries) {
+    return entryNumbers([...entries, {}]).at(-1);
+  }
+
   function bookToCharacterBook(book) {
     const ids = entryNumbers(book.entries || []);
     const source = resourceSource(book.source);
@@ -517,8 +521,9 @@
   }
 
   function presetToExport(preset) {
-    const prompts = (preset.blocks || []).map((block, index) => ({
-      identifier: block.id || `atelier_${index}`,
+    const blocks = preset.blocks || [];
+    const prompts = blocks.map((block, index) => ({
+      identifier: block.stIdentifier ?? String(block.id ?? `atelier_${index}`),
       name: block.name || '未命名块',
       role: block.role || 'system',
       content: block.content || '',
@@ -536,25 +541,54 @@
       note: '这是可抄进 SillyTavern 预设编辑器的块，不是整份 API 预设。不要用它覆盖温度和模型。',
       prompts,
       prompt_order: [{
-        character_id: 100001,
-        order: prompts.map((prompt) => ({ identifier: prompt.identifier, enabled: prompt.enabled !== false })),
+        character_id: preset.stOrderCharacterId ?? 100001,
+        order: prompts.filter((prompt,i) => !blocks[i].stOrderOmitted || prompt.enabled)
+          .map(prompt => ({identifier:prompt.identifier,enabled:prompt.enabled})),
       }],
     };
   }
 
-  function presetFromImport(json) {
-    const prompts = json.prompts || json.blocks || [];
+  function presetOrderScopes(json) {
+    return Array.isArray(json?.prompt_order) ? json.prompt_order.filter(scope=>Array.isArray(scope?.order)) : [];
+  }
+
+  function presetFromImport(json, scopeIndex) {
+    const prompts = json?.prompts ?? json?.blocks;
     if (!Array.isArray(prompts)) throw new Error('预设里没有 prompts');
-    return {
-      name: json.name || '导入的预设',
-      blocks: prompts.filter((block) => block && block.marker !== true).map((block) => ({
+    const scopes = presetOrderScopes(json);
+    const scope = scopeIndex === undefined ? scopes.find(row=>String(row.character_id)==='100001') ?? scopes[0] : scopes[scopeIndex];
+    const definitions = [], byIdentifier = new Map();
+    for (const block of prompts) {
+      if (!block || block.marker === true) continue;
+      const identifier = block.identifier ?? block.id;
+      const imported = {
         name: block.name || '未命名块',
         role: block.role || 'system',
         kind: block.atelier_kind || kindFromName(block.name),
-        content: block.content || block.system_prompt || '',
+        content: typeof block.content === 'string' ? block.content : typeof block.system_prompt === 'string' ? block.system_prompt : '',
         enabled: block.enabled !== false,
-      })),
-    };
+      };
+      if ((typeof identifier === 'string' && identifier.length) || Number.isSafeInteger(identifier)) {
+        if (byIdentifier.has(String(identifier))) throw new Error('预设内有重复的提示块标识');
+        imported.stIdentifier = identifier;
+        byIdentifier.set(String(identifier),imported);
+      }
+      definitions.push(imported);
+    }
+    const preset = {name:json.name || '导入的预设',blocks:definitions};
+    if (!scope) return preset;
+    const ordered = new Set();
+    for (const row of scope.order) {
+      const block = row && byIdentifier.get(String(row.identifier));
+      if (!block || ordered.has(block)) continue;
+      if (typeof row.enabled === 'boolean') block.enabled = row.enabled;
+      ordered.add(block);
+    }
+    const omitted = definitions.filter(block=>!ordered.has(block));
+    for (const block of omitted) { block.enabled = false; block.stOrderOmitted = true; }
+    preset.blocks = [...ordered,...omitted];
+    preset.stOrderCharacterId = scope.character_id ?? 100001;
+    return preset;
   }
 
   function kindFromName(name) {
@@ -678,12 +712,12 @@
   }
 
   function graphToBook(graph, library) {
-    const nodes = new Map((graph.nodes || []).map((node) => [node.id, node]));
-    const byId = new Map((library.characters || []).map((character) => [character.id, character]));
+    const nodes = new Map((graph.nodes || []).map((node) => [String(node.id), node]));
+    const byId = new Map((library.characters || []).map((character) => [String(character.id), character]));
     const labelOf = (id) => {
-      const node = nodes.get(id);
+      const node = nodes.get(String(id));
       if (!node) return '未知';
-      return (node.characterId && byId.get(node.characterId)?.name) || node.label || '未命名';
+      return (node.characterId != null && byId.get(String(node.characterId))?.name) || node.label || '未命名';
     };
     return {
       name: '关系图',
@@ -705,6 +739,75 @@
         };
       }),
     };
+  }
+
+  function syncGraphBook(library, currentReplyReference) {
+    const graph = library.graph, built = graphToBook(graph,library);
+    const previous = library.worldBooks.find(b => b.id === graph.exportBookId &&
+      b.graphSource?.kind === 'relationship-graph' && b.graphSource.bookId === b.id);
+    let book = previous;
+    if (!book) {
+      const id = root.TAStore.uid('book'), names = new Set(library.worldBooks.map(b => b.name));
+      let name = built.name;
+      for (let suffix = 2; names.has(name); suffix++) name = built.name+' ('+suffix+')';
+      book = {id,name,description:built.description,entries:[],graphSource:{kind:'relationship-graph',bookId:id}};
+    }
+    const incoming = new Map(graph.edges.map((edge,i) => [String(edge.id),{edgeId:edge.id,fields:built.entries[i]}]));
+    const references = new Set();
+    for (const ref of [...library.quickReplySets.map(set=>set.workSource),currentReplyReference]) {
+      if (ref?.bookId != null && String(ref.bookId) === String(book.id))
+        for (const id of ref.entryIds || []) references.add(String(id));
+    }
+    const links = Array.isArray(book.graphSource.links) ? book.graphSource.links : [];
+    const former = new Map(links.filter(link=>link && incoming.has(String(link.edgeId))).map(link=>[String(link.edgeId),link]));
+    const entries = [], usedIds = new Set(book.entries.map(e=>String(e.id)));
+    const assignedUids = new Set(entryNumbers(book.entries));
+    const reservedUids = new Set([...assignedUids,...Array.from(former.values(),link=>link.stUid)]);
+    let nextUid = 0, retained = 0;
+    const same = (a,b) => a === b || (Array.isArray(a) && Array.isArray(b) &&
+      a.length === b.length && a.every((value,i)=>value === b[i]));
+    for (const entry of book.entries) {
+      const source = entry.graphSource;
+      // A copied/manual row can carry its ancestor's metadata. Only the original row is managed.
+      if (source?.bookId !== book.id || source.entryId !== entry.id || !source.generated) {
+        entries.push(entry); continue;
+      }
+      const edgeKey = String(source.edgeId), match = incoming.get(edgeKey);
+      if (!match) {
+        const {graphSource,stUid,id,...authored} = entry;
+        const changed = Object.keys(authored).length !== Object.keys(source.generated).length ||
+          Object.keys(authored).some(key=>!same(authored[key],source.generated[key]));
+        if (references.has(String(id)) || changed) {
+          const detached = {...entry}; delete detached.graphSource;
+          entries.push(detached); retained++;
+        }
+        continue;
+      }
+      incoming.delete(edgeKey);
+      const updated = {...entry};
+      for (const [key,value] of Object.entries(match.fields)) {
+        if (same(entry[key],source.generated[key])) updated[key] = value;
+      }
+      updated.graphSource = {...source,generated:structuredClone(match.fields)};
+      entries.push(updated);
+    }
+    for (const {edgeId,fields} of incoming.values()) {
+      // A user may remove the managed row in the world editor while the edge still exists.
+      // Recreate its old identifiers unless another entry has since claimed them.
+      const old = former.get(String(edgeId));
+      const id = typeof old?.entryId==='string' && old.entryId && !usedIds.has(old.entryId) ? old.entryId : root.TAStore.uid('lore');
+      let stUid = old?.stUid;
+      if (!Number.isSafeInteger(stUid) || stUid<0 || assignedUids.has(stUid)) {
+        while (reservedUids.has(nextUid)) nextUid++;
+        stUid=nextUid++;
+      }
+      usedIds.add(id); assignedUids.add(stUid);
+      entries.push({...fields,id,stUid,graphSource:{bookId:book.id,entryId:id,edgeId,generated:structuredClone(fields)}});
+    }
+    const managed = entries.filter(e=>e.graphSource?.bookId===book.id && e.graphSource.entryId===e.id);
+    book = {...book,entries,graphSource:{...book.graphSource,links:managed.map(e=>({edgeId:e.graphSource.edgeId,entryId:e.id,stUid:e.stUid}))}};
+    return {book,previous,retained,library:{...library,graph:{...graph,exportBookId:book.id},
+      worldBooks:previous ? library.worldBooks.map(b=>b===previous ? book : b) : [...library.worldBooks,book]}};
   }
 
   function themeToExport(theme) {
@@ -892,7 +995,7 @@
       add('warn', '瞳色对不上', t('check.eyes', { canon: [...canonEyes].join('、'), spoken: spokenEyes[0].value }), snippetAt(spoken, spokenEyes[0].index, spokenEyes[0].raw.length), spokenEyes[0].raw);
     }
 
-    const books = bookId ? (library.worldBooks || []).filter((book) => book.id === bookId) : (library.worldBooks || []);
+    const books = bookId!=null && bookId!=='' ? (library.worldBooks || []).filter((book) => book.id === bookId) : (library.worldBooks || []);
     books.forEach((book) => {
       (book.entries || []).filter((entry) => entry.constant && entry.enabled !== false).forEach((entry) => {
         const content = entry.content || '';
@@ -1401,6 +1504,7 @@
     singleCard,
     cardToCharacter,
     bookToWorldInfo,
+    nextEntryUid,
     bookToCharacterBook,
     worldInfoToEntries,
     worldInfoToBook,
@@ -1416,12 +1520,14 @@
     qrFromImport,
     presetToExport,
     presetFromImport,
+    presetOrderScopes,
     groupToExport,
     chatFromText,
     timelineToExport,
     scriptToExport,
     scriptSpeaker,
     graphToBook,
+    syncGraphBook,
     themeToExport,
     themeToCss,
     backupOf,

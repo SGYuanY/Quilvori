@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, open, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -10,6 +10,9 @@ try {
   const env = {...process.env, QUILVORI_TEST_PROFILE:sandbox};
   delete env.ELECTRON_RUN_AS_NODE;
   const phases={
+    'editor-selection':'editor-selection-ui.cjs', 'shelf-pins':'shelf-pins-ui.cjs',
+    'sections-sync':'sections-sync-ui.cjs', 'graph-sync':'graph-sync-ui.cjs',
+    'world-export':'world-export-ui.cjs', 'prompt-order':'prompt-order-ui.cjs', 'backup-controls':'backup-controls-ui.cjs',
     'working-backup':'working-backup-ui.cjs',
     'regex-and-credentials':'regex-preview-ui.cjs',
     storage:'storage-history-ui.cjs',
@@ -20,10 +23,19 @@ try {
   for (const [phase,test] of Object.entries(phases)) {
     const entry = fileURLToPath(new URL('../test/'+test,import.meta.url));
     const flags = ['--user-data-dir='+sandbox,'--disable-gpu',entry];
-    const result = await new Promise((resolve,reject) => {
-      const child = spawn(electron,flags,{env:{...env,QUILVORI_TEST_PHASE:phase},stdio:'inherit',windowsHide:true});
-      child.on('error',reject); child.on('exit',code=>resolve(code ?? 1));
-    });
+    // Native children can outlive a terminal pipe on Windows. Keep a real file
+    // open until Electron exits, then report the output through the Node parent.
+    const logPath = path.join(sandbox,phase+'.log'), log = await open(logPath,'w');
+    let result;
+    try {
+      result = await new Promise((resolve,reject) => {
+        const child = spawn(electron,flags,{env:{...env,QUILVORI_TEST_PHASE:phase},stdio:['ignore',log.fd,log.fd],windowsHide:true});
+        child.on('error',reject); child.on('close',code=>resolve(code ?? 1));
+      });
+    } finally {
+      await log.close();
+      process.stdout.write(await readFile(logPath,'utf8'));
+    }
     if (result) { process.exitCode=result; break; }
   }
 } finally {

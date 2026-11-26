@@ -240,7 +240,7 @@
     const size = 50;
     let count = 0, selectedIndex = -1;
     for (const items of buckets.values()) {
-      if (options.reveal) {
+      if (options.reveal!=null) {
         const i = items.findIndex(item=>item.id===options.reveal);
         if (i >= 0) selectedIndex = count+i;
       }

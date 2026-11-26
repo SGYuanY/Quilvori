@@ -380,6 +380,13 @@
   const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value) &&
     Object.prototype.toString.call(value) === '[object Object]';
   const validId = value => (typeof value === 'string' && !!value.trim()) || Number.isSafeInteger(value);
+  // HTML controls and URLs carry strings. Collections already reject numbered and
+  // string IDs with the same spelling, so resolve the stored record before using its ID.
+  function byId(list,id) {
+    if(!validId(id))return null;
+    const key=String(id);
+    return list?.find(item=>String(item.id)===key) || null;
+  }
   const own = (value, field) => Object.hasOwn(value, field);
   function invalid(path, message = '存档结构无效') {
     throw new Error((root.TAI18n?.t(message) || message) + ' (' + path + ')');
@@ -690,7 +697,7 @@
   }
 
   root.TAStore = {
-    collections: Object.freeze(topRows),
+    collections: Object.freeze(topRows), byId,
     KEY, databaseMarker, databaseRedirect, uid, emptyLibrary, demoLibrary, normalize, verify, load, recover, save, erase, merge, bytes, storageOk,
   };
 })(typeof globalThis !== 'undefined' ? globalThis : window);

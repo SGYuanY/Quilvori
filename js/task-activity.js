@@ -56,7 +56,7 @@
     return tr(labels[job.phase] || '');
   }
   function bindReview(host,{button,progress,output,source,after}) {
-    const key=()=>{const {card,book}=source();return JSON.stringify(['review',card?.id || '',book?.id || '']);};
+    const key=()=>{const {card,book}=source();return JSON.stringify(['review',card?.id ?? '',book?.id ?? '']);};
     const stop=stopButton(button);
     stop.onclick=()=>cancel(state(key()));
     const paint=job=>{
@@ -64,7 +64,7 @@
       progress.textContent=phaseText(job,{running:'正在对照原文检查…',ready:'检查写完了'});
       if (after){after();return;}
       const {card,book}=source();
-      const report=(ui().state.lib.settings.aiReviews || []).findLast(row=>(row.cardId || null)===(card?.id || null) && (row.bookId || null)===(book?.id || null));
+      const report=(ui().state.lib.settings.aiReviews || []).findLast(row=>(row.cardId ?? null)===(card?.id ?? null) && (row.bookId ?? null)===(book?.id ?? null));
       if (report)root.NIJANReview.mount(output,report,ui().state.lib);
       else output.replaceChildren();
     };
@@ -75,7 +75,7 @@
       return start(job,async signal=>{
         const result=await root.NIJANModel.runTask('review',context,{label:tr('AI 逻辑与人设检查'),signal});
         if (signal.aborted) return;
-        const report={id:root.TAStore.uid('review'),cardId:context.card?.id || null,bookId:context.book?.id || null,source:JSON.stringify(context),createdAt:new Date().toISOString(),items:result.items};
+        const report={id:root.TAStore.uid('review'),cardId:context.card?.id ?? null,bookId:context.book?.id ?? null,source:JSON.stringify(context),createdAt:new Date().toISOString(),items:result.items};
         const library=ui().state.lib;
         library.settings.aiReviews=(library.settings.aiReviews || []).concat(report).slice(-10);
         ui().markDirty('settings');

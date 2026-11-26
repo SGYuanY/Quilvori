@@ -1,0 +1,50 @@
+'use strict';
+const assert = require('node:assert/strict');
+const suite = require('./desktop-fixture.cjs');
+
+suite('shelf-pins', async ({run,open,wait,click,input,key,file,download}) => {
+  await open('index');
+  await run(async () => {
+    const lib=TAStore.emptyLibrary();
+    lib.characters=Array.from({length:25},(_,id)=>({id,name:'Card '+id,description:'Card text '+id}));
+    lib.worldBooks=[{id:0,name:'Book zero',entries:[]},{id:'b',name:'Book blue',entries:[]}];
+    await TAUI.commitLibrary(TAStore.verify(lib)); TAUI.renderStage();
+  });
+  const first = ()=>run(()=>document.querySelector('.collection-caption h3').textContent);
+  const pin = (kind,id)=>'[data-collection-type="'+kind+'"][data-collection-pin="'+id+'"]';
+  const bookPin=pin('book',0), cardPin=pin('character',24);
+  await click('[data-shelf-pages] [data-next]');
+  await click(cardPin);
+  assert.equal(await first(),'Card 24','a page-two pin moves to the front');
+  assert.ok(await run(s=>document.activeElement===document.querySelector(s),cardPin),'focus follows pin');
+  await run(s=>document.querySelector(s).focus(),bookPin); key('Return');
+  await wait(()=>document.querySelector('.collection-caption h3').textContent==='Book zero','keyboard pin');
+  await click('[data-collection-kind=character]'); assert.equal(await first(),'Card 24');
+  await input('[data-collection-search]','Card 1');
+  assert.equal(await first(),'Card 1','filters still control which pins are visible');
+  await run(()=>TAUI.flush()); await open('index');
+  assert.equal(await first(),'Book zero'); assert.ok(await run(s=>document.querySelector(s).getAttribute('aria-pressed')==='true',cardPin));
+  await open('backup'); const packet=JSON.parse((await download('#save-backup')).bytes);
+  assert.deepEqual(packet.library.characters.filter(c=>c.shelfPinned).map(c=>c.id),[24]);
+  assert.deepEqual(packet.library.worldBooks.filter(b=>b.shelfPinned).map(b=>b.id),[0]);
+  await open('index'); await click(bookPin); await click(cardPin);
+  assert.equal(await run(()=>document.activeElement.dataset.collectionPin),'24');
+  await click('[data-shelf-pages] [data-prev]');
+  assert.deepEqual(await run(()=>[...document.querySelectorAll('.collection-caption h3')].slice(0,4).map(e=>e.textContent)),
+    ['Card 0','Book zero','Card 1','Book blue']);
+  await run(()=>TAUI.flush()); await open('backup');
+  await file(packet); await click('#load-backup');
+  await wait(()=>!!document.querySelector('#modal-root [data-act=replace]'),'restore pins');
+  await click('#modal-root [data-act=replace]');
+  await wait(()=>TAUI.state.lib.characters.some(c=>c.id===24 && c.shelfPinned) && !document.querySelector('#app').inert,'pins restored');
+  await open('index'); assert.equal(await first(),'Book zero');
+  await click('[data-collection-open="0"][data-collection-type=book]');
+  await wait(()=>!!document.querySelector('#export-book'),'open pinned book');
+  assert.ok(!(await download('#export-book')).bytes.includes('shelfPinned'));
+  await open('index'); await click('[data-collection-open="24"][data-collection-type=character]');
+  await wait(()=>!!document.querySelector('[data-act=json]'),'open pinned card');
+  assert.ok(!(await download('[data-act=json]')).bytes.includes('shelfPinned'));
+  await click('[data-act=dup]');
+  assert.ok(await run(()=>!TAStore.byId(TAUI.state.lib.characters,TAUI.state.sel.character).shelfPinned));
+  console.log('Shelf pins: keyboard, pagination, filters, ordinary order, same IDs across collections, restart, backup restore and clean ST exports passed.');
+});

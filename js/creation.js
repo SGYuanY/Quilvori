@@ -130,10 +130,10 @@
           const index = collection.findIndex((item) => item.id === op.value.id);
           if (index >= 0) collection.splice(index, 1);
         } else {
-          const owner = op.id
+          const owner = op.id!=null
             ? (collection || []).find((item) => item.id === op.id)
             : collection;
-          const dest = op.entryId
+          const dest = op.entryId!=null
             ? owner?.entries.find((entry) => entry.id === op.entryId)
             : owner;
           if (dest) {
