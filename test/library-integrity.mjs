@@ -70,6 +70,39 @@ test('deleting a character previews each live dependency and supports preserved 
   assert.deepEqual(plain(D.undo(duplicate.library,duplicate.receipt)),plain(lib));
 });
 
+test('asset deletion previews and restores portrait, expressions, book cover, chat and theme links through one receipt',()=>{
+  const lib=fixture(),src={id:'art',name:'Harbor light',kind:'background',dataUrl:'data:image/png;base64,AA==',source:{author:{name:'Fixture Atelier'}}};
+  lib.assets.push(src,{id:'other',name:'Other picture'});
+  Object.assign(lib.characters[0],{avatarAssetId:'art',expressionAssetIds:['left','art','art','right']});
+  lib.worldBooks[0].coverAssetId='art';
+  lib.themes.push({id:'theme',name:'Evening',backgroundAssetId:'art',vars:{}});
+  lib.settings.chatBackgroundAssetId='art';
+  const start=JSON.stringify(lib),planned=D.plan(lib,'assets','art');
+  assert.deepEqual(Array.from(planned.refs,r=>r.type).sort(),['avatar','bookCover','chatBackground','expressions','themeBackground']);
+  assert.equal(JSON.stringify(lib),start);
+  const {library:after,receipt}=D.remove(lib,planned);
+  assert.equal(D.dependencies(after,'assets','art').length,0);
+  assert.deepEqual(plain(after.characters[0].expressionAssetIds),['left','right']);
+  assert.deepEqual(plain(D.undo(after,receipt)),plain(lib));
+  after.characters[0].description='New sentence';
+  after.characters[0].expressionAssetIds=['left','added','right'];
+  after.themes[0].name='Edited theme';
+  const restored=D.undo(after,receipt);
+  assert.deepEqual(plain(restored.assets[0]),src);
+  assert.deepEqual(plain(restored.characters[0].expressionAssetIds),['left','added','art','art','right']);
+  assert.equal(restored.characters[0].description,'New sentence');
+  assert.equal(restored.themes[0].name,'Edited theme');
+  after.settings.chatBackgroundAssetId='other';
+  const later=JSON.stringify(after);
+  assert.throws(()=>D.undo(after,receipt));assert.equal(JSON.stringify(after),later);
+  lib.characters[1].avatarAssetId='art';assert.throws(()=>D.remove(lib,planned));
+  lib.characters[0].expressionAssetIds=['left','right','art','left','art'];
+  const repeated=D.remove(lib,D.plan(lib,'assets','art'));
+  repeated.library.characters[0].expressionAssetIds=['left','extra','right','left','later'];
+  assert.deepEqual(plain(D.undo(repeated.library,repeated.receipt).characters[0].expressionAssetIds),
+    ['left','extra','right','art','left','art','later']);
+});
+
 test('undo restores each supported deletion and all attached references without reviving a colliding ID',()=>{
   const lib=fixture();
   for(const [collection,key] of [['worldBooks','w'],['chats','chat'],['groups','g'],['regexScripts','rx'],['quickReplySets','qr'],['scripts','s']]){

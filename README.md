@@ -145,13 +145,13 @@ The creation conversation uses the current draft and your selected ideas. You ca
 
 New character cards and world books are saved locally as drafts. Find **AI drafts awaiting review** in the Collection or the corresponding editor, review the draft, and apply it. **Open in collection** takes you to the saved work. Apply a generated character before applying a group, script or relationship graph that references it.
 
-When a provider returns a character and a world book together, Quilvori checks the selected works separately. A valid work appears in the draft shelf even if the other needs attention. The last 24 card and world-book responses with output are kept on this device. Open **AI studio → Task log and model output** to recover drafts from a response, or paste a response copied from an older version. Recovery runs locally. Discussion accepts ordinary text, and you can revise the draft directly from the latest reply.
+When a provider returns a character and a world book together, Quilvori checks the selected works separately. A valid work appears in the draft shelf even if the other needs attention. By default, this device keeps the last 24 card and world-book responses with output. Open **AI studio → Task log and model output** to recover drafts from a response, or paste a response copied from an older version. Recovery runs locally. Discussion accepts ordinary text, and you can revise the draft directly from the latest reply.
 
 ### Review logic and characterization
 
 Local rules and AI reviews appear separately. Reports explain the conclusion, why it may be a problem, and a possible next step. Quotations include character-field addresses or **world book → entry → field → line** locations.
 
-Open a source quotation and return to the report afterward. Reports preserve their source addresses and are marked outdated when relevant text changes. Optional blank fields are notes, and differences with insufficient evidence should be treated as questions to confirm. Review itself does not rewrite the draft.
+Open a source quotation and return to the report afterward. Reports preserve their source addresses and are marked outdated when relevant text changes. Optional blank fields appear as notes. A conflict requires two distinct passages that can be located in the source. A single quotation or overlapping excerpts appear under **Needs confirmation** in the report and its JSON export. Review itself does not rewrite the draft.
 
 Large books can be reviewed in selected batches, with the scope stated in the report. Task records separate status, reasoning returned by the service, and results; missing reasoning is reported explicitly.
 
@@ -233,7 +233,7 @@ In the character editor, select a companion world book and expand the SillyTaver
 
 Expand **Local folders → Scan a SillyTavern user folder** and choose a profile such as `data/default-user`. Review the counts for `characters/*.png|json`, `worlds/*.json` and `chats/<character>/*.jsonl` before importing. The desktop app also supports separate card and world-book folders.
 
-Duplicates are skipped. A changed source is imported as another version, preserving local edits. A bad file does not stop the other imports, and failures appear in the details. Large avatars are reduced; newly imported avatars may be omitted if storage is full so text can be saved. Reading folders does not modify source cards or books. Explicit desktop expression exports write to the chosen destination.
+Duplicates are skipped. Changing only the PNG portrait also creates a separate version and preserves local edits. Scanning the same version again reuses its card. A bad file does not stop the other imports, and failures appear in the details. Large avatars are reduced. When storage is full, text is saved first. Scan again after freeing space to add the missing portraits. Reading folders does not modify source cards or books. When a desktop expression export would replace files, review the listed filenames before confirming. A failed batch restores the original files. If another program prevents recovery, Quilvori shows the folder containing the backups and their manifest.
 
 ### Import character cards and world books from links
 
@@ -265,17 +265,21 @@ An “unknown” usage status is not permission to redistribute. Public visibili
 
 Your library and revision history use IndexedDB in the current browser or desktop profile. On upgrade, Quilvori migrates the previous localStorage library and archives the original bytes in the same transaction. **Full-library backup → Download pre-migration library** retrieves that copy. Browser profiles, addresses and ports can have separate libraries. Use the same entry point each time and move your current library with backup export and restore.
 
-IndexedDB schema v5 stores works as separate records. Editing a card field writes that card and its revision metadata. Editing an image name or a chat bookmark leaves the image data and message body in separate records. Imports and whole-library replacements still validate the complete candidate library.
+IndexedDB schema v6 stores works as separate records. Editing a card field writes that card and its revision metadata. Editing an image name or a chat bookmark leaves the image data and message body in separate records. Imports and whole-library replacements still validate the complete candidate library.
+
+Opening a v5 library upgrades its database to v6. To keep using v0.2.0 as well, close the app before the upgrade and keep a separate copy of the complete v5 user profile for that version.
+
+The full-library JSON (`backupVersion: 2`) includes your works, pending card and world-book drafts, revision snapshots (including removed works), per-work retention rules, and saved model responses with their original output. Export reads one consistent IndexedDB transaction. Replace restores this state together. Merge keeps both sides, deduplicates matching records and gives conflicting drafts or responses separate IDs. Snapshot retention expands to keep the merged history. Merging more than 24 responses preserves them and raises the subsequent rolling archive window to that count. Older library-only files preserve the working records already on the device. Model connection profiles, API keys and local directory selections stay on the device. Treat the backup as private writing material.
 
 In **Version history → Manage snapshots for this work**, review the number of snapshots and their estimated content size. Preview the dated revisions selected for removal before confirming a retention limit or clearing the work’s history. A blank limit keeps all snapshots. A saved limit also applies to future manual and automatic snapshots. Size estimates use UTF-8 JSON bytes and exclude IndexedDB overhead. **Full-library backup → Library snapshot storage** shows totals and lets you review snapshots left by removed works.
 
 The storage phase of `npm run test:ui` compares five single-field saves with synthetic 64 KiB and 16 MiB image/chat payloads. It reports median input handling and save times, and measures snapshot growth after five 8 KiB additions to one work. Results depend on the device and describe these test libraries.
 
-Importing an individual chat reading copy restores its messages, bookmarks and original SillyTavern header. When deleting a character, review its references and choose whether to unlink them, replace the character or keep the speaker’s name on script lines. Character cards, world books, chats, groups, regex scripts and quick-reply sets offer **Undo deletion** in the confirmation toast after removal.
+Importing an individual chat reading copy restores its messages, bookmarks and original SillyTavern header. When deleting a character, review its references and choose whether to unlink them, replace the character or keep the speaker’s name on script lines. Character cards, world books, image assets, chats, groups, regex scripts and quick-reply sets offer **Undo deletion** in the confirmation toast after removal.
 
 Before merging a backup, expand a conflicting field to compare the changed paragraphs. Choose **Keep current** (the default), **Use backup** or **Keep both as separate copies**. Several fields marked for a separate copy create one new work with its own ID. Divergent chat histories keep their respective bookmarks. Alternate values for standalone settings or HTML memory can be opened on the Backup page. Cancelling the preview keeps the current library.
 
-Open **Version history** in either editor to save a named snapshot, compare fields and world-book entries, or restore one work. Applying AI edits also saves its previous version. The full-library JSON carries the current works. Revision history and model credentials stay in the local profile.
+Open **Version history** in either editor to save a named snapshot, compare fields and world-book entries, or restore one work. Applying AI edits also saves its previous version.
 
 The Windows desktop app retains `%APPDATA%\nijan` for its profile and `folders.json`. This internal directory name preserves compatibility; the displayed project name is Quilvori / 叙翎集.
 

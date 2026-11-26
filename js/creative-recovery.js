@@ -4,12 +4,12 @@
   let copiedText='';
   const kinds=['character','world'], ui=()=>root.TAUI, t=key=>ui().t(key);
   const element=(tag,text)=>{const node=document.createElement(tag);if(text!==undefined)node.textContent=text;return node;};
-  function recovered(kind,sourceKey,batchId){
+  function recovered(kind,sourceKey){
     if(!sourceKey)return false;
     const lib=ui().state.lib, matches=item=>item.creationSource===sourceKey;
     if(lib[kind==='character'?'characters':'worldBooks'].some(matches))return true;
-    if(batchId && root.TAStudioDrafts.findSaved(batchId,kind))return true;
-    return root.TAStudioDrafts.pending().some(({plan})=>plan.task==='create:'+kind && plan.sourceKey===sourceKey);
+    return root.TAStudioDrafts.pending().some(({plan})=>plan.task==='create:'+kind &&
+      (plan.sourceKey===sourceKey || plan.operations.some(op=>op.value?.creationSource===sourceKey)));
   }
   function choices(host,record){
     const options=element('fieldset'),legend=element('legend',t('恢复为待收录草稿'));
@@ -18,7 +18,7 @@
       const label=element('label'),input=element('input');label.className='check';input.type='checkbox';
       input.dataset.recoverKind=kind;input.value=kind;
       input.checked=!record || (record.workKinds || [record.task.slice(7)]).includes(kind);
-      if(record && recovered(kind,record.sourceKey,record.workBatch)){input.disabled=true;input.checked=false;}
+      if(record && recovered(kind,record.sourceKey)){input.disabled=true;input.checked=false;}
       label.append(input,document.createTextNode(t(root.NIJANAI.MODULES[kind])));options.append(label);
     }
     host.append(options);
@@ -46,7 +46,7 @@
         const key=record?.sourceKey || await root.TACreationRecords.sourceKey(raw);
         const notes=[],previews=[];
         for(const kind of selected){
-          if(recovered(kind,key,record?.workBatch)){notes.push(t('已有这份草稿或作品'));continue;}
+          if(recovered(kind,key)){notes.push(t('已有这份草稿或作品'));continue;}
           if(!report.results[kind]){notes.push(t(root.NIJANAI.MODULES[kind])+' · '+t(report.errors[kind]));continue;}
           const plan=await root.NIJANStudio.recoverWork(kind,report.results[kind],key,record);
           previews.push(plan);notes.push(t('已生成草稿')+' · '+plan.operations[0].value.name);
@@ -57,7 +57,7 @@
           view.type='button';view.className='btn btn-small';view.dataset.noTranslate='';view.onclick=()=>root.NIJANStudio.openDraft(plan.id);
           feedback.append(document.createTextNode(' '),view);
         }
-        for(const input of options.querySelectorAll('input'))if(recovered(input.value,key,record?.workBatch)){input.disabled=true;input.checked=false;}
+        for(const input of options.querySelectorAll('input'))if(recovered(input.value,key)){input.disabled=true;input.checked=false;}
         ui().toast(notes.join(' · '),{kind:previews.length?'success':'info'});
       }catch(error){feedback.textContent=t(error.message);ui().toast(feedback.textContent,{kind:'error'});}
       finally{busy=false;options.disabled=false;if(area)area.readOnly=false;available();}

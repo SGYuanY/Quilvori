@@ -44,6 +44,11 @@ const wait = async (fn,label,...args) => {
 const click = selector=>run(sel=>{ const el=document.querySelector(sel); if(!el||el.disabled)throw new Error('Button unavailable: '+sel); el.click(); },selector);
 const input = (sel,val)=>run((q,v)=>{ const element=document.querySelector(q); element.value=v;element.dispatchEvent(new Event('input',{bubbles:true})); },sel,val);
 const change = (sel,val)=>run((q,v)=>{ const element=document.querySelector(q);element.value=v;element.dispatchEvent(new Event('change',{bubbles:true})); },sel,val);
+function keyPress(keyCode, modifiers=[]) {
+  win.webContents.sendInputEvent({type:'keyDown',keyCode,modifiers});
+  if (keyCode==='Return') win.webContents.sendInputEvent({type:'char',keyCode:'\r',modifiers});
+  win.webContents.sendInputEvent({type:'keyUp',keyCode,modifiers});
+}
 const loaded = ()=>wait(()=>!!document.querySelector('#stage > *'),'initial page');
 const load = async (file='index.html')=>{await win.loadFile(path.join(root,file));await loaded();};
 const menu = ()=>click('[data-shell=settings]');
@@ -494,20 +499,112 @@ async function verifyIntegrityControls() {
     const backup={characters:[{id:'keeper',name:'Keeper',description:'first\nold paragraph\nlast',personality:'from backup'}]};
     TAUI.pickFile=async()=>new File([JSON.stringify(backup)],'draft-backup.json');
   });
+  await run(()=>document.querySelector('#load-backup').focus());
   await click('#load-backup');await wait(()=>document.querySelectorAll('[data-merge-choice]').length===2,'field conflict preview');
-  await run(()=>{document.querySelector('.integrity-conflict details').open=true;});
+  const focused=(selector)=>wait(sel=>document.activeElement.matches(sel),'keyboard focus on '+selector,selector);
+  await focused('.integrity-conflict summary');
+  keyPress('Tab',['shift']);await focused('#modal-root [data-act=no]');
+  keyPress('Tab');await focused('.integrity-conflict summary');
+  keyPress('Return');
   await wait(()=>!!document.querySelector('.integrity-diff mark'),'paragraph differences');
   assert.equal(await run(()=>document.querySelector('.integrity-diff mark').textContent),'current paragraph');
-  await click('#modal-root [data-act=no]');assert.equal(await run(()=>TAUI.state.lib.characters[0].description),'first\ncurrent paragraph\nlast');
+  keyPress('Tab');await focused('select[data-merge-choice]');
+  keyPress('Down');await wait(()=>document.activeElement.value==='backup','backup selection with arrow key');
+  keyPress('Escape');await focused('#load-backup');
+  assert.equal(await run(()=>TAUI.state.lib.characters[0].description),'first\ncurrent paragraph\nlast');
   await click('#load-backup');await wait(()=>!!document.querySelector('[data-merge-choice]'),'second merge preview');
-  await run(()=>{for(const choice of document.querySelectorAll('[data-merge-choice]')){
-    choice.value=choice.dataset.mergeChoice.includes('description')?'copy':'backup';choice.dispatchEvent(new Event('change',{bubbles:true}));
-  }});
-  await click('#modal-root [data-act=merge]');await wait(()=>TAUI.state.lib.characters.length===2,'independent backup copy');
+  for (let index=0; index<2; index++) {
+    await focused('.integrity-conflict summary');
+    keyPress('Tab');await focused('select[data-merge-choice]');
+    const copy=await run(()=>document.activeElement.dataset.mergeChoice.includes('description'));
+    assert.equal(await run(()=>document.activeElement.value),'keep');
+    keyPress(copy?'End':'Down');
+    await wait(value=>document.activeElement.value===value,'keyboard choice',copy?'copy':'backup');
+    keyPress('Tab');
+  }
+  await focused('#modal-root [data-act=merge]');
+  keyPress('Return');await wait(()=>TAUI.state.lib.characters.length===2,'independent backup copy');
+  await focused('#load-backup');
   await load('characters.html');
   assert.deepEqual(await run(()=>TAUI.state.lib.characters.map(card=>[card.description,card.personality,card.backupCopyOf??''])),
     [['first\ncurrent paragraph\nlast','from backup',''],['first\nold paragraph\nlast','from backup','keeper']]);
+  await load('backup.html');
+  await run(async()=>{
+    const current=TAStore.emptyLibrary();
+    current.characters=Array.from({length:31},(_,i)=>({id:'page-'+i,name:'Edition '+i,description:'Local'}));
+    await TAUI.commitLibrary(current);TAUI.renderStage();
+    const file={characters:current.characters.map(card=>({...card,description:'From backup'}))};
+    TAUI.pickFile=async()=>new File([JSON.stringify(file)],'pages.json');
+    document.querySelector('#load-backup').focus();
+  });
+  await click('#load-backup');await focused('.integrity-content button:last-child');
+  keyPress('Return');await focused('.integrity-conflict summary');
+  assert.equal(await run(()=>document.querySelectorAll('[data-merge-choice]').length),1);
+  keyPress('Tab');await focused('select[data-merge-choice]');keyPress('End');
+  await wait(()=>document.activeElement.value==='copy','last-page conflict choice');
+  keyPress('Tab',['shift']);await focused('.integrity-conflict summary');
+  keyPress('Tab',['shift']);await focused('.integrity-content button:first-child');
+  keyPress('Return');await focused('.integrity-conflict summary');
+  assert.equal(await run(()=>document.querySelectorAll('[data-merge-choice]').length),30);
+  keyPress('Tab',['shift']);await focused('.integrity-content button:last-child');
+  keyPress('Return');await focused('.integrity-conflict summary');
+  keyPress('Tab');await focused('select[data-merge-choice]');assert.equal(await run(()=>document.activeElement.value),'copy');
+  keyPress('Escape');await focused('#load-backup');
   log('standalone chat, reference-aware deletion and undo, and reviewed backup alternatives survive a fresh page');
+}
+
+async function verifyAssetReferenceDeletion() {
+  await load('assets.html');
+  const initial=await run(async()=>{
+    const asset={id:'image-fixture',name:'Shared cover',kind:'background',mime:'image/png',
+      dataUrl:'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aZlsAAAAASUVORK5CYII='};
+    const lib=TAStore.normalize({assets:[asset],characters:[{id:'card',name:'Harbor keeper',avatarAssetId:asset.id,expressionAssetIds:[asset.id]}],
+      worldBooks:[{id:'book',name:'Coast',coverAssetId:asset.id,entries:[]}],settings:{chatBackgroundAssetId:asset.id},
+      themes:[{id:'theme',name:'Dusk',kind:'sillytavern',useRoomPalette:false,backgroundAssetId:asset.id,vars:{bg:'#212121'}}],activeThemeId:'theme'});
+    await TAUI.commitLibrary(lib);TAUI.state.sel.asset=asset.id;TAUI.renderStage();
+    return JSON.stringify(TAUI.state.lib.assets[0]);
+  });
+  assert.equal(await run(()=>document.body.classList.contains('st-theme-wallpaper')),true);
+  await click('#del-asset');await wait(()=>document.querySelectorAll('.integrity-references li').length===5,'all image reference locations');
+  assert.ok(await run(()=>['Harbor keeper','Coast','Dusk'].every(name=>document.querySelector('.integrity-references').textContent.includes(name))));
+  await click('#modal-root [data-act=no]');
+  assert.equal(await run(()=>JSON.stringify(TAUI.state.lib.assets[0])),initial);
+  await click('#del-asset');await click('#modal-root [data-act=yes]');
+  await wait(()=>TAUI.state.lib.assets.length===0 && !!document.querySelector('#toasts .toast-action'),'image and reference removal');
+  assert.equal(await run(()=>TALibraryActions.dependencies(TAUI.state.lib,'assets','image-fixture').length),0);
+  assert.equal(await run(()=>document.body.classList.contains('st-theme-wallpaper')),false);
+  await run(()=>TAUI.go('home'));await click('#toasts .toast-action');
+  await wait(()=>TALibraryActions.dependencies(TAUI.state.lib,'assets','image-fixture').length===5,'cross-page image undo');
+  await load('chat.html');
+  assert.equal(await run(()=>JSON.stringify(TAUI.state.lib.assets[0])),initial);
+  assert.equal(await run(()=>document.body.classList.contains('st-theme-wallpaper')),true);
+  log('asset confirmation, reference preview, cancellation, cross-page undo and active wallpaper survive reload');
+}
+
+async function verifyLinkUndoReferences() {
+  await load('characters.html');
+  await run(async()=>{
+    await TAUI.commitLibrary(TAStore.emptyLibrary());TAUI.renderStage();
+    const card={spec:'chara_card_v2',data:{name:'Beacon keeper',description:'Guards the harbor.',
+      character_book:{name:'Beacon log',entries:[{keys:['light'],content:'The light stays on.'}]}}};
+    TALinkImport.download=async url=>({url,filename:'beacon.json',bytes:new TextEncoder().encode(JSON.stringify(card))});
+  });
+  await click('[data-card-link-import]');await input('[data-link-url]','https://example.com/beacon.json');
+  await click('[data-link-form] button[type=submit]');await wait(()=>!!document.querySelector('[data-link-apply]'),'linked card preview');
+  await click('[data-link-apply]');await wait(()=>TAUI.state.lib.characters.length===1 && !!document.querySelector('.toast-action'),'linked card saved');
+  await run(async()=>{
+    const lib=structuredClone(TAUI.state.lib);
+    lib.quickReplySets.push({id:'later-replies',name:'Beacon questions',workSource:{characterId:lib.characters[0].id,bookId:lib.worldBooks[0].id},replies:[]});
+    await TAUI.commitLibrary(lib);
+  });
+  await click('#toasts .toast-action');
+  await wait(()=>document.querySelector('#toasts [role=alert]')?.textContent.includes('Beacon questions'),'actual referring work in undo feedback');
+  await load('quick.html');
+  assert.equal(await run(()=>{
+    const lib=TAUI.state.lib,source=lib.quickReplySets[0].workSource;
+    return lib.characters.some(c=>c.id===source.characterId) && lib.worldBooks.some(b=>b.id===source.bookId);
+  }),true);
+  log('undoing a link import names a later quick-reply set and preserves its card and book after reload');
 }
 
 async function verifyConfirmedDeletion() {
@@ -572,6 +669,40 @@ async function verifyRestart() {
   assert.match(await run(()=>document.querySelector('.folder-import-report').textContent),/bad\.jsonl/);
   assert.equal(await run(()=>TAUI.state.lib.characters[0].name),'Bulk fixture');
   log('the directory picker previews counts and imports valid siblings of a broken chat');
+  const portraits=await run(async()=>{
+    const canvas=document.createElement('canvas');canvas.width=canvas.height=12;
+    const ctx=canvas.getContext('2d',{willReadFrequently:true}),key='/fixture/Painter.png';
+    function png(color){
+      ctx.fillStyle=color;ctx.fillRect(0,0,12,12);
+      const bytes=Uint8Array.from(atob(canvas.toDataURL('image/png').split(',')[1]),c=>c.charCodeAt(0));
+      return TAPng.embedChara(bytes,JSON.stringify({name:'Painter',description:'Source edition'}));
+    }
+    let image=png('red');
+    const adapter={list:async()=>[{full:key,name:'Painter.png'}],read:async()=>image};
+    const scan=()=>TAUI.readFolders({cards:'/fixture'},{adapter});
+    const first=await scan(), old=TAUI.state.lib.characters.find(c=>c.id===first.firstCardId);
+    old.description='Edited on this device';TAUI.markDirty('characters',old.id);await TAUI.flush();
+    image=png('blue');
+    const save=TAStore.save;
+    TAStore.save=(...args)=>{TAStore.save=save;throw new DOMException('Synthetic capacity failure','QuotaExceededError');};
+    let changed;
+    try { changed=await scan(); } finally { TAStore.save=save; }
+    document.querySelector('[data-toast-id="folder-import"] .toast-action').click();
+    if (TAUI.state.route!=='characters' || TAUI.state.sel.character!==changed.firstCardId) throw Error('The scan opened the wrong edition');
+    const recovered=await scan(), repeated=await scan(), lib=TAUI.state.lib, editions=lib.characters.filter(c=>c.name==='Painter');
+    const colors=[];
+    for(const edition of editions){
+      const stored=lib.assets.find(a=>a.id===edition.avatarAssetId);
+      const img=new Image();img.src=stored.dataUrl;await img.decode();ctx.drawImage(img,0,0);
+      const [r,,b]=ctx.getImageData(0,0,1,1).data;
+      colors.push([edition.description,stored.mime,r>b?'red':'blue']);
+    }
+    return {imported:changed.cards,omitted:changed.avatarsOmitted,retried:recovered.cards,repeated:repeated.cards,colors,
+      latest:lib.settings.folderImports[key.toLowerCase()].id===editions[1].id};
+  });
+  assert.deepEqual(portraits,{imported:1,omitted:1,retried:0,repeated:0,latest:true,
+    colors:[['Edited on this device','image/jpeg','red'],['Source edition','image/jpeg','blue']]});
+  log('folder scans preserve manually edited red and new blue PNG editions, including a retry after a storage quota failure');
   await adoptRestartedPair();
   await run(async()=>{await TAUI.commitLibrary(TAStore.normalize(TAStore.demoLibrary()));});
   const pages=require('node:fs').readdirSync(root).filter(name=>name.endsWith('.html'));
@@ -587,6 +718,8 @@ async function verifyRestart() {
   await verifyImageBatches();
   await verifyMemoryAndBackupImports();
   await verifyConfirmedDeletion();
+  await verifyAssetReferenceDeletion();
+  await verifyLinkUndoReferences();
   await verifyIntegrityControls();
   assert.deepEqual(errors,[]);
 }

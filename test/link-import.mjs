@@ -7,7 +7,7 @@ import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 const require=createRequire(import.meta.url),{createDownloader,isPublicAddress}=require('../electron/remote-import');
 const context=vm.createContext({console,JSON,TextEncoder,TextDecoder,Uint8Array,Uint32Array,DataView,URL,crypto:webcrypto,structuredClone,btoa,atob,Date,Map,Set,AbortController,setTimeout,clearTimeout,fetch:()=>{throw Error('No live network in import tests');}});
-for(const file of ['png','formats','store','link-import','ai-tasks'])vm.runInContext(fs.readFileSync(new URL(`../js/${file}.js`,import.meta.url),'utf8'),context,{filename:file});
+for(const file of ['png','formats','store','library-actions','link-import','ai-tasks'])vm.runInContext(fs.readFileSync(new URL(`../js/${file}.js`,import.meta.url),'utf8'),context,{filename:file});
 const L=context.TALinkImport,S=context.TAStore,A=context.NIJANAI,encode=value=>new TextEncoder().encode(JSON.stringify(value)),native=value=>JSON.parse(JSON.stringify(value));
 const source='https://example.com/books/book.json?download=1',entry={uid:7,comment:'规矩',content:'听雨楼夜里不劝酒。',key:[],keysecondary:['夜里'],constant:true,selective:true,disable:true,position:4,depth:9,order:407};
 const world=()=>({name:'听雨楼志',entries:{7:{...entry}}}),file=value=>({url:source,filename:'book.json',bytes:encode(value)});
@@ -69,6 +69,27 @@ await test('card undo refuses to remove an avatar or embedded book referenced by
  const pixel=Uint8Array.from(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aZlsAAAAASUVORK5CYII=','base64'));
  const card={spec:'chara_card_v2',data:{name:'店主',description:'人物资料',character_book:{name:'设定',entries:[entry]}}},library=S.emptyLibrary(),preview=await L.prepare({url:'https://example.com/card.png',bytes:context.TAPng.embedChara(pixel,JSON.stringify(card))},{kind:'character'}),receipt=A.commit(library,L.plan(library,preview,'店主'));
  library.characters.push({...library.characters[0],id:'later_card'});assert.throws(()=>L.undo(library,receipt),err=>err.code==='import-in-use');assert.equal(library.assets.length,1);assert.equal(library.worldBooks.length,1);
+});
+await test('link undo checks surviving quick replies for a card, its companion book or both without partially rolling back',async()=>{
+ const card={spec:'chara_card_v2',data:{name:'Keeper',description:'Port',character_book:{name:'Harbor',entries:[entry]}}};
+ const prepared=await L.prepare(file(card),{kind:'character'}),lib=S.emptyLibrary(),receipt=A.commit(lib,L.plan(lib,prepared,'Keeper'));
+ const cardId=lib.characters[0].id,bookId=lib.worldBooks[0].id;
+ for(const source of [{characterId:cardId},{bookId},{characterId:cardId,bookId}]){
+  const live=structuredClone(lib);live.quickReplySets.push({id:'later',name:'Harbor replies',workSource:source,replies:[]});
+  const snapshot=JSON.stringify(live);
+  assert.throws(()=>L.undo(live,receipt),e=>e.code==='import-in-use' && e.references.every(ref=>ref.location.includes('Harbor replies')));
+  assert.equal(JSON.stringify(live),snapshot);
+ }
+ L.undo(lib,receipt);assert.equal(lib.characters.length,0);assert.equal(lib.worldBooks.length,0);
+ const existing=S.emptyLibrary();A.commit(existing,L.plan(existing,prepared,'Keeper',{includeBook:false}));
+ const next=L.plan(existing,prepared,'Keeper'),attached=A.commit(existing,next),retainedCard=existing.characters[0].id;
+ const replies={id:'other',name:'Keep replies',workSource:{characterId:retainedCard},replies:[]};
+ existing.quickReplySets.push(replies);
+ replies.workSource.bookId=next.bookId;assert.throws(()=>L.undo(existing,attached),e=>e.code==='import-in-use');
+ delete replies.workSource.bookId;
+ L.undo(existing,attached);assert.equal(existing.characters[0].id,retainedCard);
+ assert.equal(existing.characters[0].source.embeddedBookId,undefined);assert.equal(existing.worldBooks.length,0);
+ assert.equal(existing.quickReplySets[0].workSource.characterId,retainedCard);
 });
 await test('oversized avatars are omitted while invalid embedded books do not block valid card text',async()=>{
  const pixel=Uint8Array.from(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aZlsAAAAASUVORK5CYII=','base64'));

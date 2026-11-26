@@ -102,12 +102,21 @@
     return { close: dismiss, element: node };
   }
 
+  function dialogTabStops(modal) {
+    const selector = 'button,input,select,textarea,a[href],summary,[tabindex],[contenteditable="true"]';
+    return [...modal.querySelectorAll(selector)].filter(node =>
+      node.tabIndex >= 0 && !node.matches(':disabled') && !node.closest('[hidden],[inert]') &&
+      node.getClientRects().length && getComputedStyle(node).visibility === 'visible'
+    ).sort((a, b) => (a.tabIndex || Number.MAX_SAFE_INTEGER) - (b.tabIndex || Number.MAX_SAFE_INTEGER));
+  }
+
   function ask({ title, body, actions, swipe, content }) {
     return new Promise((resolve) => {
       const host = document.getElementById('modal-root');
+      const opener = document.activeElement;
       host.classList.add('show');
-      host.innerHTML = `<div class="modal paper" role="dialog" aria-modal="true">
-        <h3>${esc(title)}</h3>
+      host.innerHTML = `<div class="modal paper" role="dialog" aria-modal="true" aria-labelledby="confirm-dialog-title">
+        <h3 id="confirm-dialog-title">${esc(title)}</h3>
         <p>${esc(body)}</p>
         ${swipe ? `<div class="swipe" data-swipe="${esc(swipe)}"><i class="swipe-knob"></i><span>${esc(swipe)}</span></div>` : ''}
         <div class="row">${actions.map((action) => `<button type="button" class="btn ${action.kind || ''}" data-act="${esc(action.id)}">${esc(action.label)}</button>`).join('')}</div>
@@ -117,11 +126,20 @@
         host.querySelector('.modal > p').after(content);
       }
       const finish = (value) => {
+        host.onclick = host.onkeydown = null;
         host.classList.remove('show');
         host.innerHTML = '';
+        if (opener?.isConnected) opener.focus({preventScroll:true});
         resolve(value);
       };
       host.onclick = (event) => { if (event.target === host) finish(null); };
+      host.onkeydown = (event) => {
+        if (event.key === 'Escape' && !event.defaultPrevented && !event.isComposing) {
+          event.preventDefault();
+          event.stopPropagation();
+          finish(null);
+        }
+      };
       host.querySelectorAll('[data-act]').forEach((button) => {
         button.onclick = () => finish(button.dataset.act);
       });
@@ -151,7 +169,7 @@
         };
       }
       if (root.TAI18n) root.TAI18n.localize(host);
-      host.querySelector('[data-act]')?.focus();
+      dialogTabStops(host)[0]?.focus();
     });
   }
 
@@ -353,11 +371,28 @@
       const guard = () => version===editVersion;
       const scopes=options.scopes && !dirtyWholeLibrary && (prior==='saved' || dirtyScopes.size) ?
         [...dirtyScopes.values(),...options.scopes] : undefined;
-      const warning = clearVersions ? await TAStore.erase(candidate,guard) : await TAStore.save(candidate,guard,snapshots,draft,scopes,options.restore);
+      const transfer=options.transfer;
+      if(transfer && !root.TALibraryDB?.database())throw new Error('完整工作状态需要 IndexedDB');
+      if(transfer && (root.NIJANStudio?.running() || root.TATaskActivity?.pending() || root.NIJANOrganizePanel?.running())) {
+        throw new Error('请先结束正在运行的任务，再恢复工作状态。');
+      }
+      const warning = clearVersions ? await TAStore.erase(candidate,guard) : await TAStore.save(candidate,guard,snapshots,draft,scopes,options.restore,transfer);
       if (version !== editVersion) throw new Error('资料库已变化，请重新打开。');
       state.lib = candidate; state.save = 'saved';
       resetDirty();
       if(draft)root.TAStudioDrafts.committed(draft);
+      if(transfer){
+        if(transfer.mode==='replace'){
+          root.NIJANStudio?.resetAfterClear?.();
+          root.NIJANModel?.clearHistory();
+          root.TATaskActivity?.clear();
+          root.NIJANOrganizePanel?.clear();
+        }
+        root.TAStudioDrafts.replace(transfer.data.drafts,transfer.epoch);
+        root.TACreationRecords.replace(transfer.data.records,transfer.epoch);
+        if(transfer.mode==='merge')root.NIJANStudio?.refreshSavedDrafts();
+        root.dispatchEvent(new Event('quilvori-drafts'));
+      }
       if(clearVersions){
         state.replyReference=null;state.regexExamples=null;state.journalScope=null;state.journalJump=null;state.lab='';
         root.TAThemeWorkshop?.reset();root.NIJANModel?.clearHistory();root.TATaskActivity?.clear();root.NIJANOrganizePanel?.clear();root.TAStudioDrafts?.reset();root.NIJANStudio?.resetAfterClear?.();
@@ -629,7 +664,13 @@
         const oldAssets = new Set(state.lib.assets.map((item) => item.id));
         const importedAvatars = new Set(result.library.assets.filter((item) => !oldAssets.has(item.id)).map((item) => item.id));
         result.library.assets = result.library.assets.filter((item) => !importedAvatars.has(item.id));
-        result.library.characters.forEach((card) => { if (importedAvatars.has(card.avatarAssetId)) { card.avatarAssetId = null; result.report.avatarsOmitted++; } });
+        result.library.characters.forEach((card) => {
+          if (importedAvatars.has(card.avatarAssetId)) {
+            card.avatarAssetId = null;
+            card.folderAvatarPending = true;
+            result.report.avatarsOmitted++;
+          }
+        });
         await commit();
       }
       const report = result.report;
@@ -637,7 +678,11 @@
       if (report.firstCardId) { state.sel.character ||= report.firstCardId; state.sel.checkChar ||= report.firstCardId; }
       if (report.firstBookId) state.sel.book ||= report.firstBookId;
       const message = (root.TAI18n ? root.TAI18n.t('folder.readResult', report) : `已导入 ${report.cards} 张角色卡、${report.books} 本世界书；${report.unchanged} 个文件已读过。`);
-      toast(message + (sourcePaths.chats ? ' · '+report.chats+' '+tChat() : ''), { id: 'folder-import', kind: report.failed.length ? 'warning' : 'success', duration: 10000 });
+      toast(message + (sourcePaths.chats ? ' · '+report.chats+' '+tChat() : ''), {
+        id:'folder-import', kind:report.failed.length ? 'warning' : 'success', duration:10000,
+        action:report.updatedCardId && {label:root.TAUI.t('查看新版角色卡'), onClick:()=>
+          root.TASearch.open({kind:'character',id:report.updatedCardId,field:'name',selectOnly:true})},
+      });
       renderStage();
       if (report.failed.length || report.avatarsOmitted) {
         const info = document.createElement('details'); info.className = 'paper folder-import-report';
@@ -1086,9 +1131,11 @@
       const t = key => esc(root.TAI18n.t(key));
       app.innerHTML = `<main class="paper recovery"><h1>${t('恢复本机资料库')}</h1><p>${t(loaded.missing ? '未找到已迁移的资料库。请选择备份恢复。' : '存档无法读取。先下载原始数据，再选择可用的备份。')}</p><div class="row">${loaded.missing ? '' : '<button class="btn" data-rescue>'+t('下载原始存档')+'</button>'}<button class="btn" data-file>${t('从备份恢复')}</button>${loaded.previous ? '<button class="btn" data-previous>' + t('恢复上次保存') + '</button>' : ''}</div><p role="status"></p></main>`;
       app.querySelector('[data-rescue]')?.addEventListener('click',()=>downloadText('Quilvori-recovery.json', loaded.raw));
-      const restore = async library => {
+      const restore = async (library,workState=null) => {
+        const baseline=workState ? await root.TALibraryDB.replacementGuard() : null;
         if (!window.confirm(root.TAI18n.t('用选中的备份恢复资料库？'))) return;
-        await TAStore.recover(loaded.raw, library);
+        const transfer=workState ? root.TAWorkBackup.transfer(baseline,workState,'replace') : null;
+        await TAStore.recover(loaded.raw, library,transfer);
         location.reload();
       };
       const run = async action => {
@@ -1099,7 +1146,8 @@
         const file = await pickFile('.json,application/json');
         if (file) {
           const data = JSON.parse((await file.text()).replace(/^\uFEFF/,''));
-          await restore(data?.atelier ? root.TAFormats.backupLibrary(data) : TAStore.verify(data));
+          const backup=root.TAFormats.readBackup(data);
+          await restore(TAStore.verify(backup.library),backup.workState);
         }
       });
       app.querySelector('[data-previous]')?.addEventListener('click', () => run(() => restore(loaded.previous)));
@@ -1338,7 +1386,7 @@
   }
 
   root.TAUI = {
-    ROUTES, state, esc, toast, ask, downloadBlob, downloadText, downloadJson, pickFile, readText, readDataUrl, copyText,
+    ROUTES, state, esc, toast, ask, dialogTabStops, downloadBlob, downloadText, downloadJson, pickFile, readText, readDataUrl, copyText,
     safeName, assetById, charById, selected, matchQuery, markDirty, flush, commitLibrary, applyTheme, ensureTheme, go, openAddress, renderStage, show, flyPlane,
     openSettings, field, fold, mountFolds, area, text, bindFields, picker, bindPicker, empty, confirmLoadDemo, confirmClear, mount,
     t: (key, vars) => (root.TAI18n ? root.TAI18n.t(key, vars) : key),

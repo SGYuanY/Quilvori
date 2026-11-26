@@ -93,6 +93,11 @@
       /* Preview remains in memory if the tab quota is full. */
     }
   }
+  function refreshSavedDrafts(){
+    if(!state)return;
+    state.plans=root.TAStudioDrafts.rehydrate(state.plans);
+    persist();
+  }
   function card() {
     return lib().characters.find((item) => item.id === data().cardId) || null;
   }
@@ -1628,7 +1633,10 @@
   }
   async function recoverWork(kind,result,sourceKey,record) {
     if(controller)throw new Error('已有任务正在运行，可先打开其他栏目。');
-    const batchId=record?.workBatch || 'recovered_'+sourceKey;
+    // The same batch can contain different responses after two devices edited offline.
+    const shelf=root.TAStudioDrafts,peer=shelf.pending().find(({plan})=>plan.sourceKey===sourceKey);
+    const preferred=peer?.plan.batchId || record?.workBatch || 'recovered_'+sourceKey;
+    const batchId=shelf.findSaved(preferred,kind) ? root.TAStore.uid('recovery') : preferred;
     const inputs={brief:record?.workBrief || '',modules:record?.workKinds || [kind]};
     const plan=root.TACreativeBatch.plan(structuredClone(lib()),kind,result,{brief:inputs.brief},{batchId,inputs,sourceKey});
     await root.TAStudioDrafts.keep(plan);
@@ -1660,7 +1668,7 @@
     node?.querySelector("[data-apply]")?.focus({preventScroll:true});
   }
   root.NIJANStudio = {
-    render, openFor, openDraft, recoverWork, migrateSessionDrafts,
+    render, openFor, openDraft, recoverWork, migrateSessionDrafts, refreshSavedDrafts,
     resetAfterClear:()=>{cancel();state=null;root.TACreativeRecovery?.clear();try{sessionStorage.removeItem(KEY);}catch(_){}}, running:()=>!!controller,
     entryTitle,
     cardContent,

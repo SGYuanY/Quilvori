@@ -1140,7 +1140,6 @@
         <button type="button" class="btn" id="set-exp">加入表情</button>
         <button type="button" class="btn" id="set-bg">设为聊天背景</button>
         <button type="button" class="btn btn-danger" id="del-asset">删除素材</button>
-        <p class="help">删除后，用到它的头像和背景会空出来。</p>
       </div>`;
       UI.bindFields(side, current, null,['assets',current.id,'metadata']);
       side.querySelector('#set-avatar').onclick = () => {
@@ -1166,18 +1165,7 @@
         UI.markDirty('settings'); UI.markDirty('assets',current.id,'metadata');
         UI.toast('聊天背景已换上');
       };
-      side.querySelector('#del-asset').onclick = () => {
-        lib.assets = lib.assets.filter((item) => item.id !== current.id);
-        lib.characters.forEach((character) => {
-          if (character.avatarAssetId === current.id) character.avatarAssetId = null;
-          character.expressionAssetIds = (character.expressionAssetIds || []).filter((id) => id !== current.id);
-        });
-        if (lib.settings.chatBackgroundAssetId === current.id) lib.settings.chatBackgroundAssetId = null;
-        for(const theme of lib.themes)if(theme.backgroundAssetId===current.id)theme.backgroundAssetId='';
-        UI.state.sel.asset = null;
-        UI.markDirty();
-        UI.renderStage();
-      };
+      side.querySelector('#del-asset').onclick = () => deleteWork('assets',current,'删除图片会解除使用它的引用。删除后可在提示中撤销。');
     }
     paintSide();
   }
@@ -1590,7 +1578,7 @@
       const findings = F.checkConsistency(scopedLibrary, context.card.id, context.book?.id);
       const report = (lib.settings.aiReviews || []).findLast((item) => item.cardId === context.card.id && (item.bookId || null) === (context.book?.id || null));
       const stale = !!report && report.source !== JSON.stringify({card:context.card,book:root.NIJANAI.reviewBook(context.book,report.entryIds)});
-      UI.state.lastFindings = {character: context.card.name, book: context.book?.name || null, localFindings: findings, aiReview: report ? Object.assign({}, report, {stale}) : null};
+      UI.state.lastFindings = {character: context.card.name, book: context.book?.name || null, localFindings: findings, aiReview: report ? {...root.NIJANReview.gradedReport(report, lib), stale} : null};
       reportHost.innerHTML = report ? `<section class="paper ai-review"><h3>AI 检查报告</h3><p class="help">${report.entryIds ? `仅检查选中的 ${report.entryIds.length} 条世界书条目，不能代表整本书。` : "检查范围为所选角色卡与整本对照世界书。"}</p><p class="help">${UI.esc(new Date(report.createdAt).toLocaleString())}</p>${stale ? '<p class="banner">报告基于之前的稿件，原文已变化，请重新检查。</p>' : ''}${root.NIJANReview.html(report,lib)}</section>` : '<p class="help">当前选择还没有 AI 检查报告。</p>';
       root.NIJANReview.bind(reportHost,report);
       UI.fillLesson(stage.querySelector('#check-lesson'), [
@@ -1760,20 +1748,50 @@
       if (!file) return;
       try {
         const data = await parseJsonFile(file);
-        const incoming = data?.atelier ? F.backupLibrary(data) : data;
+        const {library:incoming,workState}=F.readBackup(data);
         const normalized = Store.verify(incoming);
         const atConfirmation = structuredClone(backupContent(UI.state.lib));
-        let plan,review,mergeError='';
-        try {
-          plan=root.TABackupReview.plan(UI.state.lib,incoming);
-          review=root.TAIntegrityPanel.review(plan);
-        } catch(error) {
-          mergeError=UI.t(error.message);
+        let baseline,plan,review,mergeError='';
+        if(workState){
+          try {baseline=await root.TALibraryDB.workingState();}
+          catch (_) {baseline=await root.TALibraryDB.replacementGuard();mergeError=UI.t('本机工作记录无法读取。可以选择完整替换，或取消恢复。');}
+        }
+        if(!mergeError){
+          try {
+            plan=root.TABackupReview.plan(UI.state.lib,incoming);
+            review=root.TAIntegrityPanel.review(plan);
+          } catch(error) {mergeError=UI.t(error.message);}
+        }
+        const content=review?.content || document.createElement('div');
+        if(workState){
+          const count=(s)=>UI.t('草稿 {d} · 快照 {v} · 作品保留策略 {p} · 模型返回 {r}',{d:s.drafts.length,v:s.versions.length,p:s.limits.length,r:s.records.length});
+          const details=document.createElement('section');details.className='stack';
+          const lines=[UI.t('备份内的工作状态')+' · '+count(workState)];
+          if(baseline.state)lines.push(UI.t('当前设备的工作状态')+' · '+count(baseline.state));
+          lines.push(UI.t('替换会用备份中的草稿、快照、保留策略和返回记录替换本机对应资料。'));
+          if(review)lines.push(UI.t('合并保留双方不同的内容。同编号异文的草稿和返回记录另存，快照保留范围取较宽值。'));
+          for(const value of lines){
+            const p=document.createElement('p');p.textContent=value;details.append(p);
+          }
+          if(plan){
+            const lite=s=>({...s,versions:[],limits:[]});
+            const {copies}=root.TAWorkBackup.merge(lite(baseline.state),lite(workState),plan.proposed);
+            if(copies.length){
+              const box=document.createElement('details'),summary=document.createElement('summary'),list=document.createElement('ul');
+              summary.textContent=UI.t('合并时另存的工作记录')+' · '+copies.length;
+              for(const name of copies){const li=document.createElement('li');li.dataset.noTranslate='';li.textContent=name;list.append(li);}
+              box.append(summary,list);details.append(box);
+            }
+          }
+          content.prepend(details);
+        }else{
+          const note=document.createElement('p');note.textContent=UI.t('此旧版备份只含作品。已有的草稿、版本历史和模型返回记录将保留。');
+          content.prepend(note);
         }
         const answer = await UI.ask({
           title: '恢复这份备份',
           body: `${UI.t('角色卡')} · ${normalized.characters.length}    ${UI.t('世界书')} · ${normalized.worldBooks.length}\n${mergeError || UI.t('合并前逐项对比差异；替换会用备份覆盖整个资料库。')}`,
-          content:review?.content,
+          content,
           actions: [
             ...(review?[{ id: 'merge', label: '合并进来', kind: 'btn-primary' }]:[]),
             { id: 'replace', label: '替换当前库', kind: 'btn-danger' },
@@ -1782,18 +1800,26 @@
         });
         if (answer !== 'replace' && answer !== 'merge') return;
         const live = UI.state.lib;
-        const candidate = answer === 'replace' ? normalized : root.TABackupReview.apply(plan,review.choices,live);
+        const copies=new Map();
+        const candidate = answer === 'replace' ? normalized : root.TABackupReview.apply(plan,review.choices,live,copies);
         const currentContent = backupContent(live);
         const stale = answer === 'replace'
           ? JSON.stringify(atConfirmation) !== JSON.stringify(currentContent)
           : discardsRecentEdit(atConfirmation,currentContent,backupContent(candidate));
         if (stale) throw new Error('资料库已变化，请重新打开。');
-        await UI.commitLibrary(candidate);
+        let transfer;
+        if(workState){
+          const state=answer==='replace'?workState:root.TAWorkBackup.merge(baseline.state,workState,candidate,copies).state;
+          transfer=root.TAWorkBackup.transfer(baseline,state,answer);
+        }
+        const keepFocus=document.activeElement===stage.querySelector('#load-backup');
+        await UI.commitLibrary(candidate,[],false,null,{transfer});
         if(answer==='replace')root.TAIntegrityPanel.resetUndo();
         UI.state.loreUndo?.clear();
         UI.applyTheme();
         UI.toast(answer === 'replace' ? '已替换为备份' : '已合并备份');
         UI.renderStage();
+        if(keepFocus)document.querySelector('#load-backup')?.focus();
       } catch (error) { UI.toast(UI.t(error.message),{kind:'error'}); }
     }
     stage.querySelector('#migration-backup')?.addEventListener('click',async () => {
@@ -1803,12 +1829,35 @@
         UI.downloadText('Quilvori-before-migration.json',raw);
       } catch (error) { UI.toast(UI.t(error.message),{kind:'error'}); }
     });
-    stage.querySelector('#save-backup').onclick = () => {
-      const date = new Date().toISOString().slice(0, 10);
-      const filename = `叙翎集-备份-${date}.json`;
-      UI.downloadJson(filename, F.backupOf(lib));
-      UI.toast('整库已导出');
-      UI.showExport(filename, '整库 JSON。回到「整库备份」，拖进来再选替换或合并。');
+    stage.querySelector('#save-backup').onclick = async event => {
+      const button=event.currentTarget;button.disabled=true;
+      try{
+        let packet;
+        if(root.TALibraryDB.database()){
+          try{
+            if(await UI.flush()){
+              const snapshot=await root.TALibraryDB.workingState(true);
+              packet=F.backupOf(snapshot.library,snapshot.state);
+            }else{
+              const proceed=await UI.ask({title:'当前改动尚未写入',body:'可将当前窗口的作品和设备中已保存的工作记录导出到同一文件。',
+                actions:[{id:'export',label:'导出当前窗口'},{id:'cancel',label:'取消'}]});
+              if(proceed!=='export')return;
+              const library=structuredClone(UI.state.lib),snapshot=await root.TALibraryDB.workingState(false,true);
+              packet=F.backupOf(library,snapshot.state);
+            }
+          }catch(error){
+            const choice=await UI.ask({title:'无法读取完整工作状态',body:UI.t(error.message),
+              actions:[{id:'works',label:'仅导出当前作品库'},{id:'cancel',label:'取消'}]});
+            if(choice!=='works')return;
+            packet=F.backupOf(UI.state.lib,null);
+          }
+        }else packet=F.backupOf(UI.state.lib,null);
+        const date = new Date().toISOString().slice(0, 10);
+        const filename = `叙翎集-备份-${date}.json`;
+        UI.downloadJson(filename,packet);
+        UI.toast(packet.workState?'整库已导出':UI.t('已导出作品库，文件仅含当前作品。'));
+        UI.showExport(filename, '整库 JSON。回到「整库备份」，拖进来再选替换或合并。');
+      }catch(error){UI.toast(UI.t(error.message),{kind:'error'});}finally{button.disabled=false;}
     };
     stage.querySelector('#load-backup').onclick = async () => restoreFile(await UI.pickFile('.json,application/json'));
     stage.querySelector('#backup-demo').onclick = UI.confirmLoadDemo;
@@ -1986,24 +2035,41 @@
       UI.toast(message, {kind});
       UI.showExport(cardReceipt?.filename || pack.name, [cardReceipt?.message, message].filter(Boolean).join(' '));
     };
-    const files = pack.stickers || [];
-    if (!files.length) {
+    const stickers = pack.stickers || [];
+    if (!stickers.length) {
       report(UI.t('这套表情包里还没有图片。'), 'info');
       return;
     }
+    const failureText = err => {
+      const key = {
+        'invalid-expression-folder':'请先设置人物卡文件夹，再导出表情。',
+        'invalid-expression-name':'export.expressionData','invalid-expression-export':'export.expressionData',
+        'duplicate-expression-name':'export.expressionData','invalid-expression-image':'export.expressionData',
+        'unsafe-expression-file':'export.expressionTarget','invalid-expression-path':'export.expressionTarget',
+        'expression-changed':'export.expressionChanged','expression-busy':'export.expressionBusy',
+        'expression-filesystem':'export.expressionFilesystem','expression-recovery':'export.expressionRecovery',
+      }[err?.code];
+      return key ? UI.t(key,{path:err.recovery || err.file || characterName}) : UI.t(err?.reason || err?.message || 'write-failed');
+    };
     try {
+      const files = root.TAStBundle.expressionFiles(characterName,stickers);
       if (root.nijanDesktop) {
         const paths = await root.nijanDesktop.getPaths();
         if (!paths?.cards) {
           report(UI.t('请先设置人物卡文件夹，再导出表情。'), 'warning');
           return;
         }
-        const dest = await root.nijanDesktop.writeExpressions({folder:paths.cards, character:characterName, files});
+        const dest = await root.nijanDesktop.writeExpressions({folder:paths.cards,character:characterName,files,lang:root.TAI18n?.prefs.lang});
         if (!dest || dest.canceled) {
           report(UI.t('已取消表情导出。'), 'info');
           return;
         }
-        report(UI.t('export.expressionsWritten', {count:files.length, path:dest}), 'success');
+        if(dest.ok===false){
+          report(UI.t('export.expressionsFailed',{reason:failureText(dest)}),'error');
+          return;
+        }
+        const written=UI.t('export.expressionsWritten',{count:files.length,path:dest.directory || dest});
+        report(dest.cleanup?written+' '+UI.t('export.expressionCleanup',{path:dest.cleanup}):written,dest.cleanup?'warning':'success');
         return;
       }
       for (const sticker of files) {
@@ -2016,7 +2082,7 @@
       report(UI.t('export.expressionsRequested', {count:files.length, path:`${characterName}/expressions`}), 'info');
     } catch (error) {
       if (error.name === 'AbortError') report(UI.t('已取消表情导出。'), 'info');
-      else report(UI.t('export.expressionsFailed', {reason:UI.t(error.message)}), 'error');
+      else report(UI.t('export.expressionsFailed', {reason:failureText(error)}), 'error');
     }
   }
 

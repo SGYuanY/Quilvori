@@ -1,6 +1,7 @@
 /* Preview and import bounded raster wallpapers into the private local asset library. */
 (function (root) {
   'use strict';
+  const libraryActions = typeof module !== 'undefined' && module.exports ? require('./library-actions') : root.TALibraryActions;
   const MAX_BYTES = 12 * 1024 * 1024, MAX_SAVED_BYTES = 500 * 1024, MAX_LIBRARY_SIZE = 4.2 * 1024 * 1024;
   const fail = code => Object.assign(new Error(code), { code });
   const checkAbort = signal => { if (signal?.aborted) throw fail('cancelled'); };
@@ -115,7 +116,8 @@
   function undo(library, receipt) {
     const asset = (library.assets || []).find(item => item.id === receipt.assetId);
     if (!asset) return copy(library);
-    if (library.settings?.chatBackgroundAssetId === asset.id || (library.themes || []).some(theme=>theme.backgroundAssetId===asset.id) || (library.characters || []).some(card => card.avatarAssetId === asset.id || (card.expressionAssetIds || []).includes(asset.id))) throw fail('import-in-use');
+    const references=libraryActions.dependencies(library,'assets',asset.id);
+    if (references.length) throw Object.assign(fail('import-in-use'),{references});
     if (JSON.stringify(asset) !== receipt.snapshot) throw fail('wallpaper-edited');
     const next = copy(library); next.assets = next.assets.filter(item => item.id !== asset.id); return next;
   }
@@ -132,9 +134,11 @@
     'wallpaper-confirm-source': '请先确认图片来自上述作者原帖，再保存到素材库。',
     'wallpaper-capacity': '本地素材库空间不足，请先导出备份或清理不需要的素材。',
     'wallpaper-edited': '这张壁纸导入后已被修改，不能直接撤销。',
-    'import-in-use': '这张图片已被角色或聊天背景使用，请先取消引用再撤销。',
+    'import-in-use': '导入的内容已有其他引用，请先处理相关引用再撤销。',
   };
-  const message = error => messages[error?.code] ? tr(messages[error.code]) : root.TALinkImportPanel?.message(error) || tr(error.message || '图片没有读进来。');
+  const message = error => error?.code==='import-in-use' && root.TALinkImportPanel
+    ? root.TALinkImportPanel.message(error)
+    : messages[error?.code] ? tr(messages[error.code]) : root.TALinkImportPanel?.message(error) || tr(error.message || '图片没有读进来。');
   let session = null;
   function close() {
     if (!session) return;

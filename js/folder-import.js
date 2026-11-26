@@ -76,13 +76,133 @@
     return {buckets, paths:{cards:'cards',worlds:'worlds',chats:'chats'},
       list:async kind=>buckets[kind], read:async path=>new Uint8Array(await byPath.get(path).arrayBuffer())};
   }
+  const digest = async bytes => [...new Uint8Array(await root.crypto.subtle.digest('SHA-256', bytes))]
+    .map(byte => byte.toString(16).padStart(2, '0')).join('');
+  function portraitDigest(bytes) {
+    // Ignore card text and editor annotations. Keep image, palette, transparency and color-profile data.
+    const chunks = root.TAPng.parseChunks(bytes).filter(c => !['tEXt','iTXt','zTXt','tIME'].includes(c.type));
+    const image = new Uint8Array(chunks.reduce((size, c) => size + c.raw.length, 0));
+    let offset = 0;
+    for (const {raw} of chunks) { image.set(raw, offset); offset += raw.length; }
+    return digest(image);
+  }
+  function pngAvatar(bytes) {
+    let binary = '';
+    for (let offset = 0; offset < bytes.length; offset += 32768) binary += String.fromCharCode(...bytes.subarray(offset, offset + 32768));
+    return {dataUrl:'data:image/png;base64,' + btoa(binary), mime:'image/png', bytes:bytes.length};
+  }
+  function cardScanner(library, sources, options, report, adoptBook) {
+    const variants = new Map(), origins = new Map(), byId = new Map(), assets = new Map(library.assets.map(asset => [asset.id, asset]));
+    const originalArt = new Map(), jsonCards = new Set();
+    let remaining = options.avatarBudget ?? 750000;
+    for (const [path, source] of Object.entries(sources)) {
+      if (source?.kind === 'cards' && /\.json$/i.test(path)) jsonCards.add(source.id);
+    }
+    function index(card, key) {
+      if (!variants.has(key)) variants.set(key, []);
+      variants.get(key).push(card);
+      byId.set(card.id, card);
+    }
+    function rememberOrigin(card, hash) {
+      if (!origins.has(hash)) origins.set(hash, new Set());
+      origins.get(hash).add(card);
+      card.folderTextHash ??= hash;
+    }
+    for (const card of library.characters) {
+      index(card, signature(card));
+      if (card.folderTextHash) rememberOrigin(card, card.folderTextHash);
+    }
+
+    return async function scan(file, bytes, key, hash) {
+      const previous = sources[key], priorCard = byId.get(previous?.id), png = /\.png$/i.test(file.name);
+      const sameFile = priorCard && previous.hash === hash;
+      if (sameFile && (!png || (previous.portraitHash && previous.portraitHash === priorCard.folderPortraitHash && !priorCard.folderAvatarPending))) {
+        report.unchanged++;
+        return;
+      }
+      const portraitHash = png ? await portraitDigest(bytes) : null;
+      let thumbnail;
+      const thumb = () => thumbnail ||= Promise.resolve().then(() => options.makeAvatar?.(bytes)).catch(() => null);
+      async function matchesPortrait(card) {
+        if (card.folderPortraitHash) return card.folderPortraitHash === portraitHash;
+        const asset = assets.get(card.avatarAssetId);
+        if (!asset?.dataUrl) return false;
+        if (asset.dataUrl.startsWith('data:image/png;base64,')) {
+          if (!originalArt.has(asset.id)) {
+            try {
+              const raw = Uint8Array.from(atob(asset.dataUrl.split(',')[1]), c => c.charCodeAt(0));
+              originalArt.set(asset.id, await portraitDigest(raw));
+            } catch (_) { originalArt.set(asset.id, null); }
+          }
+          return originalArt.get(asset.id) === portraitHash;
+        }
+        // v0.2.0 desktop scans kept only a JPEG thumbnail and a whole-file hash.
+        return (await thumb())?.dataUrl === asset.dataUrl;
+      }
+      async function attachPortrait(card) {
+        const small = remaining > 0 ? await thumb() : null;
+        const avatar = small?.dataUrl && small.bytes <= remaining ? small :
+          bytes.length <= Math.min(260000, remaining) ? pngAvatar(bytes) : null;
+        if (!avatar) { card.folderAvatarPending = true; report.avatarsOmitted++; return; }
+        const id = root.TAStore.uid('asset');
+        const asset = {...avatar, id, name:card.name + ' · 头像', kind:'avatar', createdAt:new Date().toISOString()};
+        assets.set(id, asset);
+        library.assets.push(asset);
+        card.avatarAssetId = id;
+        delete card.folderAvatarPending;
+        remaining -= avatar.bytes;
+      }
+      // A legacy source hash can already name a different portrait. Verify it once while preserving local text edits.
+      if (sameFile && await matchesPortrait(priorCard)) {
+        priorCard.folderPortraitHash = portraitHash;
+        previous.portraitHash = portraitHash;
+        if (priorCard.folderAvatarPending) {
+          if (priorCard.avatarAssetId) delete priorCard.folderAvatarPending;
+          else await attachPortrait(priorCard);
+        }
+        report.unchanged++;
+        return;
+      }
+
+      const {card:partial} = parseCard(file, bytes);
+      if (partial.book != null) {
+        try { partial.embeddedBookId = adoptBook(makeBook(partial.book, partial.name + ' · 角色书')).id; }
+        catch (error) { report.failed.push({name:file.name + ' · 内嵌世界书', reason:error.message || String(error)}); }
+      }
+      delete partial.book;
+      const textKey = signature(partial), textHash = await digest(new TextEncoder().encode(textKey));
+      const candidates = [...new Set([...(variants.get(textKey) || []), ...(origins.get(textHash) || [])])];
+      let card;
+      if (priorCard && previous.textHash === textHash && (!png || previous.portraitHash === portraitHash)) {
+        card = priorCard;
+      } else if (png) {
+        for (const candidate of candidates) {
+          if (await matchesPortrait(candidate)) { card = candidate; break; }
+        }
+        card ||= candidates.find(c => jsonCards.has(c.id) && !c.folderPortraitHash && !c.avatarAssetId);
+      } else card = candidates.includes(priorCard) ? priorCard : candidates[0];
+      if (!card) {
+        const stamp = new Date().toISOString();
+        card = {...partial, id:root.TAStore.uid('ch'), createdAt:stamp, updatedAt:stamp, avatarAssetId:null, expressionAssetIds:[]};
+        library.characters.push(card);
+        index(card, textKey);
+        report.cards++;
+        report.firstCardId ||= card.id;
+      } else report.unchanged++;
+      if (png) {
+        if (!card.avatarAssetId && (!card.folderPortraitHash || card.folderAvatarPending)) await attachPortrait(card);
+        card.folderPortraitHash = portraitHash;
+      } else jsonCards.add(card.id);
+      rememberOrigin(card, textHash);
+      if (priorCard && priorCard.id !== card.id) report.updatedCardId ||= card.id;
+      sources[key] = {hash, textHash, id:card.id, kind:'cards', ...(png ? {portraitHash} : {})};
+    };
+  }
   async function importAll(library, paths, adapter, options = {}) {
     const next = structuredClone(library);
     next.chats ||= []; next.settings ||= {}; next.assets ||= []; next.characters ||= []; next.worldBooks ||= [];
     const sources = next.settings.folderImports ||= {};
     const report = { cards: 0, books: 0, chats: 0, unchanged: 0, failed: [], firstCardId: '', firstBookId: '', avatarsOmitted: 0 };
-    let remainingAvatarBytes = options.avatarBudget ?? 750000;
-    const seenCards = new Map(next.characters.map((card) => [signature(card), card]));
     const seenBooks = new Map(next.worldBooks.map((book) => [bookSignature(book), book]));
     const adoptBook = (book) => {
       const key = bookSignature(book), existing = seenBooks.get(key);
@@ -90,7 +210,7 @@
       next.worldBooks.push(book); seenBooks.set(key, book); report.books++; report.firstBookId ||= book.id;
       return book;
     };
-    const digest = async (bytes) => [...new Uint8Array(await root.crypto.subtle.digest('SHA-256', bytes))].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+    const scanCard = cardScanner(next, sources, options, report, adoptBook);
     const seenChats = new Map(next.chats.filter(chat=>chat.stFileHash).map(chat=>[chat.stFileHash,chat]));
     for (const kind of ['cards', 'worlds', 'chats']) {
       if (!paths[kind] || (kind !== 'cards' && options.cardsOnly)) continue;
@@ -102,37 +222,10 @@
           const raw = await adapter.read(file.full);
           const bytes = raw instanceof Uint8Array ? raw : new Uint8Array(raw);
           const hash = await digest(bytes), key = sourceKey(file.full), previous = sources[key];
-          const collection = kind === 'cards' ? next.characters : kind === 'chats' ? next.chats : next.worldBooks;
-          if (previous?.hash === hash && collection.some((item) => item.id === previous.id)) { report.unchanged++; continue; }
+          const collection = kind === 'chats' ? next.chats : next.worldBooks;
+          if (kind !== 'cards' && previous?.hash === hash && collection.some((item) => item.id === previous.id)) { report.unchanged++; continue; }
           if (kind === 'cards') {
-            const { card: partial, png } = parseCard(file, bytes);
-            const specBook = partial.book;
-            delete partial.book;
-            if (specBook != null) {
-              try { partial.embeddedBookId = adoptBook(makeBook(specBook, `${partial.name} · 角色书`)).id; }
-              catch (error) { report.failed.push({ name: `${file.name} · 内嵌世界书`, reason: error.message || String(error) }); }
-            }
-            const existing = seenCards.get(signature(partial));
-            if (existing) { sources[key] = { hash, id: existing.id, kind }; report.unchanged++; continue; }
-            const stamp = new Date().toISOString();
-            const card = Object.assign({ id: root.TAStore.uid('ch'), createdAt: stamp, updatedAt: stamp, avatarAssetId: null, expressionAssetIds: [] }, partial);
-            // Bound avatar storage so a large folder cannot prevent card text being saved.
-            let avatar = null;
-            if (png && remainingAvatarBytes > 0 && options.makeAvatar) {
-              try { avatar = await options.makeAvatar(bytes); } catch (_) { /* Card text can still be imported. */ }
-            }
-            if (avatar?.dataUrl && avatar.bytes <= remainingAvatarBytes) {
-              const id = root.TAStore.uid('asset');
-              next.assets.push({ id, name: `${card.name} · 头像`, kind: 'avatar', dataUrl: avatar.dataUrl, mime: avatar.mime, bytes: avatar.bytes, createdAt: stamp });
-              card.avatarAssetId = id; remainingAvatarBytes -= avatar.bytes;
-            } else if (png && bytes.length <= Math.min(260000, remainingAvatarBytes)) {
-              const id = root.TAStore.uid('asset');
-              let binary = ''; for (let offset = 0; offset < bytes.length; offset += 32768) binary += String.fromCharCode(...bytes.subarray(offset, offset + 32768));
-              next.assets.push({ id, name: `${card.name} · 头像`, kind: 'avatar', dataUrl: `data:image/png;base64,${btoa(binary)}`, mime: 'image/png', bytes: bytes.length, createdAt: stamp });
-              card.avatarAssetId = id; remainingAvatarBytes -= bytes.length;
-            } else if (png) report.avatarsOmitted++;
-            next.characters.push(card); seenCards.set(signature(card), card);
-            sources[key] = { hash, id: card.id, kind }; report.cards++; report.firstCardId ||= card.id;
+            await scanCard(file, bytes, key, hash);
           } else if (kind === 'chats') {
             const chatKey = JSON.stringify([file.owner || '',hash]);
             const existing = seenChats.get(chatKey);

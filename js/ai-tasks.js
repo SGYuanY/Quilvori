@@ -217,6 +217,73 @@
     return `${common}\n${instruction}\n${clarification}`;
   }
 
+  function reviewPassages({card, book}) {
+    const passages = [];
+    function add(target, item, dictionary) {
+      for (const field of Object.keys(dictionary)) {
+        const value = item[field], array = Array.isArray(value);
+        (array ? value : [value]).forEach((part, index) => {
+          if (typeof part !== "string" || !part) return;
+          passages.push({
+            target, id:item.id, field, value:part, arrayIndex:array ? index : null,
+            name:target === "entry" ? item.comment || "未命名条目" : item.name || "未命名角色",
+            bookId:target === "entry" ? book.id : null, bookName:target === "entry" ? book.name : "",
+          });
+        });
+      }
+    }
+    if (card) add("character", card, CARD_FIELDS);
+    for (const entry of book?.entries || []) add("entry", entry, ENTRY_FIELDS);
+    return passages;
+  }
+  function reviewMatches(passages, item, quote) {
+    const matches = passages.filter(p => !quote || p.value.includes(quote));
+    const references = Array.isArray(item.sources) ? item.sources.filter(ref => ref && (!quote || ref.quote === quote)) : [];
+    if (references.length) return matches.filter(p => references.some(ref =>
+      ref.target === p.target && ref.id === p.id && ref.field === p.field));
+    const place = String(item.place || "");
+    const preferred = matches.filter(p => {
+      if (p.target === "character" && (place.includes("card." + p.field) || place.includes("character." + p.field))) return true;
+      if (p.id == null || p.id === "") return false;
+      const id = String(p.id);
+      let at = place.indexOf(id);
+      while (at !== -1) {
+        if (!/\w/.test(place.charAt(at - 1)) && !/\w/.test(place.charAt(at + id.length))) return true;
+        at = place.indexOf(id, at + 1);
+      }
+      return false;
+    });
+    return preferred.length ? preferred : matches;
+  }
+  function reviewSeverity(item, passages) {
+    if (item.severity !== "error") return item.severity;
+    const seen = new Set(), located = [];
+    for (const raw of item.evidence || []) {
+      const quote = typeof raw === "string" ? raw.trim() : "";
+      if (!quote || seen.has(quote)) continue;
+      seen.add(quote);
+      const matches = reviewMatches(passages, item, raw);
+      if (matches.length !== 1) continue;
+      const passage = matches[0];
+      if (passage.id == null || passage.id === "" || (passage.target === "entry" && passage.bookId == null)) continue;
+      const start = passage.value.indexOf(quote), end = start + quote.length;
+      if (passage.value.indexOf(quote, start + 1) !== -1) continue;
+      const current = {passage, start, end};
+      for (const other of located) {
+        if (other.passage !== passage) return "error";
+        const [left, right] = other.start <= start ? [other, current] : [current, other];
+        if (left.end > right.start) continue;
+        // Two fragments of one statement are still one passage. A second sentence or line in the same field counts.
+        const boundary = /[。！？!?；;\n]|\.(?=\s|$)/u;
+        const gap = passage.value.slice(left.end, right.start);
+        const ending = passage.value.slice(left.start, left.end).replace(/[\s"'”’」』)\]]+$/u, "").slice(-1);
+        if (boundary.test(gap) || boundary.test(ending)) return "error";
+      }
+      located.push(current);
+    }
+    return "warn";
+  }
+
   function validate(task, result, context = {}) {
     if (["questions", "ideas", "discuss"].includes(task))
       return root.NIJANCreativeDialogue.normalize(task, result);
@@ -357,6 +424,8 @@
           );
         }
       });
+      const passages = reviewPassages(context);
+      return copy({...result, items: result.items.map(item => ({...item, severity:reviewSeverity(item, passages)}))});
     } else if (task.startsWith("organize:")) {
       root.NIJANOrganize.validate(task, result, context);
     } else if (task === "organize") {
@@ -1247,6 +1316,9 @@
   root.NIJANAI = {
     CARD_FIELDS,
     ENTRY_FIELDS,
+    reviewPassages,
+    reviewMatches,
+    reviewSeverity,
     MODULES,
     prompt,
     validate,

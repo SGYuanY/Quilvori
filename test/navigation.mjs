@@ -106,7 +106,7 @@ function mainEnvironment(options = {}) {
     readdirSync() { calls.push('list'); return ['card.png', 'book.json', 'unrelated.txt'].map(name => ({ name, isFile: () => true })); },
   };
   const app = new EventEmitter();
-  Object.assign(app, { getName: () => 'Quilvori', getPath: name => paths[name], setPath: (name, value) => { paths[name] = value; },
+  Object.assign(app, { getName: () => 'Quilvori', getLocale: ()=>'en-US', getPath: name => paths[name], setPath: (name, value) => { paths[name] = value; },
     requestSingleInstanceLock: () => { lifecycle.lockedProfiles.push(paths.userData); return options.lock !== false; },
     quit: () => { lifecycle.quits++; }, isReady: () => lifecycle.ready,
     whenReady: () => ({ then: run => { lifecycle.readyCallbacks.push(run); if (options.ready !== false) { lifecycle.ready = true; run(); } } }),
@@ -124,7 +124,15 @@ function mainEnvironment(options = {}) {
       close() { this.destroyed = true; this.emit('closed'); }
     },
     ipcMain: { handle: (channel, handler) => handlers.set(channel, handler) },
-    dialog: { showOpenDialog: async () => { calls.push('pick'); return { canceled: false, filePaths: [configured.cards] }; } },
+    dialog: {
+      showOpenDialog: async () => { calls.push('pick'); return { canceled: false, filePaths: [configured.cards] }; },
+      showMessageBox: async (win,prompt) => {
+        assert.equal(win,windows[0]);assert.equal(prompt.defaultId,0);assert.equal(prompt.cancelId,0);
+        assert.ok(prompt.detail.includes('happy.png'));calls.push('confirm-overwrite');
+        options.afterExpressionPrompt?.(configured);
+        return {response:options.expressionResponse ?? 0};
+      },
+    },
     shell: { openExternal: async () => { calls.push('external'); } },
   };
   const get = name => {
@@ -133,6 +141,16 @@ function mainEnvironment(options = {}) {
     if (name === './profile') return { preserveLegacyProfile: app => mainRequire(name).preserveLegacyProfile(app, fakeFs) };
     if (name === './remote-import') return { downloadRemote: async () => { calls.push('download'); return { bytes: new Uint8Array([1]), url: 'https://example.com/file.json' }; } };
     if (name === './navigation') return policy;
+    if (name === './expression-export') return {
+      overwriteOptions: mainRequire(name).overwriteOptions,
+      exportExpressions: async (payload,_io,{confirm,allowed})=>{
+        calls.push('expression-plan');
+        const directory=path.join(payload.folder,payload.character,'expressions');
+        if(options.conflictingExpression && !await confirm({directory,names:['happy.png'],count:payload.files.length}))return {canceled:true};
+        assert.equal(allowed(),true);
+        calls.push('expression-write');return directory;
+      },
+    };
 
     if (name === './st-bundle') return { installBundle: async (directory,files) => { calls.push('install'); return {directory,count:files.length}; } };
     return mainRequire(name);
@@ -170,7 +188,7 @@ await test('trusted main-frame folder workflows and bounded link downloads keep 
   assert.deepEqual(native(await call('folders:pick', 'cards')), env.configured);
   assert.deepEqual(native(call('folders:list', env.configured.cards)).map(item => item.name), ['card.png', 'book.json']);
   assert.equal(call('folders:read', path.join(env.configured.cards, 'card.png')).toString(), 'sample');
-  assert.equal(call('folders:writeExpressions', { folder: env.configured.cards, character: 'Example', files: [{ name: 'happy.png', dataUrl: 'data:image/png;base64,AA==' }] }), path.join(env.configured.cards, 'Example', 'expressions'));
+  assert.equal(await call('folders:writeExpressions', { folder: env.configured.cards, character: 'Example', files: [{ name: 'happy.png', dataUrl: 'data:image/png;base64,AA==' }] }), path.join(env.configured.cards, 'Example', 'expressions'));
   assert.equal((await call('links:download', { id: 'request_1', url: 'https://example.com/file.json' })).ok, true);
   assert.doesNotThrow(() => call('links:cancel', 'request_1'));
   assert.equal(web.listenerCount('destroyed'), 0);
@@ -178,6 +196,22 @@ await test('trusted main-frame folder workflows and bounded link downloads keep 
   const beforeInstall = env.calls.length;
   assert.deepEqual(native(await call('bundles:install', [])), { ok:true, directory:env.configured.cards, count:0 });
   assert.deepEqual(env.calls.slice(beforeInstall), ['pick','install']);
+});
+
+await test('expression IPC binds approval and publication to the actual owner window and its currently configured cards folder',async()=>{
+  for(const scenario of ['different-folder','other-window','cancel','approved','folder-changed']){
+    const env=mainEnvironment({conflictingExpression:true,expressionResponse:scenario==='cancel'?0:1,
+      afterExpressionPrompt:folders=>{if(scenario==='folder-changed')folders.cards=path.join(appRoot,'changed-cards');}});
+    const sender=scenario==='other-window'?contents():env.windows[0].webContents;
+    const payload={folder:scenario==='different-folder'?env.configured.worlds:env.configured.cards,character:'Example',
+      files:[{name:'happy.png',dataUrl:'data:image/png;base64,AA=='}]};
+    const result=await env.handlers.get('folders:writeExpressions')({sender,senderFrame:sender.mainFrame},payload);
+    if(scenario==='approved')assert.equal(result,path.join(payload.folder,payload.character,'expressions'));
+    else if(scenario==='cancel'||scenario==='folder-changed')assert.deepEqual(native(result),{canceled:true});
+    else assert.deepEqual(native(result),{ok:false,code:'invalid-expression-folder'});
+    assert.equal(env.calls.includes('confirm-overwrite'),!['different-folder','other-window'].includes(scenario));
+    assert.equal(env.calls.includes('expression-write'),scenario==='approved');
+  }
 });
 
 await test('single-instance locking follows the preserved profile while explicit QA profiles stay isolated', () => {

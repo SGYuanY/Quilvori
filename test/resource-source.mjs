@@ -8,7 +8,7 @@ const require = createRequire(import.meta.url);
 const { clean, sourceUrl } = require('../js/resource-source');
 const context = vm.createContext({ console, URL, TextEncoder, TextDecoder, Uint8Array, Uint32Array, DataView,
   structuredClone, btoa, atob, crypto: webcrypto, setTimeout, clearTimeout, AbortController });
-for (const name of ['resource-source', 'png', 'formats', 'store', 'ai-tasks', 'link-import']) {
+for (const name of ['resource-source', 'png', 'formats', 'store', 'library-actions', 'ai-tasks', 'link-import']) {
   vm.runInContext(fs.readFileSync(new URL(`../js/${name}.js`, import.meta.url), 'utf8'), context, { filename: name });
 }
 const { TAFormats: F, TAStore: S, TALinkImport: L, NIJANAI: A, TAPng: P } = context;

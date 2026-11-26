@@ -25,10 +25,7 @@
       if(planned.refs.length) {
         content.append(element('strong',tr('引用位置')));
         const list=element('ul',undefined,'integrity-references');
-        for(const ref of planned.refs) {
-          const [kind,...where]=ref.location;
-          list.append(original(element('li',tr(kind)+' › '+where.join(' › '))));
-        }
+        for(const ref of planned.refs) list.append(original(element('li',ops.referenceLabel(ref,tr))));
         content.append(list);
         if(collection==='characters') {
           const offers=planned.refs.some(r=>r.type==='speaker')?[['keep',tr('解绑并保留原说话人名称')]]:[];
@@ -49,12 +46,14 @@
       if(token!==generation)throw new Error('资料库已变化，请重新打开。');
       const result=ops.remove(ui().state.lib,planned,mode?.value || 'keep',who && targets[Number(who.value)]?.id);
       await ui().commitLibrary(result.library);
+      if(collection==='assets' && ui().state.sel.asset===item.id)ui().state.sel.asset=null;
       ui().renderStage();
       ui().toast(tr('已删除')+' · '+name,{kind:'success',duration:15000,id:'removed-'+collection+'-'+item.id,action:{
         label:tr('撤销删除'),onClick:async()=>{
           try {
             if(token!==generation)throw new Error('资料库已变化，请重新打开。');
             await ui().commitLibrary(ops.undo(ui().state.lib,result.receipt));
+            if(collection==='assets' && ui().state.route==='assets' && ui().state.sel.asset==null)ui().state.sel.asset=item.id;
             ui().renderStage();ui().toast(tr('已恢复')+' · '+name,{kind:'success'});
           } catch(error){ui().toast(tr(error.message),{kind:'error'});}
         }
@@ -122,8 +121,11 @@
       const nav=element('div',undefined,'row'),prev=element('button',tr('上一页'),'btn btn-small'),
         next=element('button',tr('下一页'),'btn btn-small'),count=element('span');
       prev.type=next.type='button';count.setAttribute('aria-live','polite');
-      const turn=n=>{page=n;prev.disabled=!page;next.disabled=page===pages-1;count.textContent=(page+1)+' / '+pages;paint();};
-      prev.onclick=()=>turn(page-1);next.onclick=()=>turn(page+1);
+      const turn=(n,focus=false)=>{
+        page=n;prev.disabled=!page;next.disabled=page===pages-1;count.textContent=(page+1)+' / '+pages;paint();
+        if(focus)list.querySelector('summary')?.focus();
+      };
+      prev.onclick=()=>turn(page-1,true);next.onclick=()=>turn(page+1,true);
       nav.append(prev,count,next);content.append(nav);turn(0);
     } else paint();
     content.append(list,element('small',tr('另存时保留本地字段，并为备份作品建立独立副本。独立设置的副本可在备份页查看。'),'help'));

@@ -25,13 +25,14 @@
       tx.objectStore('versionInfo').delete(seq);
     }
   }
-  function append(tx,rows) {
+  function append(tx,rows,prune=true) {
     const versions=tx.objectStore('versions'),info=tx.objectStore('versionInfo');
     for (const row of rows) {
       const entry=summary(row);
       const add=versions.add(row);
       add.onsuccess=()=>{entry.seq=add.result;info.put(entry);};
     }
+    if(!prune)return;
     for (const entity of new Set(rows.map(row=>row.entity))) {
       const policy=tx.objectStore('versionLimits').get(entity);
       policy.onsuccess=()=>{
@@ -50,7 +51,7 @@
       const head=tx.objectStore('library').get('current');
       head.onsuccess=()=>{
         if (head.result?.seq!==expected) {abort(conflict());return;}
-        try {action(tx,abort);} catch(error){abort(error);}
+        try {root.TALibraryDB.touchWork(tx);action(tx,abort);} catch(error){abort(error);}
       };
       tx.oncomplete=resolve;
       tx.onabort=()=>reject(failure || tx.error || new Error('版本库存储不可用'));

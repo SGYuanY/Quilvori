@@ -19,7 +19,8 @@
     });
   }
   async function open() {
-    const req = indexedDB.open('quilvori-library',5);
+    // Older clients do not track independent draft/history writes during backup reviews.
+    const req = indexedDB.open('quilvori-library',6);
     let blocked = false;
     req.onupgradeneeded = () => {
       const db = req.result;
@@ -139,13 +140,51 @@
     const table=db.transaction('library').objectStore('library');
     return request(onlyKey ? table.getKey(key) : table.get(key));
   };
+  function touchWork(tx) {
+    tx.objectStore('library').put(root.TAStore.uid('state'),'workRevision');
+  }
+  async function replacementGuard() {
+    if(!activeDatabase)throw new Error('完整工作状态需要 IndexedDB');
+    // Replacement can repair malformed auxiliary records. Only the commit guards are needed.
+    const expected=currentRevision,control=activeDatabase.transaction('library').objectStore('library');
+    const [head,token]=await Promise.all([request(control.get(headKey)),request(control.get('workRevision'))]);
+    if((head?.seq??0)!==expected)throw conflict();
+    return {token:token??null,state:null};
+  }
+  async function workingState(withLibrary=false,allowDetached=false) {
+    const db=activeDatabase;
+    if(!db)throw new Error('完整工作状态需要 IndexedDB');
+    const names=['library','drafts','creationRecords','versions','versionLimits'];
+    if(withLibrary)names.push(records);
+    const expected=currentRevision,tx=db.transaction(names),ctrl=tx.objectStore('library'),policies=tx.objectStore('versionLimits');
+    const [head,token,drafts,versions,model,keys,limits,parts]=await Promise.all([
+      request(ctrl.get(headKey)),request(ctrl.get('workRevision')),request(tx.objectStore('drafts').getAll()),
+      request(tx.objectStore('versions').getAll()),request(tx.objectStore('creationRecords').getAll()),
+      request(policies.getAllKeys()),request(policies.getAll()),withLibrary?request(tx.objectStore(records).getAll()):null,
+    ]);
+    if(!allowDetached && (head?.seq??0)!==expected)throw conflict();
+    const work=root.TAWorkBackup.normalize({drafts,versions,records:model,limits:keys.map((key,i)=>{
+      const [kind,id]=JSON.parse(key);return {kind,id,keep:limits[i]};
+    })});
+    return {token:token??null,state:work,library:withLibrary?unpack(parts):null};
+  }
+  function restoreWork(tx,transfer) {
+    const history=root.TAHistory, state=transfer.data;
+    for(const name of ['drafts','creationRecords',...history.tables])tx.objectStore(name).clear();
+    for(const row of state.drafts)tx.objectStore('drafts').add(row);
+    for(const row of state.records)tx.objectStore('creationRecords').add(row);
+    // Source sequence numbers are device-local. Fresh keys also invalidate previously opened comparisons.
+    history.append(tx,state.versions,false);
+    for(const row of state.limits)tx.objectStore('versionLimits').put(row.keep,row.key);
+    tx.objectStore('library').put(transfer.epoch,'creationEpoch');
+  }
   function commit(db,expected,batch,options={}) {
-    const {guard,snapshots=[],draft,clear,archive,epoch}=options;
+    const {guard,snapshots=[],draft,clear,archive,epoch,transfer}=options;
     const history=root.TAHistory;
     const tables=['library',records];
-    if (clear || snapshots.length || options.restore) tables.push(...history.tables);
-    if (clear || draft) tables.push('drafts');
-    if (clear) tables.push('creationRecords');
+    if (clear || transfer || snapshots.length || options.restore) tables.push(...history.tables);
+    if (clear || transfer || draft) tables.push('drafts');
+    if (clear || transfer) tables.push('creationRecords');
     return new Promise((resolve,reject) => {
       const tx=db.transaction(tables,'readwrite'),control=tx.objectStore('library'),parts=tx.objectStore(records);
       let failure;
@@ -156,6 +195,10 @@
       get.onsuccess=()=>{
         const old=get.result;
         if ((old?.seq ?? 0)!==expected || (guard && !guard())) { abort(conflict()); return; }
+        if (transfer) {
+          const token=control.get('workRevision');
+          token.onsuccess=()=>{if((token.result??null)!==transfer.expected)abort(conflict());};
+        }
         if (options.restore) {
           // A different window may prune the selected revision after the comparison was opened.
           const source=tx.objectStore('versionInfo').get(options.restore.seq);
@@ -176,11 +219,13 @@
             control.put({seq:expected+1,format},headKey);
             if (archive) control.put(archive,archiveKey);
             if (draft) root.TAStudioDrafts.writeTo(tx.objectStore('drafts'),draft,abort);
+            if (transfer) restoreWork(tx,transfer);
             if (clear) {
               control.put(epoch,'creationEpoch'); control.delete(archiveKey);
               for (const name of [...history.tables,'drafts','creationRecords']) tx.objectStore(name).clear();
             }
             if (snapshots.length) history.append(tx,snapshots);
+            if (clear || transfer || draft || snapshots.length) touchWork(tx);
           } catch (error) { abort(error); }
         }
         if (batch.full) {
@@ -220,7 +265,7 @@
     }
     const db=await open();
     let {head,rows}=await loadedState(db);
-    let initial,archive;
+    let initial,archive,legacyDamage;
     async function previousVersion() {
       const prior=await readControl(db,undoKey);
       try {
@@ -241,8 +286,10 @@
         let fallback=await previousVersion();
         if (!fallback && rows.length) {try {fallback=unpack(rows);} catch (_) {}}
         initial={corrupt:true,missing:true,raw:null,previous:fallback || (legacy.fresh ? null : legacy.library || legacy.previous)};
+      } else if(legacy.corrupt) {
+        legacyDamage={raw:legacyRaw,previous:localStorage.getItem(store.KEY+'.previous')};
+        initial=legacy;
       } else {
-        if (legacy.corrupt) {db.close();return legacy;}
         if (!legacy.persistent && !legacy.fresh) {db.close();throw unavailable();}
         archive=legacyRaw===null ? null : {raw:legacyRaw,previous:localStorage.getItem(store.KEY+'.previous')};
         try {
@@ -294,7 +341,7 @@
       }
     };
     store.backend='indexedDB';
-    store.save=(library,guard,snapshots,draft,scopes,restore)=>{
+    store.save=(library,guard,snapshots,draft,scopes,restore,transfer)=>{
       if (locked) throw new Error('请先恢复资料库。');
       let batch;
       if (scopes?.length && scopes.every(([field,,mode])=>!payloadFields.has(field) || mode==='metadata')) batch=changes(library,scopes);
@@ -303,7 +350,10 @@
         data.meta.updatedAt=new Date().toISOString();
         batch=pack(data);
       }
-      return enqueue(()=>persist(batch,{guard,undo:'keep',snapshots,draft,restore}));
+      return enqueue(async()=>{
+        await persist(batch,{guard,undo:'keep',snapshots,draft,restore,transfer});
+        if(transfer)clearEpoch=transfer.epoch;
+      });
     };
     store.erase=(library,guard)=>{
       if (locked) throw new Error('请先恢复资料库。');
@@ -316,10 +366,12 @@
         catch (_) {return '旧迁移副本未能清除';}
       });
     };
-    store.recover=async(raw,library)=>{
+    store.recover=async(raw,library,transfer)=>{
       if (!locked || raw!==damaged.raw) throw conflict();
       const batch=pack(store.verify(structuredClone(library)));
-      await enqueue(()=>persist(batch,{undo:damaged.previous?'preserve':'discard',fallback:damaged.previous}));
+      const guard=legacyDamage ? ()=>localStorage.getItem(store.KEY)===legacyDamage.raw : undefined;
+      await enqueue(()=>persist(batch,{undo:damaged.previous?'preserve':'discard',fallback:damaged.previous,archive:legacyDamage,guard,transfer}));
+      if(transfer)clearEpoch=transfer.epoch;
       locked=false;
     };
     store.hasMigrationBackup=!!(await readControl(db,archiveKey,true));
@@ -331,7 +383,7 @@
         if (archive.previous && archive.previous===localStorage.getItem(store.KEY+'.previous')) localStorage.removeItem(store.KEY+'.previous');
       } catch (_) {}
     }
-    try {localStorage.setItem(marker,'1');} catch (_) {}
+    if(!legacyDamage){try {localStorage.setItem(marker,'1');} catch (_) {}}
     return initial;
   }
   async function start(views) {
@@ -346,5 +398,5 @@
     } catch(error) {loaded={unavailable:true,message:error.message};}
     root.TAUI.mount(views,loaded);
   }
-  root.TALibraryDB={start,database:()=>activeDatabase,revision:()=>currentRevision,clearEpoch:()=>clearEpoch};
+  root.TALibraryDB={start,workingState,replacementGuard,touchWork,database:()=>activeDatabase,revision:()=>currentRevision,clearEpoch:()=>clearEpoch};
 })(globalThis);

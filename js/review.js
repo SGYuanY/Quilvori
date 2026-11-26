@@ -16,12 +16,6 @@
   const tr=(value)=>root.TAI18n?root.TAI18n.t(value):value;
   const fields = () => root.NIJANAI.CARD_FIELDS;
   const entryFields = () => root.NIJANAI.ENTRY_FIELDS;
-  const parts = (value) =>
-    Array.isArray(value)
-      ? value.filter((item) => typeof item === "string")
-      : typeof value === "string"
-        ? [value]
-        : [];
   function context(report, library) {
     try {
       const source = JSON.parse(report.source || "null");
@@ -33,41 +27,12 @@
       card:
         (library.characters || []).find((card) => card.id === report.cardId) ||
         null,
-      book:
-        (library.worldBooks || []).find((book) => book.id === report.bookId) ||
-        null,
+      book: root.NIJANAI.reviewBook(
+        (library.worldBooks || []).find((book) => book.id === report.bookId) || null, report.entryIds),
     };
   }
   function candidates(report, library) {
-    const source = context(report, library),
-      result = [];
-    const add = (target, item, field, book) => {
-      parts(item[field]).forEach((value, index) =>
-        result.push({
-          target,
-          id: item.id,
-          field,
-          bookId: book?.id || null,
-          name:
-            target === "entry"
-              ? item.comment || "未命名条目"
-              : item.name || "未命名角色",
-          bookName: book?.name || "",
-          value,
-          arrayIndex: Array.isArray(item[field]) ? index : null,
-        }),
-      );
-    };
-    if (source.card)
-      Object.keys(fields()).forEach((field) =>
-        add("character", source.card, field),
-      );
-    (source.book?.entries || []).forEach((entry) =>
-      Object.keys(entryFields()).forEach((field) =>
-        add("entry", entry, field, source.book),
-      ),
-    );
-    return result;
+    return root.NIJANAI.reviewPassages(context(report, library));
   }
   function key(source) {
     return JSON.stringify([
@@ -77,18 +42,6 @@
       source.field,
       source.arrayIndex,
     ]);
-  }
-  function hinted(source, item) {
-    const place = String(item.place || "");
-    const escaped = String(source.id).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const byId = new RegExp(
-      `(^|[^A-Za-z0-9_])${escaped}(?=$|[^A-Za-z0-9_])`,
-    ).test(place);
-    return source.target === "character"
-      ? place.includes(`card.${source.field}`) ||
-          place.includes(`character.${source.field}`) ||
-          byId
-      : byId;
   }
   function address(source, quote, library) {
     const body = source.value,
@@ -122,26 +75,8 @@
       arrayIndex: source.arrayIndex,
     };
   }
-  function resolve(quote, item, report, library) {
-    let matches = candidates(report, library).filter(
-      (source) => !quote || source.value.includes(quote),
-    );
-    const explicit = (item.sources || []).filter(
-      (source) => !quote || source.quote === quote,
-    );
-    if (explicit.length)
-      matches = matches.filter((source) =>
-        explicit.some(
-          (ref) =>
-            ref.target === source.target &&
-            ref.id === source.id &&
-            ref.field === source.field,
-        ),
-      );
-    else {
-      const preferred = matches.filter((source) => hinted(source, item));
-      if (preferred.length) matches = preferred;
-    }
+  function resolve(quote, item, report, library, passages = candidates(report, library)) {
+    const matches = root.NIJANAI.reviewMatches(passages, item, quote);
     const seen = new Set();
     return matches
       .filter((source) => {
@@ -195,10 +130,11 @@
     }
     return text;
   }
-  function readable(item, report, library) {
+  function readable(item, report, library, passages = candidates(report, library)) {
+    const severity = root.NIJANAI.reviewSeverity(item, passages);
     const evidence = (item.evidence || []).map((quote) => ({
       quote,
-      locations: resolve(quote, item, report, library),
+      locations: resolve(quote, item, report, library, passages),
     }));
     const seen = new Set(),
       locations = evidence
@@ -227,12 +163,12 @@
       return text.length > 100 ? `${text.slice(0, 100)}…` : text;
     };
     const legacyConclusion =
-      first && other
+      severity === "error" && first && other
         ? `模型把两处写法放在一起核对：\n一处写“${snippet(first)}”；\n另一处写“${snippet(other)}”。`
         : "模型认为这处设定需要核对，具体原因和原文见下方。";
     return {
       title: readableText(item.title, report, library),
-      severity: item.severity,
+      severity,
       kind: item.kind,
       conclusion: readableText(
         item.conclusion || legacyConclusion,
@@ -254,21 +190,27 @@
     const payload = escape(JSON.stringify(source));
     return `<div class="review-address"><span>${escape(source.label)}</span><button type="button" class="btn btn-small" data-review-source="${payload}" aria-label="定位原文：${escape(source.label)}" ${source.exists ? "" : "disabled"}>${escape(tr(source.exists ? "定位原文" : "原条目已不存在"))}</button></div>`;
   }
+  function gradedReport(report, library) {
+    const passages = candidates(report, library);
+    return {...report, items:(report.items || []).map(item =>
+      ({...item, severity:root.NIJANAI.reviewSeverity(item, passages)}))};
+  }
   function html(report, library) {
-    const items = report.items || [],
+    const passages = candidates(report, library);
+    const items = (report.items || []).map(item => readable(item, report, library, passages)),
       error = items.filter((item) => item.severity === "error").length,
       warn = items.filter((item) => item.severity === "warn").length;
     const summary = items.length
-      ? `共 ${items.length} 项：${error} 项模型判为冲突，${warn} 项需要确认，其余为提示。请对照原文决定是否修改。`
-      : "这次检查未发现有原文证据支持的冲突。";
+      ? (root.TAI18n?.t("review.counts", {total:items.length, error, warn, info:items.length-error-warn})
+        ?? `共 ${items.length} 项，${error} 项模型判为冲突，${warn} 项需要确认，${items.length-error-warn} 项提示。`)
+      : tr("这次检查未发现有原文证据支持的冲突。");
     return `<div class="review-readable"><p class="review-overview">${escape(summary)}</p>${items
-      .map((item, index) => {
-        const view = readable(item, report, library),
-          status =
+      .map((view, index) => {
+        const status =
             { error: "模型判为冲突", warn: "需要确认", info: "提示" }[
-              item.severity
+              view.severity
             ] || "需要确认";
-        return `<article class="ai-finding review-card"><div class="review-heading"><span class="tag">${escape(tr(status))}</span><span class="help">${escape(tr(item.kind === "persona" ? "人物设定" : "设定逻辑"))}</span><h4>${index + 1}. ${escape(view.title)}</h4></div><div class="review-section"><strong>${escape(tr("简单说"))}</strong><p>${escape(view.conclusion)}</p></div>${view.reason ? `<div class="review-section"><strong>${escape(tr("为什么"))}</strong><p>${escape(view.reason)}</p></div>` : ""}<div class="review-section"><strong>${escape(tr("建议怎么处理"))}</strong><p>${escape(view.suggestion)}</p></div><div class="review-section"><strong>${escape(tr("涉及条目与地址"))}</strong>${view.locations.map(sourceLink).join("") || '<p class="help">未能从引用中核实具体栏位，暂不提供跳转，避免定位到错误条目。</p>'}</div><details class="review-evidence"><summary>对照原文（${view.evidence.length} 处引用）</summary>${view.evidence.map((row, i) => `<section class="review-quote"><b>原文 ${i + 1}</b>${row.locations.map(sourceLink).join("") || '<p class="help">这段引用的来源未能定位。</p>'}<blockquote>${escape(quoteText(row.quote))}</blockquote></section>`).join("")}</details></article>`;
+        return `<article class="ai-finding review-card"><div class="review-heading"><span class="tag">${escape(tr(status))}</span><span class="help">${escape(tr(view.kind === "persona" ? "人物设定" : "设定逻辑"))}</span><h4>${index + 1}. ${escape(view.title)}</h4></div><div class="review-section"><strong>${escape(tr("简单说"))}</strong><p>${escape(view.conclusion)}</p></div>${view.reason ? `<div class="review-section"><strong>${escape(tr("为什么"))}</strong><p>${escape(view.reason)}</p></div>` : ""}<div class="review-section"><strong>${escape(tr("建议怎么处理"))}</strong><p>${escape(view.suggestion)}</p></div><div class="review-section"><strong>${escape(tr("涉及条目与地址"))}</strong>${view.locations.map(sourceLink).join("") || '<p class="help">未能从引用中核实具体栏位，暂不提供跳转，避免定位到错误条目。</p>'}</div><details class="review-evidence"><summary>对照原文（${view.evidence.length} 处引用）</summary>${view.evidence.map((row, i) => `<section class="review-quote"><b>原文 ${i + 1}</b>${row.locations.map(sourceLink).join("") || '<p class="help">这段引用的来源未能定位。</p>'}<blockquote>${escape(quoteText(row.quote))}</blockquote></section>`).join("")}</details></article>`;
       })
       .join("")}</div>`;
   }
@@ -295,6 +237,7 @@
     context,
     resolve,
     readable,
+    gradedReport,
     quoteText,
     html,
     bind,

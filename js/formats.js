@@ -733,12 +733,33 @@
     ].join('\n');
   }
 
-  function backupOf(library) {
+  function portableLibrary(library,omitIndex) {
+    // The folder-reader index is keyed by names of directories on this device.
+    const copy={...library};
+    if (library.settings?.folderImports) {
+      copy.settings={...library.settings};
+      if(omitIndex)delete copy.settings.folderImports;
+      else copy.settings.folderImports=Object.fromEntries(Object.entries(copy.settings.folderImports).filter(([key])=>!/[\\/]/.test(key)));
+    }
+    if(Array.isArray(copy.backupAlternatives))copy.backupAlternatives=copy.backupAlternatives.flatMap(row=>{
+      const address=row?.address;
+      if(!Array.isArray(address) || address[0]!=='settings')return [row];
+      if(address[1]==='folderImports')return [];
+      if(address.length===1 && row.value?.folderImports){
+        const settings={...row.value};delete settings.folderImports;
+        return [{...row,value:settings}];
+      }
+      return [row];
+    });
+    return copy;
+  }
+  function backupOf(library,workState) {
     return {
       atelier: 'tavern-atelier',
       libraryVersion: 1,
       exportedAt: new Date().toISOString(),
-      library,
+      library:portableLibrary(library,workState!==undefined),
+      ...(workState ? {backupVersion:2,workState} : {}),
     };
   }
 
@@ -747,6 +768,18 @@
       throw new Error('这不是叙翎集的整库备份');
     }
     return json.library;
+  }
+  function readBackup(json) {
+    if (!json?.atelier){
+      if(json && (Object.hasOwn(json,'backupVersion') || Object.hasOwn(json,'workState')))throw new Error('工作状态备份格式不受支持');
+      return {library:json,workState:null};
+    }
+    const library=backupLibrary(json);
+    if (json.backupVersion===2) return {library:portableLibrary(library,true),workState:root.TAWorkBackup.normalize(json.workState)};
+    if ((json.backupVersion!==undefined && json.backupVersion!==1) || Object.hasOwn(json,'workState')) {
+      throw new Error('工作状态备份格式不受支持');
+    }
+    return {library,workState:null};
   }
 
   function isHan(char) {
@@ -1393,6 +1426,7 @@
     themeToCss,
     backupOf,
     backupLibrary,
+    readBackup,
     checkConsistency,
   };
 })(typeof globalThis !== 'undefined' ? globalThis : window);

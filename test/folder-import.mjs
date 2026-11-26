@@ -2,12 +2,24 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import { webcrypto } from 'node:crypto';
+import { deflateSync } from 'node:zlib';
 const ctx=vm.createContext({ console, JSON, TextEncoder, TextDecoder, Uint8Array, Uint32Array, DataView, crypto:webcrypto, structuredClone, btoa, atob, Date, Map, Set });
 for(const file of ['png','formats','store','folder-import']) vm.runInContext(fs.readFileSync(new URL(`../js/${file}.js`,import.meta.url),'utf8'),ctx,{filename:file});
 const S=ctx.TAStore, I=ctx.TAFolderImport, encoder=new TextEncoder();
 const pixel=Uint8Array.from(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aZlsAAAAASUVORK5CYII=','base64'));
 const card=(name,description='内容')=>({spec:'chara_card_v2',data:{name,description,personality:'',scenario:'',first_mes:'',mes_example:''}});
 const json=(value)=>encoder.encode(JSON.stringify(value));
+function portrait(rgb, character, indent=0) {
+  function chunk(kind, data) {
+    const name=Buffer.from(kind), block=Buffer.alloc(12+data.length);
+    block.writeUInt32BE(data.length); name.copy(block,4); data.copy(block,8);
+    block.writeUInt32BE(ctx.TAPng.crc32(block.subarray(4,-4)),block.length-4);
+    return block;
+  }
+  const header=Buffer.alloc(13);header.writeUInt32BE(1);header.writeUInt32BE(1,4);header[8]=8;header[9]=2;
+  const png=Buffer.concat([pixel.slice(0,8),chunk('IHDR',header),chunk('IDAT',deflateSync(Buffer.from([0,...rgb]))),chunk('IEND',Buffer.alloc(0))]);
+  return ctx.TAPng.embedChara(png,JSON.stringify(character,null,indent));
+}
 function adapter(files){
  const calls=[];
  return { calls, list:async(folder)=>{calls.push(folder);return Object.keys(files).filter(path=>path.startsWith(folder+'/')).map(full=>({full,name:full.split('/').pop()}));},read:async(path)=>{if(files[path] instanceof Error)throw files[path];return files[path];},write(){throw new Error('Source files must not be written');} };
@@ -43,6 +55,63 @@ await test('PNG and JSON copies are deduplicated while different cards with the 
  const a=adapter({'/cards/a.json':json(item),'/cards/b.png':ctx.TAPng.embedChara(pixel,JSON.stringify(item)),'/cards/c.json':json(card('同名角色','另一张卡'))});
  const {library,report}=await I.importAll(S.emptyLibrary(),{cards:'/cards'},a);
  assert.equal(report.cards,2);assert.equal(report.unchanged,1);assert.equal(library.characters.length,2);
+ assert.ok(library.characters[0].avatarAssetId,'a JSON import can acquire the matching PNG cover');
+});
+await test('a portrait-only revision keeps both editions and matches the right cover across paths',async()=>{
+ const contents=card('Studio fixture'), red=[230,16,20], blue=[10,24,210], key='/cards/card.png';
+ const files={[key]:portrait(red,contents)}, scan=(lib)=>I.importAll(lib,{cards:'/cards'},adapter(files));
+ const first=await scan(S.emptyLibrary()), old=first.library.characters[0];
+ old.description='Manually edited first edition';
+ files[key]=portrait(blue,contents);
+ const second=await scan(first.library), fresh=second.library.characters[1];
+ assert.equal(second.report.cards,1);assert.equal(second.library.settings.folderImports[key].id,fresh.id);
+ assert.notEqual(fresh.avatarAssetId,old.avatarAssetId);assert.equal(second.library.characters[0].avatarAssetId,old.avatarAssetId);
+ const covers=second.library.assets.map(asset=>asset.dataUrl);
+ assert.notEqual(covers[0],covers[1]);
+ files['/cards/red-copy.png']=portrait(red,contents,2);
+ files['/cards/blue-copy.png']=portrait(blue,contents,2);
+ const third=await scan(second.library);
+ assert.equal(third.report.cards,0);assert.equal(third.library.assets.length,2);
+ assert.equal(third.library.settings.folderImports['/cards/red-copy.png'].id,old.id);
+ assert.equal(third.library.characters[0].description,'Manually edited first edition');
+ assert.equal(third.library.settings.folderImports['/cards/blue-copy.png'].id,fresh.id);
+ third.library.characters[1].description='Keep this local revision';
+ files[key]=portrait(blue,contents,4);
+ const fourth=await scan(third.library);
+ assert.equal(fourth.report.cards,0);assert.equal(fourth.library.characters[1].description,'Keep this local revision');
+ assert.deepEqual(fourth.library.assets.map(asset=>asset.dataUrl),covers);
+});
+await test('legacy whole-file hashes are checked against the actual PNG or legacy thumbnail before skipping',async()=>{
+ const contents=card('Legacy fixture'),key='/cards/card.png', red=portrait([232,32,32],contents), blue=portrait([17,32,211],contents);
+ for (const useThumb of [false,true]) {
+   const opts=useThumb?{makeAvatar:async(bytes)=>({dataUrl:'data:image/jpeg;base64,'+Buffer.from(ctx.TAPng.parseChunks(bytes).find(c=>c.type==='IDAT').data).toString('base64'),bytes:48,mime:'image/jpeg'})}:{};
+   const scan=(lib,bytes)=>I.importAll(lib,{cards:'/cards'},adapter({[key]:bytes}),opts);
+   const first=await scan(S.emptyLibrary(),red), old=first.library.characters[0];
+   delete old.folderPortraitHash;
+   old.description='Manually revised';
+   const imports=first.library.settings.folderImports;
+   imports[key]={id:old.id,kind:'cards',hash:imports[key].hash};
+   const same=await scan(first.library,red);
+   assert.equal(same.report.cards,0);assert.equal(same.library.characters[0].description,'Manually revised');
+   imports[key].hash=Buffer.from(await webcrypto.subtle.digest('SHA-256',blue)).toString('hex');
+   const next=await scan(first.library,blue), fixed=next.library.settings.folderImports[key];
+   assert.equal(next.report.cards,1);assert.notEqual(fixed.id,old.id);assert.ok(fixed.portraitHash);
+   assert.equal(next.library.characters[0].description,'Manually revised');
+   assert.equal(next.library.characters[1].description,contents.data.description);
+   assert.equal((await scan(next.library,blue)).report.cards,0);
+ }
+});
+await test('omitted covers keep their source identity and can be retried without duplicating the card',async()=>{
+ const contents=card('Small budget'),key='/cards/card.png',files={[key]:portrait([222,31,32],contents)};
+ const scan=(lib,avatarBudget)=>I.importAll(lib,{cards:'/cards'},adapter(files),{avatarBudget});
+ const first=await scan(S.emptyLibrary(),0);assert.equal(first.report.avatarsOmitted,1);
+ files[key]=portrait([17,21,218],contents);
+ const next=await scan(first.library,0);assert.equal(next.report.cards,1);assert.equal(next.library.assets.length,0);
+ const id=next.library.settings.folderImports[key].id;
+ const retry=await scan(next.library,Infinity);assert.equal(retry.report.cards,0);assert.equal(retry.library.assets.length,1);
+ assert.equal(retry.library.characters.find(c=>c.id===id).avatarAssetId,retry.library.assets[0].id);
+ retry.library.characters.find(c=>c.id===id).avatarAssetId=null;
+ const cleared=await scan(retry.library,Infinity);assert.equal(cleared.library.characters.find(c=>c.id===id).avatarAssetId,null);
 });
 await test('bad files do not block valid cards and errors are reported per file',async()=>{
  const a=adapter({'/cards/a.png':pixel,'/cards/b.json':json({entries:[]} ),'/cards/c.json':encoder.encode('{bad'),'/cards/d.json':json(card('可读取')),'/cards/e.json':new Error('无法读取')});

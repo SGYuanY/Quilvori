@@ -192,7 +192,26 @@
   const phrases = Object.fromEntries(
     rows.map(([zh, en, ja]) => [zh, { en, ja }]),
   );
+  phrases["查看新版角色卡"] = {
+    en:"Open updated card", ja:"更新されたカードを開く", ru:"Открыть обновлённую карточку",
+    ko:"업데이트된 카드 열기", th:"เปิดการ์ดฉบับที่อัปเดต",
+  };
+  phrases["这次检查未发现有原文证据支持的冲突。"] = {
+    en:"This review found no conflicts supported by the source text.",
+    ja:"今回の確認では、原文で裏付けられる矛盾は見つかりませんでした。",
+    ru:"Проверка не выявила противоречий, подтверждённых исходным текстом.",
+    ko:"이번 검토에서 원문으로 뒷받침되는 충돌은 발견되지 않았습니다.",
+    th:"การตรวจครั้งนี้ไม่พบข้อขัดแย้งที่มีข้อความต้นฉบับรองรับ",
+  };
   root.TAI18n.add(phrases, {
+    "review.counts": {
+      zh:"共 {total} 项，模型判为冲突 {error} 项，需要确认 {warn} 项，提示 {info} 项。标为冲突至少需要两处可定位的独立原文。",
+      en:"Findings ({total}) · Conflicts flagged by the model ({error}) · Needs confirmation ({warn}) · Notes ({info}). A conflict requires two distinct passages that can be located in the source.",
+      ja:"全 {total} 件のうち、モデルが矛盾と判断したものは {error} 件、要確認は {warn} 件、参考情報は {info} 件です。矛盾の判定には、原文で特定できる別々の箇所が少なくとも2つ必要です。",
+      ru:"Всего замечаний — {total}. Модель отметила противоречий — {error}, требуют подтверждения — {warn}, примечаний — {info}. Для отметки о противоречии нужны два разных фрагмента, которые можно найти в исходном тексте.",
+      ko:"검토 결과 {total}건 중 모델이 판단한 충돌은 {error}건, 확인이 필요한 항목은 {warn}건, 참고 사항은 {info}건입니다. 충돌로 표시하려면 원문에서 위치를 확인할 수 있는 서로 다른 구절이 두 곳 이상 필요합니다.",
+      th:"ผลตรวจ {total} รายการ · ข้อขัดแย้งที่โมเดลระบุ {error} · ต้องยืนยัน {warn} · หมายเหตุ {info} การระบุข้อขัดแย้งต้องมีข้อความจากต้นฉบับอย่างน้อยสองตอนที่แตกต่างกันและระบุตำแหน่งได้",
+    },
     "creation.adopted": {
       zh: "已采用 {count} 条灵感，生成时会带入",
       en: "{count} adopted idea(s) will be used for generation.",

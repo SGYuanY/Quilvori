@@ -4,7 +4,7 @@ const path = require('path');
 const { preserveLegacyProfile } = require('./profile');
 const { downloadRemote } = require('./remote-import');
 const { isTrustedSender, installNavigationPolicy } = require('./navigation');
-const { exportExpressions } = require('./expression-export');
+const { exportExpressions, overwriteOptions } = require('./expression-export');
 const { installBundle } = require('./st-bundle');
 const themeInstall = require('./theme-install');
 const themeCatalog = require('../js/theme-catalog');
@@ -110,7 +110,26 @@ handleTrusted('links:download', async (event, payload) => {
   finally { event.sender.removeListener('destroyed',abort);linkRequests.delete(key); }
 });
 handleTrusted('links:cancel', (event, id) => { linkRequests.get(`${event.sender.id}/${id}`)?.abort(); });
-handleTrusted('folders:writeExpressions', (event, payload) => exportExpressions(payload, fs));
+handleTrusted('folders:writeExpressions', async (event,payload) => {
+  const window=mainWindow;
+  const allowed=()=> {
+    if(!window || mainWindow!==window || window.isDestroyed() || event.sender!==window.webContents ||
+        !isTrustedSender(event,appRoot))return false;
+    const folder=readPaths().cards;
+    return typeof folder==='string' && path.isAbsolute(folder) && typeof payload?.folder==='string' &&
+      path.isAbsolute(payload.folder) && path.relative(folder,payload.folder)==='';
+  };
+  if(!allowed())return {ok:false,code:'invalid-expression-folder'};
+  try {
+    return await exportExpressions(payload,fs.promises,{allowed,confirm:async preview=>{
+      if(!allowed())return false;
+      const answer=await dialog.showMessageBox(window,overwriteOptions(preview,payload.lang || app.getLocale()));
+      return answer.response===1 && allowed();
+    }});
+  } catch(err){
+    return {ok:false,code:err.code || 'write-failed',reason:err.message,file:err.file || '',recovery:err.recovery || ''};
+  }
+});
 handleTrusted('themes:pick', async () => {
   const result=await dialog.showOpenDialog({properties:['openDirectory']});
   return result.canceled?'':result.filePaths[0] || '';

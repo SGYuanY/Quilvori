@@ -376,10 +376,13 @@
       if (!context.hidden && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) { event.preventDefault(); const items = [...context.querySelectorAll('button')], index = items.indexOf(document.activeElement); items[(index + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length]?.focus(); }
       const modal = !command.hidden ? command.querySelector('[role="dialog"]') : document.querySelector('.workspace-sheet') || document.querySelector('#modal-root.show [role="dialog"]');
       if (modal && event.key === 'Tab') {
-        const items = [...modal.querySelectorAll('button,input,[tabindex="0"]')].filter((node) => !node.disabled && node.getClientRects().length);
+        const items = UI().dialogTabStops(modal);
         const first = items[0], last = items[items.length - 1];
-        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
-        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+        const active = document.activeElement;
+        if (!modal.contains(active) || (event.shiftKey ? active === first : active === last)) {
+          event.preventDefault();
+          (event.shiftKey ? last : first)?.focus();
+        }
       }
     });
     addEventListener('resize', closePeek);

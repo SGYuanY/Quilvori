@@ -5,9 +5,10 @@
   const kinds={'create:character':'characters','create:world':'worldBooks'};
   const keyFor=plan=>plan.batchId+'|'+plan.task;
   const isWork=plan=>!!(plan && Object.hasOwn(kinds,plan.task) && plan.batchId);
-  let ready=false;
+  let ready=false, generation=0;
   function itemOperation(plan){
-    return Array.isArray(plan.operations) && plan.operations.find(op=>op?.kind==='add' && op.path?.[0]===kinds[plan.task] && op.value?.id);
+    return Array.isArray(plan.operations) && plan.operations.find(op=>op?.kind==='add' && op.path?.[0]===kinds[plan.task] &&
+      (typeof op.value?.id==='string' && op.value.id.trim() || Number.isSafeInteger(op.value?.id)));
   }
   function pending(){
     const lib=root.TAUI.state.lib;
@@ -19,22 +20,24 @@
   function changed(){
     root.dispatchEvent(new Event('quilvori-drafts'));
   }
+  function replace(list,epoch){
+    generation=epoch??0;
+    rows.clear();
+    let invalid=false;
+    for(const row of list){
+      if(!isWork(row?.plan) || !itemOperation(row.plan) || row.id!==keyFor(row.plan)){invalid=true;continue;}
+      row.plan.draftRevision=row.revision;
+      rows.set(row.id,row);
+    }
+    ready=true;
+    if(invalid)throw new Error('本机草稿暂时无法读取，仍可打开已收录作品。');
+  }
   async function load(db){
-    if(db){
-      const list=await new Promise((resolve,reject)=>{
-        const req=db.transaction('drafts').objectStore('drafts').getAll();
-        req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error);
-      });
-      rows.clear();
-      let invalid=false;
-      for(const row of list){
-        if(!isWork(row?.plan) || !itemOperation(row.plan) || row.id!==keyFor(row.plan)){invalid=true;continue;}
-        row.plan.draftRevision=row.revision;
-        rows.set(row.id,row);
-      }
-      ready=true;
-      if(invalid)throw new Error('本机草稿暂时无法读取，仍可打开已收录作品。');
-    }else ready=true;
+    if(!db){ready=true;return;}
+    const tx=db.transaction(['drafts','library']);
+    const read=req=>new Promise((resolve,reject)=>{req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error);});
+    const [list,epoch]=await Promise.all([read(tx.objectStore('drafts').getAll()),read(tx.objectStore('library').get('creationEpoch'))]);
+    replace(list,epoch);
   }
   const revisionOf = row => row?.revision ?? null;
   function updateFor(plan,remove=false){
@@ -65,9 +68,14 @@
     const db=root.TALibraryDB.database();
     if(!db)throw new Error('草稿存储不可用');
     await new Promise((resolve,reject)=>{
-      const tx=db.transaction('drafts','readwrite');
+      const tx=db.transaction(['drafts','library'],'readwrite'),expected=generation;
       let failure;
-      writeTo(tx.objectStore('drafts'),change,error=>{failure=error;tx.abort();});
+      const epoch=tx.objectStore('library').get('creationEpoch');
+      epoch.onsuccess=()=>{
+        if((epoch.result??0)!==expected){failure=new Error('草稿已在另一窗口更新，请重新打开。');tx.abort();return;}
+        root.TALibraryDB.touchWork(tx);
+        writeTo(tx.objectStore('drafts'),change,error=>{failure=error;tx.abort();});
+      };
       tx.oncomplete=resolve;
       tx.onabort=()=>reject(failure || tx.error || new Error('草稿存储不可用'));
     });
@@ -124,7 +132,7 @@
   function findSaved(batchId,kind){
     return rows.get(batchId+'|create:'+kind)?.plan;
   }
-  function reset(){rows.clear();changed();}
+  function reset(){rows.clear();generation=root.TALibraryDB?.clearEpoch()??0;changed();}
   function libraryItem(plan){
     if(!isWork(plan))return null;
     const op=itemOperation(plan);
@@ -178,5 +186,5 @@
     draw();
     return draw;
   }
-  root.TAStudioDrafts={load,keep,importSession,discard,findSaved,rehydrate,pending,onAdopt,onUndo,writeTo,committed,ready:()=>ready,isWork,libraryItem,openWork,reset,mount,delivery};
+  root.TAStudioDrafts={load,replace,keep,importSession,discard,findSaved,rehydrate,pending,onAdopt,onUndo,writeTo,committed,ready:()=>ready,isWork,libraryItem,openWork,reset,mount,delivery};
 })(globalThis);

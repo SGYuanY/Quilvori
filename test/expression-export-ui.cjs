@@ -34,6 +34,8 @@ async function exercise() {
       writeExpressions: async () => {
         if (mode === 'cancel') return {canceled:true};
         if (mode === 'failure') throw new Error('Fixture disk full');
+        if (mode === 'recovery') return {ok:false,code:'expression-recovery',recovery:'fixture-recovery-folder'};
+        if (mode === 'cleanup') return {directory:'fixture-saved-folder',count:1,cleanup:'fixture-cleanup-folder'};
         return new Promise(resolve => { window.finishFixtureWrite = () => resolve('fixture-directory/Author/expressions'); });
       },
     };
@@ -88,6 +90,13 @@ async function exercise() {
   await waitMessage('Fixture disk full');
   assert.doesNotMatch(await receipt(), /Card JSON|images saved/);
   assert.deepEqual(await downloads(), []);
+  await click('recovery','#pack-export');
+  await waitMessage('fixture-recovery-folder');
+  assert.match(await receipt(),/manifest\.json/);
+  assert.doesNotMatch(await receipt(),/images saved/);
+  await click('cleanup','#pack-export');
+  await waitMessage('fixture-cleanup-folder');
+  assert.match(await receipt(),/images saved \(1\).*fixture-saved-folder/);
 
   await click('browser', json);
   await waitMessage('Downloads requested for expression images');
@@ -99,6 +108,10 @@ async function exercise() {
   await click('browser', '[data-act="png"]');
   await waitMessage('PNG download requested');
   assert.deepEqual(await downloads(), ['Author.png']);
+  await run(()=>TAUI.state.lib.stickerPacks[0].stickers.push({name:'broken.webp',dataUrl:'invalid'}));
+  await click('browser','#pack-export');
+  await waitMessage('broken.webp');
+  assert.deepEqual(await downloads(),[],'An invalid later image must stop the entire browser batch before the first download');
   await run(() => { TAUI.state.lib.stickerPacks[0].stickers = []; });
   await click('browser', json);
   await waitMessage('no images');

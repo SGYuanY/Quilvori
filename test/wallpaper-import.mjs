@@ -21,7 +21,7 @@ function environment() {
   const context = vm.createContext({ console, URL, Blob, TextEncoder, TextDecoder, Uint8Array, DataView, AbortController,
     crypto: webcrypto, document, setTimeout, clearTimeout, structuredClone,
     createImageBitmap: async () => ({ width: 1, height: 1, close() {} }) });
-  for (const name of ['resource-source', 'store', 'link-import', 'wallpaper-import']) {
+  for (const name of ['resource-source', 'store', 'library-actions', 'link-import', 'wallpaper-import']) {
     vm.runInContext(fs.readFileSync(new URL(`../js/${name}.js`, import.meta.url), 'utf8'), context, { filename: name });
   }
   const saved = [], toasts = [], routes = [];
@@ -127,11 +127,13 @@ await test('undo removes only the imported asset and refuses references or later
   const base = main.context.TAStore.emptyLibrary(); base.assets.push({ id: 'unrelated', name: 'Keep me' });
   const first = W.buildImport(base, prepared, { title: 'Undo sample', attribution });
   const restored = W.undo(first.library, first.receipt); assert.deepEqual(native(restored), native(base));
-  for (const use of ['background', 'avatar', 'expression', 'edited']) {
+  for (const use of ['background', 'avatar', 'expression', 'cover', 'theme', 'edited']) {
     const later = structuredClone(first.library);
     if (use === 'background') later.settings.chatBackgroundAssetId = first.assetId;
     if (use === 'avatar') later.characters.push({ avatarAssetId: first.assetId });
     if (use === 'expression') later.characters.push({ expressionAssetIds: [first.assetId] });
+    if (use === 'cover') later.worldBooks.push({ id:'book',coverAssetId:first.assetId });
+    if (use === 'theme') later.themes.push({ id:'theme',backgroundAssetId:first.assetId });
     if (use === 'edited') later.assets[0].name = 'Edited later';
     const before = JSON.stringify(later);
     assert.throws(() => W.undo(later, first.receipt), error => error.code === (use === 'edited' ? 'wallpaper-edited' : 'import-in-use'));

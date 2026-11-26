@@ -141,10 +141,10 @@
     }
   }
 
-  function apply(preview,choices,live=preview.current) {
+  function apply(preview,choices,live=preview.current,copies=new Map()) {
     const active=live===preview.current?preview:plan(live,preview.incoming);
     const initial=new Map(preview.conflicts.map(c=>[c.key,c])),chosen=new Set();
-    const result=clone(active.proposed),copies=new Map(),works=new Map();
+    const result=clone(active.proposed),works=new Map();
     for(const c of active.conflicts) if(c.owner && choices.get(c.key)==='copy')works.set(JSON.stringify(c.owner.path),c.owner);
     // Keep the local work intact, including its exact membership and order. The user
     // may explicitly accept other backup fields on that same work in the same preview.

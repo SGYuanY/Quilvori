@@ -8,6 +8,11 @@
   function message(error) {
     const code = error?.code || error?.message;
     if (code==='multiple-cards' || code==='invalid-entries') return tr(error.message);
+    if(code==='import-in-use' && error.references?.length) {
+      const locations=[...new Set(error.references.map(ref=>root.TALibraryActions.referenceLabel(ref,tr)))];
+      const suffix=locations.length>3?' (+'+(locations.length-3)+')':'';
+      return tr('导入的内容已有其他引用，请先处理相关引用再撤销。')+' '+locations.slice(0,3).join(' · ')+suffix;
+    }
     return tr(({
       'catalog-file':'请选择对应的附件文件。', 'invalid-url':'请粘贴一个有效的文件链接。', 'https-required':'请使用公开的 HTTPS 文件链接。', 'private-url':'这个链接指向本机或内网，请改用公开的 HTTPS 文件链接。',
       'discord-message':'这是 Discord 帖子链接。请在原帖附件上复制下载链接，再粘贴到这里。', 'github-file':'请复制 GitHub 中具体 JSON 或 PNG 文件的链接。',

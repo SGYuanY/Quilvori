@@ -171,4 +171,38 @@ test("the review prompt separates players, roles and time before declaring confl
   ])
     assert.ok(prompt.includes(text));
 });
+test("one statement, repeated or overlapping quotes, and ambiguous matches need confirmation", () => {
+  const statement = card.description.split("\n")[1];
+  const weak = [
+    [statement], [statement, statement], [statement, "是普通学生"],
+    ["上官怨是", "普通学生。"], [card.id, book.id],
+  ];
+  for (const evidence of weak) {
+    const item = {...oldItem, evidence};
+    const result = A.validate("review", {items:[item]}, {card, book});
+    assert.equal(result.items[0].severity, "warn");
+    assert.equal(item.severity, "error", "keep the supplied model result intact");
+    const historical = {...report, items:[item]};
+    assert.equal(R.readable(item, historical, library).severity, "warn");
+    assert.equal(R.gradedReport(historical, library).items[0].severity, "warn");
+    const html = R.html(historical, library);
+    assert.match(html, /class="tag">需要确认</);
+    assert.match(html, /0 项模型判为冲突，1 项需要确认/);
+  }
+  const one = {...oldItem, evidence:[statement], sources:[{target:"character", id:card.id, field:"description", quote:statement}]};
+  assert.equal(A.validate("review",{items:[one]}, {card, book}).items[0].severity, "warn");
+  const ambiguous = {...card, scenario:card.description};
+  const item = {...oldItem, place:"未指明栏位", evidence:card.description.split("\n")};
+  assert.equal(A.validate("review", {items:[item]}, {card:ambiguous}).items[0].severity,"warn");
+});
+test("two independently located passages can be in separate fields or in one field", () => {
+  for (const evidence of [[card.description.split("\n")[1], book.entries[0].content], card.description.split("\n")]) {
+    const item={...oldItem, evidence};
+    assert.equal(A.validate("review",{items:[item]}, {card,book}).items[0].severity,"error");
+    assert.equal(R.gradedReport({...report, items:[item]}, {characters:[],worldBooks:[]}).items[0].severity,"error");
+    assert.match(R.html({...report, items:[item]}, library),/class="tag">模型判为冲突</);
+  }
+  const item={...oldItem,evidence:[card.description.split("\n")[0],book.entries[0].content]};
+  assert.equal(R.gradedReport({cardId:card.id,bookId:book.id,entryIds:[],items:[item]},library).items[0].severity,"warn");
+});
 console.log(`${total} readable report checks passed`);

@@ -1,6 +1,7 @@
 /* Public-link normalization, bounded downloads and additive card/book imports. */
 (function (root) {
   'use strict';
+  const libraryActions = typeof module !== 'undefined' && module.exports ? require('./library-actions') : root.TALibraryActions;
   const MAX_BYTES = 12 * 1024 * 1024, TIMEOUT = 30000;
   const CARD_FIELDS = ['name','description','personality','scenario','first_mes','mes_example','creator_notes','system_prompt','post_history_instructions','alternate_greetings','tags','creator','character_version','talkativeness'];
   const object = (value) => value && typeof value === 'object' && !Array.isArray(value);
@@ -180,13 +181,17 @@
     return { id: root.TAStore.uid('proposal'), task: 'import:link', bookId:book.id,createdAt: new Date().toISOString(), operations: [{ key: root.TAStore.uid('op'), kind: 'add', path: ['worldBooks'], value: book, label: name }] };
   }
   function undo(library,receipt) {
-    const removed=(key)=>new Set(receipt.operations.filter((op)=>op.kind==='add'&&op.path[0]===key).map((op)=>op.value.id));
-    const cards=removed('characters'),assets=removed('assets'),books=removed('worldBooks');
-    if((library.characters||[]).some((card)=>{
-      const sourceChange=receipt.operations.find(op=>op.kind==='set'&&op.path[0]==='characters'&&op.id===card.id&&op.field==='source');
-      const sourceAfterUndo=sourceChange?sourceChange.before:card.source;
-      return !cards.has(card.id)&&(assets.has(card.avatarAssetId)||(card.expressionAssetIds||[]).some((id)=>assets.has(id))||books.has(card.embeddedBookId ?? sourceAfterUndo?.embeddedBookId));
-    })||assets.has(library.settings?.chatBackgroundAssetId))throw error('import-in-use');
+    // Inspect the state that would survive this receipt. An imported card may
+    // own an imported avatar and book, or a pre-existing card may regain its old source.
+    const surviving={...library},added=receipt.operations.filter(op=>op.kind==='add');
+    for(const op of [...receipt.operations].reverse()) {
+      const [field]=op.path;
+      if(op.kind==='add')surviving[field]=surviving[field].filter(row=>row.id!==op.value.id);
+      else if(op.kind==='set')surviving[field]=surviving[field].map(row=>row.id===op.id?{...row,[op.field]:op.before}:row);
+    }
+    const references=added.flatMap(op=>libraryActions.dependencies(surviving,op.path[0],op.value.id)).filter(ref=>ref.active);
+    if(references.length)throw Object.assign(error('import-in-use'),{references});
+    // The normal receipt validator also protects imported or linked fields edited since the import.
     root.NIJANAI.undo(library,receipt);
   }
   const api = { MAX_BYTES, TIMEOUT, error, normalizeUrl, safeUrl, filename, download, downloadBrowser, readResponse, prepare, findExisting, plan, signature, cardSignature, undo };

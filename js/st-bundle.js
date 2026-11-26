@@ -5,12 +5,39 @@
   const imageExtensions = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp', 'image/avif': 'avif' };
   const maxFiles = 4096, maxBytes = 256 * 1024 * 1024;
   const error = (code, file = '') => Object.assign(new Error(code), { code, file });
+  function validFilename(name) {
+    return typeof name === 'string' && name.length > 0 && !/[<>:"/\\|?*\u0000-\u001f\u007f]|[. ]$/.test(name)
+      && !/^(?:con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³])(?:\.|$)/i.test(name);
+  }
   function segment(name) {
-    if (typeof name !== 'string' || !name || name.startsWith('.') || /[<>:"/\\|?*\u0000-\u001f\u007f]|[. ]$/.test(name)
-      || /^(?:con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³])(?:\.|$)/i.test(name) || encoder.encode(name).length > 255) {
+    if (!validFilename(name) || name.startsWith('.') || encoder.encode(name).length > 255) {
       throw error('invalid-name', String(name || ''));
     }
     return name;
+  }
+  // Used by both the standalone browser downloads and the desktop transaction.
+  function expressionFiles(character, files) {
+    const windows = /^win/i.test(root.process?.platform || root.navigator?.platform || '');
+    function filename(value) {
+      if (!validFilename(value) || /\s$/.test(value) || (windows ? value.length : encoder.encode(value).length) > 255) {
+        throw error('invalid-expression-name',typeof value === 'string' ? value : '');
+      }
+      return value;
+    }
+    filename(character);
+    if (!Array.isArray(files) || !files.length) throw error('invalid-expression-export');
+    const names = new Set();
+    return files.map(file => {
+      const name = filename(file?.name), key = name.normalize('NFC').toLowerCase();
+      if (names.has(key)) throw error('duplicate-expression-name',name);
+      names.add(key);
+      const url = file.dataUrl;
+      if (typeof url !== 'string') throw error('invalid-expression-image',name);
+      const comma = url.indexOf(','), data = url.slice(comma + 1);
+      if (comma < 0 || !/^data:image\/[a-z0-9.+-]+;base64$/i.test(url.slice(0,comma)) ||
+          !data.length || data.length % 4 || !/^[a-z0-9+/]+={0,2}$/i.test(data)) throw error('invalid-expression-image',name);
+      return {name,dataUrl:url};
+    });
   }
   function portableStem(value, fallback) {
     let name = String(value || '').normalize('NFC').replace(/[<>:"/\\|?*\u0000-\u001f\u007f]/g,'').trim().replace(/^\.+|[. ]+$/g,'');
@@ -276,7 +303,7 @@
     if (field('install')) field('install').onclick = ()=>run(true);
     queueMicrotask(preview);
   }
-  const api = {segment,portableStem,validatePaths,validateFiles,checkContent,plan,materialize,zip,mount};
+  const api = {segment,expressionFiles,portableStem,validatePaths,validateFiles,checkContent,plan,materialize,zip,mount};
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.TAStBundle = api;
 })(globalThis);

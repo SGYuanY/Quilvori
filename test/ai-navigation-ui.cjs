@@ -80,9 +80,19 @@ async function test(){
   await check(()=>!NIJANOrganizePanel.running(),'organize in background');await navigate('characters');await click('[data-card-organize]');
   assert.match(await evaluate(()=>document.querySelector('.organize-preview').textContent),/Quiet with an atlas/);await click('[data-organize-close]');
   await navigate('check');await change('#check-char','alpha');await click('#semantic-check');const review=await received();await change('#check-char','bravo');await navigate('home');
-  reply(review,{items:[]});await check(()=>!TATaskActivity.pending() && TAUI.state.lib.settings.aiReviews?.some(r=>r.cardId==='alpha'),'saved report');
+  reply(review,{items:[{severity:'error',kind:'logic',title:'Atlas claim',detail:'Only one statement was supplied.',entry:'Alpha',place:'card.description',evidence:['Quiet with an atlas.']}]});
+  await check(()=>!TATaskActivity.pending() && TAUI.state.lib.settings.aiReviews?.at(-1)?.items[0]?.severity==='warn','single-passage report saved as needing confirmation');
   await navigate('check');assert.equal(await evaluate(()=>document.querySelector('#model-check .ai-review')!==null),false);
   await change('#check-char','alpha');assert.ok(await evaluate(()=>!!document.querySelector('#model-check .ai-review')));
+  const grades=await evaluate(()=>{
+    const report=TAUI.state.lib.settings.aiReviews.at(-1), original=TAUI.downloadJson;
+    report.items[0].severity='error'; // A report saved by v0.2.0, with the same single quotation.
+    let exported;
+    TAUI.downloadJson=(_name,data)=>{exported=data.aiReview.items[0].severity;};
+    try { document.querySelector('#export-check').click(); } finally { TAUI.downloadJson=original; }
+    return [exported,document.querySelector('#model-check .review-heading .tag').textContent,TAUI.t('需要确认')];
+  });
+  assert.equal(grades[0],'warn');assert.equal(grades[1],grades[2]);
   await navigate('regex');await fill('[data-assist]','Use abc as a sample.');await click('[data-assist-go]');const rx=await received();
   await navigate('home');reply(rx,{regex:{scriptName:'Paused regex',findRegex:'abc',replaceString:'red'}});
   await check(()=>!TATaskActivity.pending(),'auxiliary draft');await navigate('regex');
