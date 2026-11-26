@@ -47,6 +47,12 @@ In **Settings → Appearance & language**, use **Use colors by workspace** to fo
 
 Fresh profiles start in **English**. A saved, supported language choice is preserved when you update. Chinese, English, Japanese, Russian, Korean, and Thai are available; switching the interface language never translates your authored cards, world books, or source attribution.
 
+### SillyTavern themes
+
+Open **Theme workshop** to import a JSON file or paste a Discord post or attachment link. The catalog credits Selenis for *Lavender Blossoms*, Dascard for *Inkflow Radiance (PC)* and GrizzyBurr for *Solarized Light*. Use the original post to obtain the preset if a local copy is unavailable. The preview uses sample messages. Edit colors and opacity, select a local wallpaper, then save a copy or export native ST JSON. The file retains its source CSS and attribution.
+
+In the desktop workshop, enter your SillyTavern installation, data folder or user directory and connect. Choose the intended profile if several are listed. You can read and switch its existing themes, or install an edited copy. Refresh an open SillyTavern tab to see the change. Original custom CSS is opt-in when applying to ST. Wallpapers and the optional Info Board are separate resources.
+
 ## Quick start
 
 Download the repository, or clone it:

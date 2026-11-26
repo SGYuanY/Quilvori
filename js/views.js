@@ -1192,6 +1192,7 @@
           character.expressionAssetIds = (character.expressionAssetIds || []).filter((id) => id !== current.id);
         });
         if (lib.settings.chatBackgroundAssetId === current.id) lib.settings.chatBackgroundAssetId = null;
+        for(const theme of lib.themes)if(theme.backgroundAssetId===current.id)theme.backgroundAssetId='';
         UI.state.sel.asset = null;
         UI.markDirty();
         UI.renderStage();
@@ -2313,6 +2314,6 @@
   }
 
   root.TALibraryDB.start({
-    home, resources: stage => root.TAResourcePanel.render(stage), studio, characters, lore, prompts, groups, chat, assets, regex, quick, timeline, graph, check, script, backup, sections, memory, tutorial,
+    home, resources: stage => root.TAResourcePanel.render(stage), themes:stage=>root.TAThemeWorkshop.render(stage), studio, characters, lore, prompts, groups, chat, assets, regex, quick, timeline, graph, check, script, backup, sections, memory, tutorial,
   });
 })(typeof globalThis !== 'undefined' ? globalThis : window);

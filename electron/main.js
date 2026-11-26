@@ -6,6 +6,9 @@ const { downloadRemote } = require('./remote-import');
 const { isTrustedSender, installNavigationPolicy } = require('./navigation');
 const { exportExpressions } = require('./expression-export');
 const { installBundle } = require('./st-bundle');
+const themeInstall = require('./theme-install');
+const themeCatalog = require('../js/theme-catalog');
+const { MAX_BYTES: themeLimit } = require('../js/theme-format');
 const appRoot = path.resolve(__dirname, '..');
 const linkRequests = new Map();
 
@@ -105,6 +108,26 @@ handleTrusted('links:download', async (event, payload) => {
 });
 handleTrusted('links:cancel', (event, id) => { linkRequests.get(`${event.sender.id}/${id}`)?.abort(); });
 handleTrusted('folders:writeExpressions', (event, payload) => exportExpressions(payload, fs));
+handleTrusted('themes:pick', async () => {
+  const result=await dialog.showOpenDialog({properties:['openDirectory']});
+  return result.canceled?'':result.filePaths[0] || '';
+});
+handleTrusted('themes:inspect',(_event,target)=>themeInstall.inspectTarget(target));
+handleTrusted('themes:read',(_event,target,name)=>themeInstall.readTheme(target,name));
+handleTrusted('themes:activate',(_event,target,name,options)=>themeInstall.activateTheme(target,name,options));
+handleTrusted('themes:install',(_event,target,payload)=>themeInstall.installTheme(target,payload));
+handleTrusted('themes:sample',async (_event,id)=>{
+  const entry=themeCatalog.find(item=>item.id===id);
+  if(!entry)return {ok:false};
+  const file=path.join(appRoot,'.runtime','theme-sources',entry.localFile);
+  try{
+    const resolved=await fs.promises.realpath(file),stat=await fs.promises.lstat(file);
+    if(path.relative(resolved,file)!=='' || !stat.isFile() || stat.size>themeLimit)return {ok:false};
+    const raw=await fs.promises.readFile(file);
+    if(require('node:crypto').createHash('sha256').update(raw).digest('hex')!==entry.sha256)return {ok:false};
+    return {ok:true,text:raw.toString('utf8')};
+  }catch(_){return {ok:false};}
+});
 handleTrusted('bundles:install', async (event, files) => {
   const result = await dialog.showOpenDialog({ properties:['openDirectory'] });
   if (result.canceled || !result.filePaths[0]) return {canceled:true};

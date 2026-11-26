@@ -115,7 +115,7 @@
   function undo(library, receipt) {
     const asset = (library.assets || []).find(item => item.id === receipt.assetId);
     if (!asset) return copy(library);
-    if (library.settings?.chatBackgroundAssetId === asset.id || (library.characters || []).some(card => card.avatarAssetId === asset.id || (card.expressionAssetIds || []).includes(asset.id))) throw fail('import-in-use');
+    if (library.settings?.chatBackgroundAssetId === asset.id || (library.themes || []).some(theme=>theme.backgroundAssetId===asset.id) || (library.characters || []).some(card => card.avatarAssetId === asset.id || (card.expressionAssetIds || []).includes(asset.id))) throw fail('import-in-use');
     if (JSON.stringify(asset) !== receipt.snapshot) throw fail('wallpaper-edited');
     const next = copy(library); next.assets = next.assets.filter(item => item.id !== asset.id); return next;
   }

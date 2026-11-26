@@ -9,4 +9,10 @@ contextBridge.exposeInMainWorld('nijanDesktop', {
   cancelLink: (id) => ipcRenderer.invoke('links:cancel', id),
   writeExpressions: (payload) => ipcRenderer.invoke('folders:writeExpressions', payload),
   installBundle: (files) => ipcRenderer.invoke('bundles:install', files),
+  themePick: () => ipcRenderer.invoke('themes:pick'),
+  themeInspect: target => ipcRenderer.invoke('themes:inspect',target),
+  themeRead: (target,name) => ipcRenderer.invoke('themes:read',target,name),
+  themeActivate: (target,name,options) => ipcRenderer.invoke('themes:activate',target,name,options),
+  themeInstall: (target,payload) => ipcRenderer.invoke('themes:install',target,payload),
+  themeSample: id => ipcRenderer.invoke('themes:sample',id),
 });

@@ -14,6 +14,7 @@
     prompts: '<path d="m8 7-5 5 5 5m8-10 5 5-5 5m-3-13-2 20"/>',
     groups: '<circle cx="9" cy="8" r="3"/><path d="M3 20v-2a6 6 0 0 1 12 0v2m2-15a3 3 0 0 1 0 6m3 9v-2a6 6 0 0 0-3-5"/>',
     chat: '<path d="M21 11a8 8 0 0 1-8 8H6l-4 3V11a9 9 0 0 1 19 0Z"/><path d="M7 10h10m-10 4h6"/>',
+    themes: '<path d="M13 3a9 9 0 1 0 0 18c2 0 2-2 1-3s-1-3 1-3h2c5 0 6-9-4-12Z"/><circle cx="8" cy="11" r="1"/><circle cx="11" cy="7" r="1"/><circle cx="16" cy="8" r="1"/>',
     assets: '<rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8" cy="8" r="1"/><path d="m3 17 5-5 4 4 4-6 5 7"/>',
     regex: '<path d="m5 4-2 8 2 8m14-16 2 8-2 8M12 6v12m-5-9 10 6m-10 0 10-6"/>',
     quick: '<path d="m13 2-9 12h7l-1 8 10-12h-7Z"/>',

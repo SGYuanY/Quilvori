@@ -3,7 +3,7 @@ const path = require('node:path');
 const { fileURLToPath } = require('node:url');
 
 const APP_PAGES = new Set([
-  'index.html', 'studio.html', 'characters.html', 'lore.html', 'resources.html',
+  'index.html', 'studio.html', 'characters.html', 'lore.html', 'resources.html','themes.html',
   'sections.html', 'prompts.html', 'groups.html', 'chat.html', 'assets.html',
   'regex.html', 'quick.html', 'timeline.html', 'graph.html', 'check.html',
   'script.html', 'backup.html', 'memory.html', 'tutorial.html',

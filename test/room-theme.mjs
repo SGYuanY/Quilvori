@@ -9,7 +9,7 @@ const groups = [
   ['home'], ['studio'], ['characters'], ['lore'],
   ['sections', 'prompts'], ['graph', 'regex', 'quick'],
   ['chat', 'memory', 'tutorial'], ['groups', 'script', 'timeline'],
-  ['assets', 'resources'], ['check', 'backup'],
+  ['assets', 'resources', 'themes'], ['check', 'backup'],
 ];
 const routes = groups.flat();
 const neutral = { bg: '#1c1c1c', lacquer: '#141414', paper: '#2e2e2e', ink: '#e8e8e8', accent: '#d0d0d0' };
@@ -39,8 +39,8 @@ function contrast(a, b) {
   return (values[1] + 0.05) / (values[0] + 0.05);
 }
 
-test('all 19 pages share colors with their functional siblings and differ across groups', () => {
-  assert.equal(new Set(routes).size, 19);
+test('all 20 pages share colors with their functional siblings and differ across groups', () => {
+  assert.equal(new Set(routes).size, 20);
   const representatives = [];
   for (const group of groups) {
     const first = resolve(group[0], {}, true);
