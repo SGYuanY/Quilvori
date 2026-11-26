@@ -49,6 +49,16 @@ test('preview leaves regex and macro uncertainty explicit and accepts independen
   const result=C.simulate(draft,'gate'); assert.deepEqual(ids(result.selected),['mixed','not-all']);
   assert.ok(result.skipped.every(row=>row.reason==='正则或宏需在酒馆验证'));
 });
+test('runtime checks identify individual selected and unresolved entries',()=>{
+  const draft=book(entry('plain',{constant:true}),entry('conditional',{constant:true,content:'Hello {{user}}',
+    stSettings:{probability:25,group:'weather',cooldown:2}}),entry('unknown',{keys:['{{char}}']}),
+    entry('inactive',{enabled:false,stSettings:{vectorized:true}}));
+  const result=C.simulate(draft,'hello');
+  const flags=Object.fromEntries(result.verifyInST.map(row=>[row.entry.id,Array.from(row.reasons)]));
+  assert.deepEqual(flags.conditional,['正文宏展开','概率抽取','分组抽选','跨轮计时']);
+  assert.deepEqual(flags.unknown,['正则或宏关键词']);
+  assert.equal(flags.plain,undefined);assert.equal(flags.inactive,undefined);
+});
 test('single-book budget follows order, stops ordinary allocations at overflow, still includes exempt entries',()=>{
   const result=C.simulate(book(entry('matched',{keys:['door'],order:400,content:'A'}),entry('large',{constant:true,order:300,content:'字'.repeat(20)}),
     entry('small',{constant:true,order:200,content:'B'}),entry('exempt',{constant:true,order:100,content:'C',stSettings:{ignoreBudget:true}})),'door',{budget:5});

@@ -2,7 +2,7 @@
 setlocal DisableDelayedExpansion
 where node >nul 2>nul
 if errorlevel 1 (
-  echo Quilvori requires Node.js 22 or newer.
+  echo Quilvori requires Node.js 22.12 or newer.
   echo Install Node.js, reopen this launcher, then run "npm ci" in the project folder.
   echo.
   pause

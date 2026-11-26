@@ -73,7 +73,7 @@
       results.innerHTML = slice.map(card=>{
         const meta = [card.creator,...(card.tags || []).slice(0,3)].filter(Boolean).join(' · ');
         return '<button type="button" class="qc-picker-item" data-id="'+text(card.id)+'"'+(card.id===selected?' aria-current="true"':'')+'>'
-          +portrait(card,'qc-small')+'<span data-no-translate><strong>'+text(card.name || tr('未命名'))+'</strong>'
+          +portrait(card,'qc-small')+'<span data-no-translate><strong>'+text(root.TAIntegrityPanel.displayName(card))+'</strong>'
           +(meta?'<small>'+text(meta)+'</small>':'')+'</span>'+(card.id===selected?root.TAWorkspace.icon('checkmark'):'')+'</button>';
       }).join('');
       dialog.querySelector('[role=status]').textContent = matches.length ? ((page*limit+1)+'–'+(page*limit+slice.length)+' / '+matches.length) : tr('没有找到匹配的内容');

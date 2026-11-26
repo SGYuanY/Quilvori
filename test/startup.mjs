@@ -35,11 +35,11 @@ await test('the default app root comes from the launcher location, not the worki
   assert.equal(path.resolve(appRoot), fileURLToPath(new URL('../', import.meta.url)).replace(/[\\/]$/, ''));
 });
 await test('unsupported or malformed Node versions fail before any spawn with an actionable message', async () => {
-  for (const nodeVersion of ['20.19.0', '18.20.0', 'unknown']) {
+  for (const nodeVersion of ['22.11.0', '20.19.0', '18.20.0', 'unknown']) {
     const h = harness({ nodeVersion });
     assert.equal(await start(h.options), 1);
     assert.equal(h.calls.length, 0);
-    assert.match(h.errors.join(''), /Node\.js 22 or newer is required/);
+    assert.match(h.errors.join(''), /Node\.js 22\.12 or newer is required/);
   }
 });
 await test('missing or incomplete local dependencies require npm ci and never fall back to a global Electron', async () => {

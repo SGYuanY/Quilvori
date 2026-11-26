@@ -31,8 +31,10 @@ export async function start({
   stderr = process.stderr,
 } = {}) {
   const fail = message => { stderr.write(`Quilvori: ${message}\n`); return 1; };
-  const major = Number(String(nodeVersion).split('.')[0]);
-  if (!Number.isInteger(major) || major < 22) return fail(`Node.js 22 or newer is required (found ${nodeVersion}). Install a current Node.js LTS release and try again.`);
+  const version = /^(\d+)\.(\d+)\./.exec(String(nodeVersion));
+  if (!version || Number(version[1]) < 22 || (Number(version[1]) === 22 && Number(version[2]) < 12)) {
+    return fail(`Node.js 22.12 or newer is required (found ${nodeVersion}). Install a current Node.js LTS release and try again.`);
+  }
   let executable;
   try { executable = resolveElectron(root, files); }
   catch (error) { return fail(error.message); }

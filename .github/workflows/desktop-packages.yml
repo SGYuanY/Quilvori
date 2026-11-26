@@ -1,0 +1,52 @@
+name: Desktop packages
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ['release/**']
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  package:
+    name: Package and test ${{ matrix.platform }} ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: windows-latest, platform: Windows, arch: x64 }
+          - { runner: macos-15, platform: macOS, arch: arm64 }
+          - { runner: macos-15-intel, platform: macOS, arch: x64 }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+      - name: Check native architecture
+        run: node -e "require('node:assert/strict').equal(process.arch, '${{ matrix.arch }}')"
+      - run: npm ci --no-audit --fund=false
+      - run: npm run build:desktop
+      - name: Open the download, edit and reopen a saved library
+        run: npm run test:desktop
+        env:
+          QUILVORI_HOSTED_RUNNER: ${{ runner.environment }}
+      - name: Save tested downloads and checksums
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: Quilvori-${{ matrix.platform }}-${{ matrix.arch }}
+          path: |
+            dist/Quilvori-*-Windows-x64.exe*
+            dist/Quilvori-*-macOS-*.dmg*
+          compression-level: 0
+          if-no-files-found: error

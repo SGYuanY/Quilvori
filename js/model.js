@@ -17,19 +17,143 @@
     cfg.idleMinutes = Number.isFinite(minutes) && minutes >= 1 && minutes <= 60 ? Math.round(minutes) : DEFAULT_IDLE_MINUTES;
     return cfg;
   }
-  function registry() {
-    let raw = {};
-    try { raw = JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch (_) {}
+  function parseRegistry(raw) {
     const profiles = (Array.isArray(raw.profiles) ? raw.profiles : []).filter(row=>typeof row?.id==='string' && typeof row.name==='string' && row.config && typeof row.config==='object');
     if (!profiles.length) profiles.push({id:'default',name:'Default',config:configOf(raw),models:[]});
     return {profiles,active:profiles.find(row=>row.id===raw.active) || profiles[0]};
   }
+  const codec = root.TAModelKeyCodec;
+  const credentialError = '密钥存储不可用。请解锁系统凭据或检查浏览器存储后重试。';
+  const credentialConflict = '另一窗口已修改模型配置。请重新打开工作台再编辑。';
+  let secured, persisted, transient, unlocking = false, credentialDirty = false, credentialIssue = '', saveQueue = Promise.resolve();
+  let envelopes = new Map();
+  function registry() {
+    if (codec) {
+      if (!secured) throw new Error(credentialIssue || credentialError);
+      return secured;
+    }
+    if (transient) return transient;
+    let raw = {};
+    try { raw = JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch (_) {}
+    return parseRegistry(raw);
+  }
+  async function encodeRegistry(reg, original, cancel = () => false) {
+    const saved = [], next = new Map();
+    for (const row of reg.profiles) {
+      const {key,...config} = row.config;
+      let sealed;
+      if (key) {
+        const prior = envelopes.get(row.id);
+        if (prior?.key === key) sealed = prior.sealed;
+        else {
+          sealed = await codec.seal(row.id,key);
+          if (await codec.open(row.id,sealed) !== key) throw new Error(credentialError);
+        }
+        next.set(row.id,{key,sealed});
+      }
+      saved.push({id:row.id,name:row.name,config,models:row.models || [],...(sealed ? {sealedKey:sealed} : {})});
+    }
+    const {key:privateKey,...settings}=reg.active.config;
+    const data = JSON.stringify({...settings,format:2,active:reg.active.id,profiles:saved});
+    const publish = () => {
+      if (cancel()) return;
+      if (localStorage.getItem(KEY) !== original) throw new Error(credentialConflict);
+      localStorage.setItem(KEY,data);
+      persisted = data;
+      envelopes = next;
+    };
+    if (root.navigator?.locks) await root.navigator.locks.request('quilvori-model-settings',publish);
+    else publish();
+  }
+  async function initializeCredentials() {
+    if (!codec) return;
+    unlocking = true;
+    try {
+      const original = localStorage.getItem(KEY);
+      const raw = JSON.parse(original || '{}') || {}, reg = parseRegistry(raw);
+      if (typeof raw!=='object' || Array.isArray(raw) || (raw.format!=null && raw.format!==2)) throw new Error(credentialError);
+      secured = reg;
+      if (new Set(reg.profiles.map(row=>row.id)).size !== reg.profiles.length) throw new Error(credentialError);
+      if (Array.isArray(raw.profiles) && raw.profiles.length && reg.profiles.length!==raw.profiles.length) throw new Error(credentialError);
+      for (const row of reg.profiles) {
+        if (!row.sealedKey) continue;
+        const key = await codec.open(row.id,row.sealedKey);
+        envelopes.set(row.id,{key,sealed:row.sealedKey});
+        row.config = {...row.config,key};
+      }
+      if (original !== null && (raw.format !== 2 || Object.hasOwn(raw,'key') ||
+          (raw.profiles || []).some(row=>row.config && Object.hasOwn(row.config,'key')))) {
+        await encodeRegistry(reg,original);
+      } else persisted = original;
+      secured = reg;
+      credentialDirty = false;
+      credentialIssue = '';
+    } catch (error) {
+      credentialIssue = error.message===credentialConflict ? credentialConflict : credentialError;
+      // Retain the exact on-disk migration source and allow the authoring UI to open.
+      secured ||= parseRegistry({});
+      secured.locked = true;
+    } finally { unlocking=false; }
+  }
+  let writeRevision = 0;
   function persist(reg) {
-    localStorage.setItem(KEY,JSON.stringify({...reg.active.config,active:reg.active.id,profiles:reg.profiles}));
+    if (codec) {
+      if (unlocking || reg.locked) throw new Error(credentialIssue || credentialError);
+      credentialDirty = true;
+      const revision = ++writeRevision;
+      saveQueue = saveQueue.then(async () => {
+        if (revision !== writeRevision) return;
+        // Freeze the settings before awaiting the OS. Edits made in the meantime
+        // belong to the next queued write and do not inherit the previous key.
+        try {
+          const snapshot = structuredClone(reg);
+          await encodeRegistry(snapshot,persisted,() => revision !== writeRevision);
+          if (revision === writeRevision) { credentialDirty = false; credentialIssue = ''; }
+        } catch (error) {
+          credentialIssue = error.message === credentialConflict ? credentialConflict : credentialError;
+          if (credentialIssue===credentialConflict) reg.locked=true;
+        }
+        root.dispatchEvent?.(new Event('quilvori-credential-status'));
+      });
+      return;
+    }
+    // Standalone consumers may load this module without the desktop/web codec.
+    // Keep their existing key material intact and store new keys in memory only.
+    const old=parseRegistry(JSON.parse(localStorage.getItem(KEY) || '{}') || {});
+    const profiles=reg.profiles.map(row=>{
+      const {key,...config}=row.config, prior=old.profiles.find(p=>p.id===row.id);
+      if(prior?.config.key)config.key=prior.config.key;
+      return {...row,config};
+    });
+    const {key,...settings}=reg.active.config;
+    localStorage.setItem(KEY,JSON.stringify({...settings,active:reg.active.id,profiles}));
+    transient=reg;
+  }
+  async function flushCredentials() {
+    if (unlocking) await ready;
+    let pending;
+    do { pending=saveQueue; await pending; } while(pending!==saveQueue);
+    if (credentialIssue) throw new Error(credentialIssue);
+  }
+  let ready=initializeCredentials();
+  root.addEventListener?.('storage',event=>{
+    if (codec && (event.key===KEY || event.key===null) && !credentialDirty && !unlocking) {
+      ready=initializeCredentials().then(()=>root.dispatchEvent?.(new Event('quilvori-credential-status')));
+    }
+  });
+  async function retryCredentials() {
+    if (!codec) throw new Error(credentialError);
+    if (!unlocking) {
+      if (secured?.locked) ready=initializeCredentials();
+      else if (credentialDirty) persist(secured);
+    }
+    await ready;
+    await flushCredentials();
   }
   function load() { return configOf(registry().active.config); }
   function save(next) {
     const reg = registry(), prev = reg.active.config;
+    if (reg.locked || unlocking) throw new Error(credentialIssue || credentialError);
     reg.active.config = configOf({...prev,...next});
     if (prev.baseUrl !== reg.active.config.baseUrl || prev.key !== reg.active.config.key) reg.active.models = [];
     if ((prev.baseUrl !== reg.active.config.baseUrl || prev.model !== reg.active.config.model) && !Object.hasOwn(next || {},'contextWindow')) reg.active.config.contextWindow=0;
@@ -42,12 +166,14 @@
   }
   function selectProfile(id) {
     const reg = registry(), row = reg.profiles.find(p=>p.id===id);
+    if (reg.locked || unlocking) throw new Error(credentialIssue || credentialError);
     if (!row) throw new Error('请选择模型配置');
     reg.active = row; persist(reg);
   }
   function newProfile(name) {
     if (!name?.trim()) throw new Error('请输入配置名称');
     const reg = registry();
+    if (reg.locked || unlocking) throw new Error(credentialIssue || credentialError);
     reg.active = {id:root.crypto.randomUUID(),name:name.trim(),config:configOf(),models:[]};
     reg.profiles.push(reg.active); persist(reg);
   }
@@ -434,6 +560,7 @@
     };
   }
   async function complete(messages, options) {
+    if (codec) await flushCredentials();
     const config = load(),
       opts = options || {};
     if (!configured()) throw new Error("先在设置里连接，并选一个模型。");
@@ -668,6 +795,7 @@
     }
   }
   async function listModels() {
+    if (codec) await flushCredentials();
     const reg = registry(), config = reg.active.config;
     if (!config.baseUrl || !config.key)
       throw new Error("先填写接口地址和密钥。");
@@ -725,6 +853,9 @@
     return result.items;
   }
   root.NIJANModel = {
+    get ready() { return ready; },
+    credentialStatus: () => ({pending:credentialDirty,opening:unlocking,issue:credentialIssue,locked:!!secured?.locked}),
+    flushCredentials, retryCredentials,
     load,
     save,
     configured,

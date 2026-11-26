@@ -367,7 +367,7 @@
     quickReplySets: {text:['name'], children:['replies']},
     'quickReplySets.replies': {text:['label','message','title','color']},
     scripts: {text:['name'], children:['beats']},
-    'scripts.beats': {text:['speaker','line','trigger']},
+    'scripts.beats': {text:['speaker','speakerName','line','trigger']},
     stickerPacks: {text:['name'], children:['stickers']},
     'stickerPacks.stickers': {key:null, text:['name','dataUrl']},
     themes: {text:['name']},
@@ -565,7 +565,7 @@
     return json.length;
   }
 
-  function merge(base, incoming) {
+  function merge(base, incoming, review) {
     // Check both inputs, but merge the *supplied* fields. Defaults in an old backup must never erase a local edit.
     const local = verify(base);
     if (!isRecord(incoming)) invalid('library');
@@ -610,7 +610,7 @@
         const identified = localIds.get(a.id) === 1 && backupIds.get(b.id) === 1;
         const sameMessage = identified ? a.id === b.id : (typeof a.mes === 'string' && a.mes === b.mes &&
           ['name','send_date','is_user','is_system'].every(field => !own(a,field) || !own(b,field) || a[field] === b[field]));
-        if (!sameMessage && !sameValue(a,b)) invalid(path + '[' + i + ']',chatConflict);
+        if (!sameMessage && !sameValue(a,b)) throw Object.assign(new Error((root.TAI18n?.t(chatConflict) || chatConflict)+' ('+path+'['+i+'])'),{code:'chat-branch'});
         result.push(combine(a,b,path));
       }
       const longer = active.length > backup.length ? active : backup;
@@ -621,7 +621,8 @@
       if (path === 'chats.messages') return messages(active,backup,path);
       if (path === 'chats.messages.swipes' || path === 'chats.messages.swipe_info') {
         const overlap = Math.min(active.length,backup.length);
-        if (!active.slice(0,overlap).every((item,i) => sameValue(item,backup[i]))) invalid(path,chatConflict);
+        if (!active.slice(0,overlap).every((item,i) => sameValue(item,backup[i])))
+          throw Object.assign(new Error((root.TAI18n?.t(chatConflict) || chatConflict)+' ('+path+')'),{code:'chat-branch'});
         return structuredClone(active.length > backup.length ? active : backup);
       }
       if (path === 'chats.bookmarks') {
@@ -645,11 +646,23 @@
         const original = isRecord(current) ? current : {};
         if (path === 'worldBooks.entries' && own(backup,'secondary_keys') && !own(backup,'secondaryKeys'))
           backup = { ...backup, secondaryKeys: backup.secondary_keys };
-        if (path === 'stickerPacks.stickers' && own(original,'dataUrl') && own(backup,'dataUrl') && original.dataUrl !== backup.dataUrl)
+        if (!review && path === 'stickerPacks.stickers' && own(original,'dataUrl') && own(backup,'dataUrl') && original.dataUrl !== backup.dataUrl)
           invalid(path,imageConflict);
+        let chatRows, divergent=false;
+        if (review && path==='chats' && current && own(backup,'messages')) {
+          try { chatRows=messages(original.messages,backup.messages,'chats.messages'); }
+          catch(error) {
+            if(error.code!=='chat-branch') throw error;
+            divergent=true;
+            review.divergedChats.add(String(original.id));
+            chatRows=structuredClone(backup.messages);
+          }
+        }
         const keys = new Set([...Object.keys(original), ...Object.keys(backup)]);
         // fromEntries defines own data properties, including extension-defined names such as "__proto__".
         return Object.fromEntries(Array.from(keys, key => {
+          if(chatRows && key==='messages') return [key,chatRows];
+          if(divergent && key==='bookmarks') return [key,structuredClone(backup.bookmarks || [])];
           if (!own(backup,key)) return [key, structuredClone(original[key])];
           const child = own(original,key) ? original[key] : undefined;
           const segment = key.includes('.') ? JSON.stringify([key]) : key;
@@ -659,7 +672,7 @@
       return structuredClone(backup);
     }
     const out = combine(local,incoming,'');
-    if (local.memoryHtml.trim()) out.memoryHtml = local.memoryHtml;
+    if (!review && local.memoryHtml.trim()) out.memoryHtml = local.memoryHtml;
     return verify(out);
   }
 
@@ -677,6 +690,7 @@
   }
 
   root.TAStore = {
+    collections: Object.freeze(topRows),
     KEY, databaseMarker, databaseRedirect, uid, emptyLibrary, demoLibrary, normalize, verify, load, recover, save, erase, merge, bytes, storageOk,
   };
 })(typeof globalThis !== 'undefined' ? globalThis : window);

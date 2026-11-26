@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, safeStorage } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const { preserveLegacyProfile } = require('./profile');
@@ -11,6 +11,7 @@ const themeCatalog = require('../js/theme-catalog');
 const { MAX_BYTES: themeLimit } = require('../js/theme-format');
 const appRoot = path.resolve(__dirname, '..');
 const linkRequests = new Map();
+const modelVault = require('./model-credentials').credentialVault(safeStorage);
 
 preserveLegacyProfile(app);
 // Electron scopes this lock to userData, including explicit isolated QA profiles.
@@ -83,6 +84,8 @@ function handleTrusted(channel, handler) {
 }
 
 handleTrusted('folders:get', () => readPaths());
+handleTrusted('model-key:seal', (_event,id,key) => modelVault.seal(id,key));
+handleTrusted('model-key:open', (_event,id,blob) => modelVault.open(id,blob));
 handleTrusted('folders:pick', async (event, kind) => {
   const result = await dialog.showOpenDialog({ properties: ['openDirectory'] });
   if (result.canceled || !result.filePaths[0]) return readPaths();

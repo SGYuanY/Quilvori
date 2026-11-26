@@ -70,25 +70,7 @@
     await UI.commitLibrary(candidate);
   }
 
-  async function deleteWork(collection, item, body) {
-    const expected = JSON.stringify(item);
-    try {
-      const answer = await UI.ask({
-        title:`删除「${item.name}」`, body,
-        actions:[{id:'yes',label:'删除',kind:'btn-danger'},{id:'no',label:'留下'}],
-      });
-      if (answer !== 'yes') return;
-      await commitCurrentLibrary(candidate => {
-        const index = candidate[collection].findIndex(row => row.id === item.id);
-        if (index < 0 || JSON.stringify(candidate[collection][index]) !== expected) throw new Error('资料库已变化，请重新打开。');
-        candidate[collection].splice(index,1);
-        if (collection === 'characters') {
-          candidate.groups.forEach(group => { group.members = group.members.filter(member => member.characterId !== item.id); });
-        }
-      });
-      UI.renderStage();
-    } catch (error) { UI.toast(UI.t(error.message),{kind:'error'}); }
-  }
+  const deleteWork = (collection,item,body) => root.TAIntegrityPanel.remove(collection,item,body);
 
   async function importCharacterFile(file) {
     if (!file) return;
@@ -155,7 +137,7 @@
     UI.downloadBlob(`${UI.safeName(character.name)}.png`, new Blob([await makeCardPng(character,book)], { type: 'image/png' }));
   }
 
-  function mountChips(host, list, placeholder, onChange) {
+  function mountChips(host, list, placeholder, onChange, scope) {
     const paint = (focus) => {
       host.innerHTML = `${list.map((item, index) => `<button type="button" class="chip" data-no-translate data-i="${index}">${UI.esc(item)} ×</button>`).join('')}<input class="chip-input" placeholder="${UI.esc(placeholder)}"><small class="ctx-chip-size" data-no-translate>${UI.esc(root.TAContextPanel.sizeText(root.TAContext.estimate(list.join(', '))))}</small>`;
       host.querySelectorAll('.chip').forEach((button) => {
@@ -163,7 +145,7 @@
           list.splice(Number(button.dataset.i), 1);
           paint(false);
           onChange();
-          UI.markDirty();
+          UI.markDirty(...scope);
         };
       });
       const input = host.querySelector('.chip-input');
@@ -174,7 +156,7 @@
         if (value && !list.includes(value)) list.push(value);
         paint(true);
         onChange();
-        UI.markDirty();
+        UI.markDirty(...scope);
       });
       if (focus) input.focus();
     };
@@ -237,7 +219,7 @@
     const moveFilter = root.TACollectionControls.mountFilters(host.querySelector('.collection-filters'));
     const showPage = mountGalleryPager(host.querySelector('[data-shelf-pages]'),prefs,items => {
       grid.innerHTML = items.map(({kind,item}) => {
-        const character = kind === 'character', name = item.name || tr('未命名'), avatar = character && assetsById.get(item.avatarAssetId);
+        const character = kind === 'character', name = root.TAIntegrityPanel.displayName(item), avatar = character && assetsById.get(item.avatarAssetId);
         const recent = character && latest?.id === item.id;
         const author = typeof item.creator === 'string' && item.creator.trim() ? item.creator : '';
         const title = esc(name), id = esc(item.id);
@@ -368,7 +350,7 @@
     root.TAStBundle.mount(stage, character, bookOf, makeCardPng);
     const attached = character.embeddedBookId ?? character.source?.embeddedBookId;
     if (books.some(book=>book.id === attached)) stage.querySelector('#attach-book').value = attached;
-    stage.querySelector('#attach-book').addEventListener('change', event => { character.embeddedBookId = event.target.value; UI.markDirty(); });
+    stage.querySelector('#attach-book').addEventListener('change', event => { character.embeddedBookId = event.target.value; UI.markDirty('characters',character.id); });
     stage.querySelector('[data-act="json"]').onclick = async () => {
       const filename = `${UI.safeName(character.name)}.json`;
       const pack = (lib.stickerPacks || []).find((item) => item.id === character.stickerPackId);
@@ -398,7 +380,7 @@
       const grid = body.querySelector('.gallery'), search = body.querySelector('[data-gallery-search]');
       const showPage = mountGalleryPager(body.querySelector('[data-card-pages]'),prefs,items => {
         grid.innerHTML = items.map(item => {
-          const avatar = assetsById.get(item.avatarAssetId), name = UI.esc(item.name || UI.t('未命名'));
+          const avatar = assetsById.get(item.avatarAssetId), name = UI.esc(root.TAIntegrityPanel.displayName(item));
           const face = avatar ? `<img alt="" src="${UI.esc(avatar.dataUrl)}" loading="lazy" decoding="async">` : `<div class="seal-fallback" data-no-translate>${UI.esc((item.name || '名').slice(0,1))}</div>`;
           return `<article class="paper gallery-card${item.id === character.id ? ' on' : ''}">
             <button type="button" class="gallery-open" data-open-card="${UI.esc(item.id)}" aria-label="${UI.esc(UI.t('打开编辑'))} · ${name}">${face}</button>
@@ -497,8 +479,8 @@
       character.updatedAt = stamp();
       paintPreview();
       if (switcher && (key==='name' || key==='avatarAssetId')) root.TACollectionControls.currentCard(switcher,character);
-    });
-    mountChips(body.querySelector('#char-tags'), character.tags, '添加标签', paintPreview);
+    },['characters',character.id]);
+    mountChips(body.querySelector('#char-tags'), character.tags, '添加标签', paintPreview,['characters',character.id]);
     const greetHost = body.querySelector('#greetings');
     const paintGreetings = () => {
       greetHost.innerHTML = `${character.alternate_greetings.map((line, index) => `<div class="row"><textarea data-greet="${index}" rows="3">${UI.esc(line)}</textarea><button type="button" class="btn btn-small btn-danger" data-drop-greet="${index}">删除</button></div>`).join('')}<button type="button" class="btn btn-small" id="add-greet">添加备用开场</button>`;
@@ -506,19 +488,19 @@
         area.addEventListener('input', () => {
           character.alternate_greetings[Number(area.dataset.greet)] = area.value;
           character.updatedAt = stamp();
-          UI.markDirty();
+          UI.markDirty('characters',character.id);
         });
       });
       greetHost.querySelectorAll('[data-drop-greet]').forEach((button) => {
         button.onclick = () => {
           character.alternate_greetings.splice(Number(button.dataset.dropGreet), 1);
-          UI.markDirty();
+          UI.markDirty('characters',character.id);
           paintGreetings();
         };
       });
       greetHost.querySelector('#add-greet').onclick = () => {
         character.alternate_greetings.push('');
-        UI.markDirty();
+        UI.markDirty('characters',character.id);
         paintGreetings();
       };
       UI.mountLengths(greetHost);
@@ -569,7 +551,7 @@
     };
     stage.innerHTML = `<div class="dropwell"><div><strong>把世界书拖到这里</strong><span>酒馆世界信息的 JSON。</span></div><button type="button" class="btn btn-primary" id="book-drop-btn">选择文件</button></div><div id="sticker-host"></div><div id="json-host"></div><div class="toolbar">
       <div class="qc-book-selectors">
-        <label><span>当前世界书</span><select id="book-select" data-no-translate>${lib.worldBooks.map((item) => `<option value="${UI.esc(item.id)}"${item.id === book.id ? ' selected' : ''}>${UI.esc(item.name || UI.t('未命名'))}</option>`).join('')}</select></label>
+        <label><span>当前世界书</span><select id="book-select" data-no-translate>${lib.worldBooks.map((item) => `<option value="${UI.esc(item.id)}"${item.id === book.id ? ' selected' : ''}>${UI.esc(root.TAIntegrityPanel.displayName(item))}</option>`).join('')}</select></label>
         <label><span>目录分组</span><select id="lore-group-by"><option value="position"${UI.state.loreGroupBy !== 'category' ? ' selected' : ''}>按注入位置</option><option value="category"${UI.state.loreGroupBy === 'category' ? ' selected' : ''}>按内容分类</option></select></label>
       </div>
       <div class="qc-book-actions">
@@ -614,7 +596,7 @@
       const created = blankEntry();
       book.entries.unshift(created);
       UI.state.sel.entry = created.id;
-      UI.markDirty();
+      UI.markDirty('worldBooks',book.id);
       UI.renderStage();
     };
     const bookName = stage.querySelector('[data-book-field="name"]'), bookSelect = stage.querySelector('#book-select');
@@ -626,10 +608,10 @@
       if (display) display.textContent = book.name;
       const address = editor.querySelector('.ws-address');
       if (address) address.textContent = book.name;
-      UI.markDirty();
+      UI.markDirty('worldBooks',book.id);
     };
     bookName.onblur = () => { if (!bookName.value.trim()) bookName.value = book.name; };
-    stage.querySelector('[data-book-field="description"]').oninput = event => { book.description = event.target.value; UI.markDirty(); };
+    stage.querySelector('[data-book-field="description"]').oninput = event => { book.description = event.target.value; UI.markDirty('worldBooks',book.id); };
     stage.querySelector('#export-book').onclick = () => {
       const filename = `${UI.safeName(book.name)}.json`;
       const data = F.bookToWorldInfo(book);
@@ -652,7 +634,7 @@
       const item = book.entries.find(entry=>entry.id===id);
       if (!item) return;
       snapLore(); item.enabled = item.enabled === false;
-      UI.markDirty(); directory.edit(item);
+      UI.markDirty('worldBooks',book.id); directory.edit(item);
       if (id===UI.state.sel.entry) paintEditor();
       refreshContext();
     });
@@ -684,9 +666,9 @@
           if (title) title.textContent = current.comment || '未命名';
         }
         if (key === 'position' || key === 'enabled' || key === 'constant' || key === 'category') UI.renderStage();
-      });
-      mountChips(editor.querySelector('#keys'), current.keys, '主关键词', refreshContext);
-      mountChips(editor.querySelector('#keys2'), current.secondaryKeys, '次关键词', refreshContext);
+      },['worldBooks',book.id]);
+      mountChips(editor.querySelector('#keys'), current.keys, '主关键词', refreshContext,['worldBooks',book.id]);
+      mountChips(editor.querySelector('#keys2'), current.secondaryKeys, '次关键词', refreshContext,['worldBooks',book.id]);
       UI.mountLengths(editor);
       if (root.TAI18n) root.TAI18n.localize(editor);
       editor.querySelector('#dup-entry').onclick = () => {
@@ -695,13 +677,13 @@
         copy.comment = `${current.comment || '条目'} 的副本`;
         book.entries.unshift(copy);
         UI.state.sel.entry = copy.id;
-        UI.markDirty();
+        UI.markDirty('worldBooks',book.id);
         UI.renderStage();
       };
       editor.querySelector('#del-entry').onclick = () => {
         book.entries = book.entries.filter((item) => item.id !== current.id);
         UI.state.sel.entry = null;
-        UI.markDirty();
+        UI.markDirty('worldBooks',book.id);
         UI.renderStage();
       };
     }
@@ -735,7 +717,7 @@
       const prev = loreUndo.pop();
       if (!prev) { UI.toast('没有可撤销的世界书修改'); return; }
       book.entries = JSON.parse(prev);
-      UI.markDirty();
+      UI.markDirty('worldBooks',book.id);
       UI.renderStage();
     };
     mountSticker(stage, book);
@@ -831,7 +813,7 @@
         </article>`).join('')}</div>
         <button type="button" class="btn" id="add-block">添加一块</button></div>
         <aside class="paper"><p class="eyebrow">顺序</p><ol id="order-preview"></ol><p class="help">拖左侧的「序」重新排列。导出的 JSON 带 prompts 和 prompt_order，方便对照酒馆预设，它不是完整的模型参数包。</p><div id="prompt-lesson"></div></aside>`;
-      UI.bindFields(host.querySelector('.paper'), current, () => paintOrder());
+      UI.bindFields(host.querySelector('.paper'), current, () => paintOrder(),['promptPresets',current.id]);
       const paintOrder = () => {
         host.querySelector('#order-preview').innerHTML = current.blocks.map((block) => `<li>${block.enabled ? '' : `${UI.t('（关）')}`}${UI.esc(block.name)} · ${UI.esc(block.kind)}</li>`).join('');
         const exported = F.presetToExport(current);
@@ -861,19 +843,19 @@
           block[node.dataset.key] = node.type === 'checkbox' ? node.checked : node.value;
           if (node.dataset.key === 'enabled') node.closest('.block').classList.toggle('off', !block.enabled);
           paintOrder();
-          UI.markDirty();
+          UI.markDirty('promptPresets',current.id);
         });
       });
       host.querySelectorAll('[data-del]').forEach((button) => {
         button.onclick = () => {
           current.blocks = current.blocks.filter((block) => block.id !== button.dataset.del);
-          UI.markDirty();
+          UI.markDirty('promptPresets',current.id);
           paint();
         };
       });
       host.querySelector('#add-block').onclick = () => {
         current.blocks.push({ id: Store.uid('blk'), name: '新块', kind: 'custom', role: 'system', enabled: true, content: '' });
-        UI.markDirty();
+        UI.markDirty('promptPresets',current.id);
         paint();
       };
       let fromId = null;
@@ -893,7 +875,7 @@
           const to = current.blocks.findIndex((block) => block.id === toId);
           const [moved] = current.blocks.splice(from, 1);
           current.blocks.splice(to, 0, moved);
-          UI.markDirty();
+          UI.markDirty('promptPresets',current.id);
           paint();
         });
       });
@@ -928,11 +910,7 @@
       UI.toast('已导出群名单。酒馆需先有角色卡，再按名单建群。');
       UI.showExport(filename, '群名单。先导入角色卡，再按这份名单在酒馆里建群。');
     };
-    stage.querySelector('#del-group').onclick = () => {
-      lib.groups = lib.groups.filter((item) => item.id !== group.id);
-      UI.markDirty();
-      UI.renderStage();
-    };
+    stage.querySelector('#del-group').onclick = () => deleteWork('groups',group);
     const body = stage.querySelector('#group-body');
     const missing = lib.characters.filter((character) => !group.members.some((member) => member.characterId === character.id));
     body.innerHTML = `<div class="work"><div class="paper stack">
@@ -956,25 +934,25 @@
       aside.querySelector('ol').innerHTML = group.members.map((member) => `<li>${member.enabled === false ? '（未上场）' : ''}${UI.esc(UI.charById(member.characterId)?.name || '缺失')} · ${Number(member.talkativeness).toFixed(2)}</li>`).join('');
     };
     paintPreview();
-    UI.bindFields(body, group, paintPreview);
+    UI.bindFields(body, group, paintPreview,['groups',group.id]);
     body.querySelectorAll('[data-member]').forEach((row) => {
       const member = group.members[Number(row.dataset.member)];
-      row.querySelector('[data-m="enabled"]').onchange = (event) => { member.enabled = event.target.checked; paintPreview(); UI.markDirty(); };
+      row.querySelector('[data-m="enabled"]').onchange = (event) => { member.enabled = event.target.checked; paintPreview(); UI.markDirty('groups',group.id); };
       row.querySelector('[data-m="talk"]').oninput = (event) => {
         member.talkativeness = Number(event.target.value);
         row.querySelector('.field-label').textContent = `话多 ${member.talkativeness.toFixed(2)}`;
         if (root.TAI18n) root.TAI18n.localize(row.querySelector('.field-label'));
         paintPreview();
-        UI.markDirty();
+        UI.markDirty('groups',group.id);
       };
-      row.querySelector('[data-m-del]').onclick = () => { group.members.splice(Number(row.dataset.member), 1); UI.markDirty(); UI.renderStage(); };
+      row.querySelector('[data-m-del]').onclick = () => { group.members.splice(Number(row.dataset.member), 1); UI.markDirty('groups',group.id); UI.renderStage(); };
     });
     body.querySelector('#add-member-btn').onclick = () => {
       const id = body.querySelector('#add-member').value;
       if (!id) return;
       const character = UI.charById(id);
       group.members.push({ characterId: id, talkativeness: character ? character.talkativeness : 0.5, enabled: true });
-      UI.markDirty();
+      UI.markDirty('groups',group.id);
       UI.renderStage();
     };
   }
@@ -995,7 +973,7 @@
     UI.bindPicker(stage, (id) => { UI.state.sel.chat = id; UI.renderStage(); });
     stage.querySelector('#chat-bg').onchange = (event) => {
       lib.settings.chatBackgroundAssetId = event.target.value || null;
-      UI.markDirty();
+      UI.markDirty('settings');
       UI.renderStage();
     };
     const importButton = stage.querySelector('#import-chat');
@@ -1004,8 +982,11 @@
       try {
         const text = await UI.readText(file);
         const parsed = F.chatFromText(text, file.name);
-        parsed.id = Store.uid('chat');
-        await commitCurrentLibrary(candidate => candidate.chats.unshift(parsed));
+        await commitCurrentLibrary(candidate => {
+          if (!(typeof parsed.id === 'string' && parsed.id.trim() || Number.isSafeInteger(parsed.id)) ||
+              candidate.chats.some(row => String(row.id) === String(parsed.id))) parsed.id = Store.uid('chat');
+          candidate.chats.unshift(parsed);
+        });
         if (importButton.isConnected) UI.state.sel.chat = parsed.id;
         UI.renderStage();
         UI.toast(`已读入 ${parsed.messages.length} 条消息`,{kind:'success'});
@@ -1024,7 +1005,7 @@
       UI.downloadJson(filename, current);
       UI.showExport(filename, '阅读稿。只供保存查阅，不会写回酒馆的 chats。');
     };
-    stage.querySelector('#del-chat').onclick = () => { lib.chats = lib.chats.filter((item) => item.id !== current.id); UI.markDirty(); UI.renderStage(); };
+    stage.querySelector('#del-chat').onclick = () => deleteWork('chats',current);
     const body = stage.querySelector('#chat-body');
     const query = UI.state.passageQuery || '';
     body.innerHTML = `<div class="chat-wrap"><div class="paper stack">
@@ -1085,7 +1066,7 @@
       const picked = selectionInLog();
       if (!picked || !picked.text) { UI.toast('请先在正文里涂选一段'); return; }
       current.bookmarks.push({ id: Store.uid('bm'), index: picked.index, excerpt: picked.text.slice(0, 80), note: '' });
-      UI.markDirty();
+      UI.markDirty('chats',current.id,'metadata');
       UI.renderStage();
     };
   }
@@ -1161,13 +1142,13 @@
         <button type="button" class="btn btn-danger" id="del-asset">删除素材</button>
         <p class="help">删除后，用到它的头像和背景会空出来。</p>
       </div>`;
-      UI.bindFields(side, current, () => UI.markDirty());
+      UI.bindFields(side, current, null,['assets',current.id,'metadata']);
       side.querySelector('#set-avatar').onclick = () => {
         const character = UI.charById(side.querySelector('#as-avatar').value);
         if (!character) { UI.toast('先选角色'); return; }
         character.avatarAssetId = current.id;
         current.kind = 'avatar';
-        UI.markDirty();
+        UI.markDirty('characters',character.id); UI.markDirty('assets',current.id,'metadata');
         UI.toast(`已设为「${character.name}」的头像`);
       };
       side.querySelector('#set-exp').onclick = () => {
@@ -1176,13 +1157,13 @@
         character.expressionAssetIds = character.expressionAssetIds || [];
         if (!character.expressionAssetIds.includes(current.id)) character.expressionAssetIds.push(current.id);
         current.kind = 'expression';
-        UI.markDirty();
+        UI.markDirty('characters',character.id); UI.markDirty('assets',current.id,'metadata');
         UI.toast(`已加入「${character.name}」的表情`);
       };
       side.querySelector('#set-bg').onclick = () => {
         lib.settings.chatBackgroundAssetId = current.id;
         current.kind = 'background';
-        UI.markDirty();
+        UI.markDirty('settings'); UI.markDirty('assets',current.id,'metadata');
         UI.toast('聊天背景已换上');
       };
       side.querySelector('#del-asset').onclick = () => {
@@ -1238,7 +1219,7 @@
       } catch (error) { UI.toast(UI.t(error.message),{kind:'error'}); }
     };
     if (!script) { stage.querySelector('#rx-body').appendChild(UI.empty('还没有脚本', '新建一条，或导入酒馆的正则 JSON。', '', null)); return; }
-    stage.querySelector('#del-rx').onclick = () => { lib.regexScripts = lib.regexScripts.filter((item) => item.id !== script.id); UI.markDirty(); UI.renderStage(); };
+    stage.querySelector('#del-rx').onclick = () => deleteWork('regexScripts',script);
     const body = stage.querySelector('#rx-body');
     body.innerHTML = `<div class="work"><div class="paper stack">
       ${UI.field('名称', UI.text('scriptName', script.scriptName))}
@@ -1251,10 +1232,14 @@
       <label class="check"><input data-field="markdownOnly" type="checkbox" ${script.markdownOnly ? 'checked' : ''}>仅 Markdown 显示</label>
       <label class="check"><input data-field="promptOnly" type="checkbox" ${script.promptOnly ? 'checked' : ''}>仅提示词</label>
       <div class="grid-2">${UI.field('最小深度', `<input data-field="minDepth" type="number" value="${script.minDepth ?? ''}">`)}${UI.field('最大深度', `<input data-field="maxDepth" type="number" value="${script.maxDepth ?? ''}">`)}</div>
-    </div><aside class="paper stack" id="rx-side"><p class="eyebrow">表达式</p><div id="rx-read"></div><p class="eyebrow">试一句</p>${hint('贴一行字。下面给出匹配、捕获组和替换结果，不写入库。')}<textarea id="lab" rows="6" data-nolen>${UI.esc(UI.state.lab || '')}</textarea><button type="button" class="btn" id="run-rx">试跑</button><pre id="lab-out" class="snippet"></pre></aside></div>`;
-    body.querySelectorAll('[data-trim-index]').forEach(node => { node.oninput = () => { script.trimStrings[Number(node.dataset.trimIndex)] = node.value; UI.markDirty(); }; });
-    const paintRegex = () => {
-      const described = F.describeRegex(script.findRegex);
+    </div><aside class="paper stack" id="rx-side"><p class="eyebrow">表达式</p><div id="rx-read"></div><p class="eyebrow">试一句</p>${hint('贴一行字。下面给出匹配、捕获组和替换结果，不写入库。')}<textarea id="lab" rows="6" data-nolen>${UI.esc(UI.state.lab || '')}</textarea><div class="row"><button type="button" class="btn" id="run-rx">试跑</button><button type="button" class="btn" id="stop-rx" hidden>停止试跑</button></div><pre id="lab-out" class="snippet" role="status"></pre></aside></div>`;
+    body.querySelectorAll('[data-trim-index]').forEach(node => { node.oninput = () => { script.trimStrings[Number(node.dataset.trimIndex)] = node.value; UI.markDirty('regexScripts',script.id); }; });
+    const runner = root.TARegexRunner.createRunner();
+    const sampleInput = body.querySelector('#lab'), stop = body.querySelector('#stop-rx');
+    const out = body.querySelector('#lab-out');
+    let generation = 0, timer;
+    function paintRegex(trial, sample) {
+      const described = trial;
       const read = body.querySelector('#rx-read');
       const error = body.querySelector('#rx-error');
       if (!String(script.findRegex || '').trim()) {
@@ -1268,13 +1253,10 @@
         else steps.push(UI.t('rx.groups', { count: described.groups.length, list: described.groups.map((group) => group.name ? UI.t('rx.groupNamed', { n: group.index, name: group.name }) : UI.t('rx.group', { n: group.index })).join('、') }));
         UI.fillLesson(read, steps);
       }
-      const sample = body.querySelector('#lab').value;
-      const out = body.querySelector('#lab-out');
       if (!sample) {
         out.textContent = '贴一句，再看整段匹配、每一组抓住的字、替换结果，以及没被吃掉的部分。';
         return;
       }
-      const trial = F.regexTrial(script.findRegex, sample, script.replaceString);
       if (!trial.ok) {
         out.textContent = trial.error || described.error;
         return;
@@ -1296,24 +1278,45 @@
       lines.push(`替换后：${trial.replaced}`);
       lines.push('被换掉的只是匹配到的段。');
       out.textContent = lines.join('\n');
-    };
+    }
+    function stopTrial() {
+      generation++;
+      clearTimeout(timer);
+      runner.cancel();
+      stop.hidden = true;
+    }
+    function schedule(immediate = false) {
+      stopTrial();
+      const current = generation, sample = sampleInput.value;
+      const run = async () => {
+        if (!body.isConnected) return;
+        stop.hidden = false;
+        out.textContent = UI.t('正在试跑正则…');
+        try {
+          const [trial] = await runner.run(script.findRegex,[sample],script.replaceString);
+          if (generation === current && body.isConnected) paintRegex(trial,sample);
+        } catch (error) {
+          if (generation === current && body.isConnected) out.textContent = UI.t(error.message);
+        } finally {
+          if (generation === current) stop.hidden = true;
+        }
+      };
+      if (immediate) run(); else timer = setTimeout(run,140);
+    }
     UI.bindFields(body, script, (key) => {
       if (key === 'minDepth' || key === 'maxDepth') script[key] = script[key] === '' ? null : Number(script[key]);
-      paintRegex();
-    });
+      if (key === 'findRegex' || key === 'replaceString') schedule();
+    },['regexScripts',script.id]);
     body.querySelectorAll('#places input').forEach((box) => {
       box.onchange = () => {
         script.placement = [...body.querySelectorAll('#places input:checked')].map((item) => Number(item.value));
-        UI.markDirty();
+        UI.markDirty('regexScripts',script.id);
       };
     });
-    const run = () => {
-      UI.state.lab = body.querySelector('#lab').value;
-      paintRegex();
-    };
-    body.querySelector('#lab').addEventListener('input', (event) => { UI.state.lab = event.target.value; paintRegex(); });
-    body.querySelector('#run-rx').onclick = run;
-    paintRegex();
+    sampleInput.oninput = () => { UI.state.lab = sampleInput.value; schedule(); };
+    body.querySelector('#run-rx').onclick = () => schedule(true);
+    stop.onclick = () => { stopTrial(); out.textContent = UI.t('正则试跑已取消。'); };
+    schedule(true);
   }
 
   function quick(stage) {
@@ -1358,7 +1361,7 @@
       UI.toast('已导出快捷回复集');
       UI.showExport(filename, 'Quick Reply v2。在酒馆快捷回复扩展里导入。');
     };
-    stage.querySelector('#del-qr').onclick = () => { lib.quickReplySets = lib.quickReplySets.filter((item) => item.id !== set.id); UI.markDirty(); UI.renderStage(); };
+    stage.querySelector('#del-qr').onclick = () => deleteWork('quickReplySets',set);
     const body = stage.querySelector('#qr-body');
     body.innerHTML = `<div class="paper stack">${UI.field('套名', UI.text('name', set.name))}
       <div id="qr-list">${set.replies.map((reply) => `<div class="paper" data-id="${UI.esc(reply.id)}" style="padding:10px">
@@ -1366,7 +1369,7 @@
         <textarea data-k="message" rows="3">${UI.esc(reply.message)}</textarea>
       </div>`).join('')}</div>
       <button type="button" class="btn" id="add-qr">添加一条</button><div id="qr-lesson"></div></div>`;
-    UI.bindFields(body, set);
+    UI.bindFields(body, set, null,['quickReplySets',set.id]);
     UI.mountLengths(body);
     const paintQrLesson = () => {
       const exported = F.qrToExport(set);
@@ -1382,14 +1385,14 @@
     body.querySelectorAll('[data-id]').forEach((row) => {
       const reply = set.replies.find((item) => item.id === row.dataset.id);
       row.querySelectorAll('[data-k]').forEach((node) => {
-        node.addEventListener('input', () => { reply[node.dataset.k] = node.value; UI.markDirty(); paintQrLesson(); });
+        node.addEventListener('input', () => { reply[node.dataset.k] = node.value; UI.markDirty('quickReplySets',set.id); paintQrLesson(); });
       });
       row.querySelector('[data-copy]').onclick = () => UI.copyText(reply.message || '');
-      row.querySelector('[data-del]').onclick = () => { set.replies = set.replies.filter((item) => item.id !== reply.id); UI.markDirty(); UI.renderStage(); };
+      row.querySelector('[data-del]').onclick = () => { set.replies = set.replies.filter((item) => item.id !== reply.id); UI.markDirty('quickReplySets',set.id); UI.renderStage(); };
     });
     body.querySelector('#add-qr').onclick = () => {
       set.replies.push({ id: Store.uid('qr'), label: '新回复', message: '', color: '#c6a15a', title: '' });
-      UI.markDirty();
+      UI.markDirty('quickReplySets',set.id);
       UI.renderStage();
     };
   }
@@ -1446,7 +1449,7 @@
           const up = () => {
             window.removeEventListener('pointermove', move);
             window.removeEventListener('pointerup', up);
-            UI.markDirty();
+            UI.markDirty('graph');
             paintSide();
           };
           window.addEventListener('pointermove', move);
@@ -1508,7 +1511,7 @@
         if (!from || !to || from === to) { UI.toast('请选两个不同的人'); return; }
         if (!label) { UI.toast('写上关系'); return; }
         graphData.edges.push({ id: Store.uid('edge'), from, to, label, note: side.querySelector('#edge-note').value.trim() });
-        UI.markDirty();
+        UI.markDirty('graph');
         paint();
         paintSide();
       };
@@ -1516,14 +1519,14 @@
         const label = side.querySelector('#node-label').value.trim();
         if (!label) return;
         graphData.nodes.push({ id: Store.uid('node'), characterId: null, label, x: 400, y: 280 });
-        UI.markDirty();
+        UI.markDirty('graph');
         paint();
         paintSide();
       };
       if (edge) side.querySelector('#del-edge').onclick = () => {
         graphData.edges = graphData.edges.filter((item) => item.id !== edge.id);
         UI.state.sel.edge = null;
-        UI.markDirty();
+        UI.markDirty('graph');
         paint();
         paintSide();
       };
@@ -1534,7 +1537,7 @@
         const angle = (index / Math.max(1, lib.characters.length)) * Math.PI * 2;
         graphData.nodes.push({ id: Store.uid('node'), characterId: character.id, label: character.name, x: 400 + Math.cos(angle) * 200, y: 280 + Math.sin(angle) * 150 });
       });
-      UI.markDirty();
+      UI.markDirty('graph');
       paint();
       UI.toast('已把缺席的角色放到图上');
     };
@@ -1649,13 +1652,13 @@
       UI.toast('已导出剧本');
       UI.showExport(filename, '剧本草稿 JSON。酒馆没有对应的导入。');
     };
-    stage.querySelector('#del-script').onclick = () => { lib.scripts = lib.scripts.filter((item) => item.id !== current.id); UI.markDirty(); UI.renderStage(); };
+    stage.querySelector('#del-script').onclick = () => deleteWork('scripts',current);
     const speakers = [['narrator', UI.t('旁白')], ...lib.characters.map((character) => [character.id, character.name])];
     const body = stage.querySelector('#script-body');
     const paint = () => {
       body.innerHTML = `<div class="work"><div class="stack" id="beats">${UI.field('', '') && ''}<div class="paper" style="margin-bottom:10px">${UI.field('剧本名', UI.text('name', current.name))}</div>
         ${current.beats.map((beat, index) => `<article class="paper stack" data-i="${index}" style="margin-bottom:8px">
-          <div class="row"><select data-k="speaker">${speakers.map(([value, label]) => `<option value="${UI.esc(value)}"${beat.speaker === value ? ' selected' : ''}>${UI.esc(label)}</option>`).join('')}</select><button type="button" class="btn btn-small" data-up>上移</button><button type="button" class="btn btn-small" data-down>下移</button><button type="button" class="btn btn-small btn-danger" data-del>删除</button></div>
+          <div class="row"><select data-k="speaker">${!speakers.some(([value])=>String(value)===String(beat.speaker))?`<option value="" selected>${UI.esc(beat.speakerName || UI.t('未指定发言人'))}</option>`:''}${speakers.map(([value,label])=>`<option value="${UI.esc(value)}"${String(beat.speaker)===String(value)?' selected':''}>${UI.esc(label)}</option>`).join('')}</select><button type="button" class="btn btn-small" data-up>上移</button><button type="button" class="btn btn-small" data-down>下移</button><button type="button" class="btn btn-small btn-danger" data-del>删除</button></div>
           <textarea data-k="line" rows="3">${UI.esc(beat.line)}</textarea>
           <input data-k="trigger" type="text" value="${UI.esc(beat.trigger || '')}" placeholder="可选触发词">
         </article>`).join('')}
@@ -1664,7 +1667,7 @@
       const preview = () => {
         const exported = F.scriptToExport(current, lib);
         body.querySelector('#script-preview').innerHTML = `<p class="eyebrow">SCRIPT</p><h2>${UI.esc(current.name)}</h2>${current.beats.map((beat) => {
-          const who = beat.speaker === 'narrator' ? UI.t('旁白') : (UI.charById(beat.speaker)?.name || UI.t('旁白'));
+          const who = beat.speaker === 'narrator' ? UI.t('旁白') : F.scriptSpeaker(beat,lib);
           return `<div class="script-line"><div class="who">${UI.esc(who)}</div>${beat.trigger ? `<div class="trigger">${UI.t('script.trigger', { word: beat.trigger })}</div>` : ''}<p>${UI.esc(beat.line || '……')}</p></div>`;
         }).join('')}<div id="script-lesson"></div>`;
         UI.fillLesson(body.querySelector('#script-lesson'), [
@@ -1677,20 +1680,20 @@
           })),
         ]);
       };
-      UI.bindFields(body, current, preview);
+      UI.bindFields(body, current, preview,['scripts',current.id]);
       preview();
       body.querySelectorAll('[data-i]').forEach((row) => {
         const index = Number(row.dataset.i);
         const beat = current.beats[index];
         row.querySelectorAll('[data-k]').forEach((node) => {
           const eventName = node.tagName === 'SELECT' ? 'change' : 'input';
-          node.addEventListener(eventName, () => { beat[node.dataset.k] = node.value; preview(); UI.markDirty(); });
+          node.addEventListener(eventName, () => { beat[node.dataset.k] = node.value; if(node.dataset.k==='speaker')delete beat.speakerName; preview(); UI.markDirty('scripts',current.id); });
         });
-        row.querySelector('[data-del]').onclick = () => { current.beats.splice(index, 1); UI.markDirty(); paint(); };
-        row.querySelector('[data-up]').onclick = () => { if (index === 0) return; const [item] = current.beats.splice(index, 1); current.beats.splice(index - 1, 0, item); UI.markDirty(); paint(); };
-        row.querySelector('[data-down]').onclick = () => { if (index >= current.beats.length - 1) return; const [item] = current.beats.splice(index, 1); current.beats.splice(index + 1, 0, item); UI.markDirty(); paint(); };
+        row.querySelector('[data-del]').onclick = () => { current.beats.splice(index, 1); UI.markDirty('scripts',current.id); paint(); };
+        row.querySelector('[data-up]').onclick = () => { if (index === 0) return; const [item] = current.beats.splice(index, 1); current.beats.splice(index - 1, 0, item); UI.markDirty('scripts',current.id); paint(); };
+        row.querySelector('[data-down]').onclick = () => { if (index >= current.beats.length - 1) return; const [item] = current.beats.splice(index, 1); current.beats.splice(index + 1, 0, item); UI.markDirty('scripts',current.id); paint(); };
       });
-      body.querySelector('#add-beat').onclick = () => { current.beats.push({ id: Store.uid('sb'), speaker: 'narrator', line: '', trigger: '' }); UI.markDirty(); paint(); };
+      body.querySelector('#add-beat').onclick = () => { current.beats.push({ id: Store.uid('sb'), speaker: 'narrator', line: '', trigger: '' }); UI.markDirty('scripts',current.id); paint(); };
       UI.mountLengths(body);
     };
     paint();
@@ -1750,9 +1753,11 @@
       <h2>${UI.esc(lib.meta.name || '我的酒馆库')}</h2>
       <p>${UI.t('backup.about', { kb: Math.round(Store.bytes(lib) / 1024) })}</p>
       <div class="stats">${rows.map(([label, count]) => `<div class="stat"><b>${count}</b><span>${label}</span></div>`).join('')}</div>
-      <p class="help">${UI.t('合并会保留本机独有的内容。同一编号的字段采用备份值；已有 HTML 记忆会保留。')}</p>
+      <p class="help">${UI.t('合并前逐项对比差异；替换会用备份覆盖整个资料库。')}</p>
     </div>`;
     mountPageAssist(stage, 'backup');
+    root.TAIntegrityPanel.alternatives(stage,lib);
+    root.TAHistoryPanel.mountOverview(stage);
     async function restoreFile(file) {
       if (!file) return;
       try {
@@ -1760,24 +1765,33 @@
         const incoming = data?.atelier ? F.backupLibrary(data) : data;
         const normalized = Store.verify(incoming);
         const atConfirmation = structuredClone(backupContent(UI.state.lib));
+        let plan,review,mergeError='';
+        try {
+          plan=root.TABackupReview.plan(UI.state.lib,incoming);
+          review=root.TAIntegrityPanel.review(plan);
+        } catch(error) {
+          mergeError=UI.t(error.message);
+        }
         const answer = await UI.ask({
           title: '恢复这份备份',
-          body: `备份里有 ${normalized.characters.length} 张角色、${normalized.worldBooks.length} 本世界书。\n${UI.t('合并会保留本机独有的内容。同一编号的字段采用备份值；已有 HTML 记忆会保留。')}`,
+          body: `备份里有 ${normalized.characters.length} 张角色、${normalized.worldBooks.length} 本世界书。\n${mergeError || UI.t('合并前逐项对比差异；替换会用备份覆盖整个资料库。')}`,
+          content:review?.content,
           actions: [
+            ...(review?[{ id: 'merge', label: '合并进来', kind: 'btn-primary' }]:[]),
             { id: 'replace', label: '替换当前库', kind: 'btn-danger' },
-            { id: 'merge', label: '合并进来', kind: 'btn-primary' },
             { id: 'no', label: '取消' },
           ],
         });
         if (answer !== 'replace' && answer !== 'merge') return;
         const live = UI.state.lib;
-        const candidate = answer === 'replace' ? normalized : Store.merge(live, incoming);
+        const candidate = answer === 'replace' ? normalized : root.TABackupReview.apply(plan,review.choices,live);
         const currentContent = backupContent(live);
         const stale = answer === 'replace'
           ? JSON.stringify(atConfirmation) !== JSON.stringify(currentContent)
           : discardsRecentEdit(atConfirmation,currentContent,backupContent(candidate));
         if (stale) throw new Error('资料库已变化，请重新打开。');
         await UI.commitLibrary(candidate);
+        if(answer==='replace')root.TAIntegrityPanel.resetUndo();
         UI.state.loreUndo?.clear();
         UI.applyTheme();
         UI.toast(answer === 'replace' ? '已替换为备份' : '已合并备份');
@@ -1852,6 +1866,7 @@
 
   function syncSections(lib) {
     const sections = lib.sections;
+    let added=false;
     const r18 = sectionText(sections.r18, R18_TEXT[sections.r18.preset] || R18_TEXT.hint);
     const nsfw = sectionText(sections.nsfw, NSFW_NOTE[sections.nsfw.preset] || NSFW_NOTE.tease);
     const style = sectionText(sections.style, STYLE_TEXT[sections.style.preset] || STYLE_TEXT.short);
@@ -1869,6 +1884,7 @@
 
     let preset = lib.promptPresets.find((item) => item.id === SECTION_PRESET);
     if (!preset) {
+      added=true;
       preset = { id: SECTION_PRESET, name: '叙翎集段落', blocks: [] };
       lib.promptPresets.unshift(preset);
     }
@@ -1883,6 +1899,7 @@
 
     let book = lib.worldBooks.find((item) => item.id === SECTION_BOOK);
     if (!book) {
+      added=true;
       book = { id: SECTION_BOOK, name: '叙翎集段落', description: '段落预设写入的条目', entries: [] };
       lib.worldBooks.push(book);
     }
@@ -1901,6 +1918,7 @@
 
     let script = lib.regexScripts.find((item) => item.id === 'sec_format_rx');
     if (!script) {
+      added=true;
       script = { id: 'sec_format_rx', scriptName: '输出格式', findRegex: find, replaceString: replace, trimStrings: [], placement: [2], disabled: !sections.format.on, markdownOnly: false, promptOnly: false, runOnEdit: false, substituteRegex: 0, minDepth: null, maxDepth: null };
       lib.regexScripts.unshift(script);
     } else {
@@ -1910,10 +1928,12 @@
     }
     let quick = lib.quickReplySets.find((item) => item.id === 'sec_format_qr');
     if (!quick) {
+      added=true;
       quick = { id: 'sec_format_qr', name: '输出格式', replies: [] };
       lib.quickReplySets.unshift(quick);
     }
     quick.replies = sections.format.on ? [{ id: 'sec_format_reply', label: '输出格式', message: formatReply, color: '#d6ff3f', title: '动作用星号，对白用引号' }] : [];
+    return added;
   }
 
   function mountSticker(stage, owner) {
@@ -1925,7 +1945,7 @@
     host.querySelector('#pack-select').onchange = (event) => {
       if (!owner) { UI.toast('先选定一张卡或一本书'); return; }
       owner.stickerPackId = event.target.value || null;
-      UI.markDirty();
+      UI.markDirty(UI.state.route==='lore' ? 'worldBooks' : 'characters',owner.id);
       UI.renderStage();
     };
     host.querySelector('#pack-new').onclick = () => {
@@ -2124,7 +2144,17 @@
         <p class="help">同时写入一条正则：把中文括号里的动作改成星号。可以在正则脚本里再改。</p>
       </section>
     </div>`;
-    const commit = (render) => { syncSections(lib); UI.markDirty(); if (render) UI.renderStage(); };
+    const commit = (render) => {
+      if (syncSections(lib)) UI.markDirty();
+      else {
+        UI.markDirty('sections');
+        UI.markDirty('promptPresets',SECTION_PRESET);
+        UI.markDirty('worldBooks',SECTION_BOOK);
+        UI.markDirty('regexScripts','sec_format_rx');
+        UI.markDirty('quickReplySets','sec_format_qr');
+      }
+      if (render) UI.renderStage();
+    };
     stage.querySelectorAll('[data-sec]').forEach((box) => {
       box.onchange = () => {
         const key = box.dataset.sec;
@@ -2170,7 +2200,7 @@
     stage.querySelectorAll('[data-custom]').forEach((area) => {
       area.oninput = () => { s[area.dataset.custom].custom = area.value; commit(false); };
     });
-    if (Object.values(s).some((group) => group.on)) syncSections(lib);
+    if (Object.values(s).some((group) => group.on) && syncSections(lib)) UI.markDirty();
   }
 
   function memory(stage) {
@@ -2204,7 +2234,7 @@
     const frame = stage.querySelector('#memory-preview');
     const area = stage.querySelector('#memory-html');
     const paint = () => { frame.srcdoc = area.value || '<p></p>'; };
-    area.addEventListener('input', () => { lib.memoryHtml = area.value; UI.markDirty(); paint(); });
+    area.addEventListener('input', () => { lib.memoryHtml = area.value; UI.markDirty('memoryHtml'); paint(); });
     paint();
     mountPageAssist(stage, 'memory');
     stage.querySelector('#memory-import').onclick = async () => {

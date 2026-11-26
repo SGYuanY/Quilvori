@@ -78,7 +78,7 @@
         const report={id:root.TAStore.uid('review'),cardId:context.card?.id || null,bookId:context.book?.id || null,source:JSON.stringify(context),createdAt:new Date().toISOString(),items:result.items};
         const library=ui().state.lib;
         library.settings.aiReviews=(library.settings.aiReviews || []).concat(report).slice(-10);
-        ui().markDirty();
+        ui().markDirty('settings');
         return report.id;
       });
     };

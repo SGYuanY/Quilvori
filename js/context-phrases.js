@@ -2,6 +2,16 @@
 (function (root) {
   'use strict';
   const rows = {
+    '估算预算占用':['Estimated budget use','予算使用量の推定','Оценка расхода бюджета','예상 예산 사용량','ประมาณการใช้งบ'],
+    '需在 SillyTavern 验证':['Verify in SillyTavern','SillyTavern で要確認','Проверьте в SillyTavern','SillyTavern에서 확인 필요','ตรวจสอบใน SillyTavern'],
+    '正则或宏关键词':['Regex or macro keyword','正規表現・マクロのキー','Ключ с выражением или макросом','정규식 또는 매크로 키워드','คีย์เวิร์ดนิพจน์หรือมาโคร'],
+    '正文宏展开':['Macros in entry text','本文のマクロ展開','Макросы в тексте','본문 매크로 확장','การขยายมาโครในเนื้อหา'],
+    '概率抽取':['Probability roll','確率抽選','Случайный выбор','확률 추첨','การสุ่มตามความน่าจะเป็น'],
+    '分组抽选':['Inclusion group selection','グループ内抽選','Выбор в группе','포함 그룹 선택','การเลือกภายในกลุ่ม'],
+    '跨轮计时':['Timed effects across turns','ターンをまたぐ効果','Эффекты между ходами','대화 턴 간 시간 효과','ผลที่ต่อเนื่องระหว่างรอบ'],
+    '向量检索':['Vector retrieval','ベクトル検索','Векторный поиск','벡터 검색','การค้นคืนเวกเตอร์'],
+    '运行环境与外部上下文':['Runtime conditions or external context','実行条件・外部コンテキスト','Условия выполнения и внешний контекст','실행 조건 또는 외부 문맥','เงื่อนไขขณะทำงานหรือบริบทภายนอก'],
+    '本次本地模拟未选中条目。':['No entries were selected by this local simulation.','このローカルシミュレーションで選択された項目はありません。','В этой локальной симуляции записи не выбраны.','이 로컬 시뮬레이션에서 선택된 항목이 없습니다.','การจำลองในเครื่องครั้งนี้ไม่ได้เลือกรายการใด'],
     '按文字和语言估算，实际用量取决于模型的分词器。': ['Estimates use character and script weights. Actual counts depend on the model’s tokenizer.', '文字種に応じた概算です。実際の数はモデルのトークナイザーで変わります。', 'Оценка учитывает символы и письменность. Точное число зависит от токенизатора модели.', '문자와 문자 체계로 추정합니다. 실제 수치는 모델의 토크나이저에 따라 달라집니다.', 'ประมาณค่าตามอักขระและระบบการเขียน จำนวนจริงขึ้นอยู่กับตัวแบ่งโทเคนของโมเดล'],
     '上一页': ['Previous page','前のページ','Назад','이전 페이지','หน้าก่อน'],
     '下一页': ['Next page','次のページ','Далее','다음 페이지','หน้าถัดไป'],
@@ -72,7 +82,7 @@
     '正文与条目均无改动。': ['Entry list and text are identical.','項目と本文に差分はありません。','Список записей и текст совпадают.','항목 목록과 본문이 같습니다.','รายการและเนื้อหาตรงกัน'],
     '下载导出副本': ['Download this copy','このコピーをダウンロード','Скачать эту копию','이 사본 다운로드','ดาวน์โหลดสำเนานี้'],
   };
-  const templates = {'context.size':{zh:'{chars} 字 · 约 {tokens} token',en:'{chars} characters · ≈ {tokens} tokens',ja:'{chars} 文字 · 約 {tokens} トークン',ru:'Символов: {chars} · токенов: ≈ {tokens}',ko:'{chars}자 · 약 {tokens}토큰',th:'{chars} อักขระ · ≈ {tokens} โทเคน'}};
+  const templates = {'context.size':{zh:'{chars} 字 · 估算 {tokens} Token',en:'{chars} characters · {tokens} estimated tokens',ja:'{chars} 文字 · 推定 {tokens} トークン',ru:'{chars} симв. · оценка {tokens} токенов',ko:'{chars}자 · 추정 {tokens}토큰',th:'{chars} อักขระ · ประมาณ {tokens} โทเคน'}};
   root.TAI18n.add(Object.fromEntries(Object.entries(rows).map(([key,values])=>[key,
     Object.fromEntries(['en','ja','ru','ko','th'].map((lang,index)=>[lang,values[index]]))])),templates);
 })(globalThis);

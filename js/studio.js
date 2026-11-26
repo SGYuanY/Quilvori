@@ -732,7 +732,7 @@
       data().review = report;
       const saved = lib().settings.aiReviews || [];
       lib().settings.aiReviews = saved.concat(report).slice(-10);
-      UI().markDirty();
+      UI().markDirty('settings');
       status(
         result.items.length
           ? `检查完成，发现 ${result.items.length} 项问题；创作正文保持原样。`

@@ -82,7 +82,13 @@ Opening `index.html` directly also works in browsers that allow the required fil
 
 ### Desktop app
 
-Use Node.js 22 or 24 and npm. From the repository root:
+Starting with 0.2, the Windows x64 download is a single portable `.exe`. Double-click it to launch. On macOS, choose the `arm64` disk image for Apple silicon or `x64` for Intel. Open the `.dmg`, drag **Quilvori** into **Applications** and launch it from there. Both editions include Electron. [Download a published version](https://github.com/ShangguanQian/Quilvori/releases)
+
+Each desktop download has a matching `.sha256` file. Builds without a publisher certificate use an ad-hoc signature on macOS and may need first-launch approval. [Apple’s guidance for downloads](https://support.apple.com/en-us/102445)
+
+#### Run the desktop app from source
+
+From the repository root, use Node.js 22.12 or newer and npm.
 
 ```bash
 npm ci
@@ -91,9 +97,9 @@ npm start
 
 On Windows, after installing dependencies, you can also double-click [Start-Quilvori.cmd](Start-Quilvori.cmd). It locates the project relative to itself, so it also works when invoked from another working directory. It closes the console after the Electron process is successfully spawned and keeps errors visible when startup fails.
 
-`npm start` uses [scripts/start.mjs](scripts/start.mjs) and stays attached to the terminal; Ctrl+C stops that launched process. Both entry points require Node.js 22 or newer and the project's installed Electron. Missing dependencies produce a clear `npm ci` remedy; the launcher does not download packages automatically or fall back to a global Electron. Repeated launches restore the existing desktop window.
+`npm start` uses [scripts/start.mjs](scripts/start.mjs) and stays attached to the terminal; Ctrl+C stops that launched process. Both entry points require Node.js 22.12 or newer and the project's installed Electron. Missing dependencies produce a clear `npm ci` remedy; the launcher does not download packages automatically or fall back to a global Electron. Repeated launches restore the existing desktop window.
 
-Electron opens the same interface; a Python server is not required. The desktop app can also read existing cards and books from folders you select. This repository provides a source-based launch; a packaged Windows installer is not included.
+Electron opens the same interface and can read cards and books from folders you select.
 
 ## Your first session
 
@@ -121,7 +127,7 @@ Higher reasoning effort usually takes longer. If a level is unsupported, select 
 
 Each model profile has an idle timeout of 1–60 minutes, with a default of 5 minutes. Each incoming chunk starts a new interval. The task record distinguishes waiting for the first data from a stream that has stalled.
 
-Manual work can stay offline. When you request AI generation, organization, discussion, or review, the selected source text, references, instructions, and relevant conversation are sent to your configured endpoint. The API key stays in local browser or desktop storage and is not included in character exports or full-library backups.
+Manual work can stay offline. When you request AI generation, organization, discussion, or review, the selected source text, references, instructions, and relevant conversation are sent to your configured endpoint. Desktop model keys use operating-system encryption (Windows user protection or macOS Keychain). The web edition encrypts keys with a non-extractable Web Crypto key held in this browser’s IndexedDB. Migration verifies that every saved key can be decrypted before replacing the old settings. Card exports and library backups omit model credentials.
 
 ## AI workflows
 
@@ -259,7 +265,13 @@ An “unknown” usage status is not permission to redistribute. Public visibili
 
 Your library and revision history use IndexedDB in the current browser or desktop profile. On upgrade, Quilvori migrates the previous localStorage library and archives the original bytes in the same transaction. **Full-library backup → Download pre-migration library** retrieves that copy. Browser profiles, addresses and ports can have separate libraries. Use the same entry point each time and move your current library with backup export and restore.
 
-Merging backups retains independent edits, including bookmarks and distinct images in an expression pack. For chats with no stable message IDs, a shared prefix allows Quilvori to keep the longer history. Conflicting branches and same-name images with different contents are reported before anything is written.
+IndexedDB schema v5 stores works as separate records. Editing a card field writes that card and its revision metadata. Editing an image name or a chat bookmark leaves the image data and message body in separate records. Imports and whole-library replacements still validate the complete candidate library.
+
+In **Version history → Manage snapshots for this work**, review the number of snapshots and their estimated content size. Preview the dated revisions selected for removal before confirming a retention limit or clearing the work’s history. A blank limit keeps all snapshots. A saved limit also applies to future manual and automatic snapshots. Size estimates use UTF-8 JSON bytes and exclude IndexedDB overhead.
+
+Importing an individual chat reading copy restores its messages, bookmarks and original SillyTavern header. When deleting a character, review its references and choose whether to unlink them, replace the character or keep the speaker’s name on script lines. Character cards, world books, chats, groups, regex scripts and quick-reply sets offer **Undo deletion** in the confirmation toast after removal.
+
+Before merging a backup, expand a conflicting field to compare the changed paragraphs. Choose **Keep current** (the default), **Use backup** or **Keep both as separate copies**. Several fields marked for a separate copy create one new work with its own ID. Divergent chat histories keep their respective bookmarks. Alternate values for standalone settings or HTML memory can be opened on the Backup page. Cancelling the preview keeps the current library.
 
 Open **Version history** in either editor to save a named snapshot, compare fields and world-book entries, or restore one work. Applying AI edits also saves its previous version. The full-library JSON carries the current works. Revision history and model credentials stay in the local profile.
 

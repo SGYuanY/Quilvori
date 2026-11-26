@@ -77,6 +77,21 @@
     }
     return {...evidence,reason:''};
   }
+  function runtimeChecks(entry,reason) {
+    if (entry.enabled === false || !String(entry.content || '').trim()) return [];
+    const settings = entry.stSettings || {}, checks = [];
+    if (reason === '正则或宏需在酒馆验证') checks.push('正则或宏关键词');
+    if (String(entry.content).includes('{{')) checks.push('正文宏展开');
+    const probability = Number(settings.probability ?? 100);
+    if (settings.useProbability !== false && probability > 0 && probability < 100) checks.push('概率抽取');
+    if (settings.group) checks.push('分组抽选');
+    if ([settings.sticky,settings.cooldown,settings.delay].some(n=>Number(n)>0)) checks.push('跨轮计时');
+    if (settings.vectorized) checks.push('向量检索');
+    if (settings.automationId || settings.triggers?.length || settings.characterFilter?.names?.length ||
+      settings.characterFilter?.tags?.length || ['matchPersonaDescription','matchCharacterDescription','matchCharacterPersonality',
+        'matchCharacterDepthPrompt','matchScenario','matchCreatorNotes'].some(key=>settings[key]===true)) checks.push('运行环境与外部上下文');
+    return checks;
+  }
   function simulate(book, dialogue, options = {}) {
     const lines = String(dialogue || '').split(/\r?\n/).map((text,i)=>({text,line:i+1})).filter(row=>row.text.trim());
     const limit = Math.max(0, Math.floor(Number(options.budget ?? 2048) || 0));
@@ -135,7 +150,12 @@
     }
     const included = new Set(selected.map(row=>row.index));
     const skipped = candidates.filter(row=>!included.has(row.index)).map(({entry,index})=>({entry,...diagnostics.get(index),cost:entrySize(entry).tokens}));
-    return {groups,skipped,selected,chars,spent,outletTokens,budgetUsed,limit};
+    const verifyInST = [];
+    for (const row of [...selected,...skipped]) {
+      const reasons=runtimeChecks(row.entry,row.reason);
+      if (reasons.length) verifyInST.push({entry:row.entry,reasons});
+    }
+    return {groups,skipped,selected,verifyInST,chars,spent,outletTokens,budgetUsed,limit};
   }
   function suggestions(entry) {
     const keys = keysOf(entry.keys).filter(key => !unsupportedKey(key) && [...key].length > 1);

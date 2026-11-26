@@ -99,20 +99,37 @@
     const status=node('p');status.className='help';status.setAttribute('role','status');
     const use=node('button',tr('把规则存为脚本'));use.type='button';use.className='btn btn-small';use.dataset.keepRegex='';
     const example=node('button',tr('填入示例'));example.type='button';example.className='btn btn-small';
-    const buttons=node('div');buttons.className='row';buttons.append(example,use);
+    const stop=node('button',tr('停止试跑'));stop.type='button';stop.className='btn btn-small';stop.hidden=true;
+    const buttons=node('div');buttons.className='row';buttons.append(example,use,stop);
     section.append(tools,trial,status,buttons);
     box.querySelector('label')?.before(section);
-    function values(){
-      const pattern=templateRegex(state.mode,state.find,state.replace);
-      const test=text=>root.TAFormats.regexTrial(pattern.findRegex,text,pattern.replaceString);
-      const result=test(state.original);
-      return {pattern,output:result.replaced,ok:result.ok && !result.miss && !!state.original && result.replaced===state.expected && (!state.unchanged || test(state.unchanged).replaced===state.unchanged)};
+    const runner=root.TARegexRunner.createRunner();
+    let generation=0,timer,verifiedPattern;
+    function resetTrial(){
+      generation++;clearTimeout(timer);runner.cancel();
+      verifiedPattern=null;use.disabled=true;stop.hidden=true;
     }
+    stop.onclick=()=>{resetTrial();status.textContent=tr('正则试跑已取消。');};
     function update(){
+      resetTrial();
       replaceField.hidden=state.mode==='prefix';
-      trial.hidden=!state.find || !state.original; status.textContent='';use.disabled=true;
+      trial.hidden=!state.find || !state.original; status.textContent='';trial.textContent='';
       if(trial.hidden)return;
-      const v=values();trial.textContent=v.pattern.findRegex+'\n'+v.output;status.textContent=tr(v.ok?'样例验证通过':'试跑结果与示例不符');use.disabled=!v.ok;
+      const current=generation;
+      timer=setTimeout(async()=>{
+        if(!section.isConnected)return;
+        stop.hidden=false;status.textContent=tr('正在试跑正则…');
+        try{
+          const pattern=templateRegex(state.mode,state.find,state.replace);
+          const samples=state.unchanged?[state.original,state.unchanged]:[state.original];
+          const [first,second]=await runner.run(pattern.findRegex,samples,pattern.replaceString);
+          if(current!==generation || !section.isConnected)return;
+          const ok=first.ok && !first.miss && first.replaced===state.expected && (!second || (second.ok && second.replaced===state.unchanged));
+          verifiedPattern=ok?pattern:null;use.disabled=!ok;
+          trial.textContent=pattern.findRegex+'\n'+first.replaced;status.textContent=tr(ok?'样例验证通过':'试跑结果与示例不符');
+        }catch(error){if(current===generation)status.textContent=tr(error.message);}
+        finally{if(current===generation)stop.hidden=true;}
+      },140);
     }
     example.onclick=()=>{
       state.mode='prefix';state.find=tr('旁白：');state.replace='';state.original=state.find+tr('灯灭了。');state.expected=tr('灯灭了。');state.unchanged=tr('她说：灯灭了。');
@@ -123,8 +140,8 @@
     find.oninput=()=>{state.find=find.value;update();};
     replace.oninput=()=>{state.replace=replace.value;update();};
     use.onclick=async()=>{
-      const v=values();if(!v.ok)return;
-      const script=root.TAFormats.regexFromImport([{scriptName:tr(state.mode==='prefix'?'删除每行开头的文字':'替换指定文字')+' · '+state.find,...v.pattern,placement:[2]}])[0];
+      if(!verifiedPattern || use.disabled)return;
+      const script=root.TAFormats.regexFromImport([{scriptName:tr(state.mode==='prefix'?'删除每行开头的文字':'替换指定文字')+' · '+state.find,...verifiedPattern,placement:[2]}])[0];
       script.id=root.TAStore.uid('rx');const next=structuredClone(ui().state.lib);next.regexScripts.unshift(script);
       try{await ui().commitLibrary(next);ui().state.sel.regex=script.id;ui().state.lab=state.original;ui().renderStage();ui().toast(tr('修改已保存'),{kind:'success'});}
       catch(error){ui().toast(tr(error.message),{kind:'error'});}

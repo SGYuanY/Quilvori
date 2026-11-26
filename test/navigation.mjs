@@ -146,6 +146,7 @@ function mainEnvironment(options = {}) {
 await test('every registered privileged IPC rejects remote and subframe callers before filesystem or network work', async () => {
   const env = mainEnvironment();
   assert.deepEqual([...env.handlers.keys()].sort(), [
+    'model-key:seal','model-key:open',
     'folders:get','folders:pick','folders:list','folders:read','folders:writeExpressions','bundles:install',
     'links:download','links:cancel','themes:pick','themes:inspect','themes:read','themes:activate','themes:install','themes:sample',
   ].sort());

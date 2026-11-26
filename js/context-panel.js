@@ -273,8 +273,18 @@
       const metrics = node('div',undefined,'ctx-metrics');
       countPair(metrics,'注入正文',sizeText({chars:data.chars,tokens:data.spent}));
       countPair(metrics,'出口待引用','≈ '+data.outletTokens+' token');
-      countPair(metrics,'预算占用',data.budgetUsed+' / '+data.limit+' token'); results.append(metrics);
-      if (!data.groups.size) message(results,tr('没有条目会被这句话触发。'));
+      countPair(metrics,'估算预算占用','≈ '+data.budgetUsed+' / '+data.limit+' token'); results.append(metrics);
+      if (data.verifyInST.length) {
+        const section=node('section',undefined,'ctx-result');
+        section.append(node('h4',tr('需在 SillyTavern 验证')+' · '+data.verifyInST.length));
+        paged(section,data.verifyInST,hit=>{
+          const line=node('div',undefined,'ctx-hit');
+          line.append(entryButton(hit.entry),node('small',hit.reasons.map(trKey=>tr(trKey)).join(' · ')));
+          return line;
+        });
+        results.append(section);
+      }
+      if (!data.groups.size) message(results,tr('本次本地模拟未选中条目。'));
       for (const rows of data.groups.values()) {
         const entry=rows[0].entry, slot=root.TAFormats.positionById(entry.position);
         const suffix = entry.position==='at_depth' ? ' · '+tr('深度')+' '+(entry.depth??4)+' · '+(['system','user','assistant'][entry.stSettings?.role ?? 0] || entry.stSettings.role) :

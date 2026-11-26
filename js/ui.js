@@ -102,7 +102,7 @@
     return { close: dismiss, element: node };
   }
 
-  function ask({ title, body, actions, swipe }) {
+  function ask({ title, body, actions, swipe, content }) {
     return new Promise((resolve) => {
       const host = document.getElementById('modal-root');
       host.classList.add('show');
@@ -112,6 +112,10 @@
         ${swipe ? `<div class="swipe" data-swipe="${esc(swipe)}"><i class="swipe-knob"></i><span>${esc(swipe)}</span></div>` : ''}
         <div class="row">${actions.map((action) => `<button type="button" class="btn ${action.kind || ''}" data-act="${esc(action.id)}">${esc(action.label)}</button>`).join('')}</div>
       </div>`;
+      if (content?.childElementCount) {
+        host.querySelector('.modal').classList.add('integrity-dialog');
+        host.querySelector('.modal > p').after(content);
+      }
       const finish = (value) => {
         host.classList.remove('show');
         host.innerHTML = '';
@@ -294,7 +298,19 @@
   }
 
   let editVersion = 0, replacing = false, pendingSave = null;
-  function markDirty() {
+  const dirtyScopes = new Map();
+  let dirtyWholeLibrary = false;
+  function resetDirty() {
+    dirtyScopes.clear();
+    dirtyWholeLibrary = false;
+  }
+  function markDirty(field, id, mode) {
+    if (typeof field !== 'string') dirtyWholeLibrary = true;
+    else {
+      const scope = id === undefined ? [field] : [field,id];
+      const key=JSON.stringify(scope), existing=dirtyScopes.get(key);
+      if (!existing || existing[2]==='metadata') dirtyScopes.set(key,mode==='metadata' ? [...scope,mode] : scope);
+    }
     root.TASearch?.invalidate();
     editVersion++;
     state.save = 'dirty';
@@ -312,8 +328,10 @@
     state.save = 'saving'; paintSave();
     const job = (async () => {
       try {
-        await TAStore.save(state.lib);
+        const scopes = dirtyWholeLibrary ? null : [...dirtyScopes.values()];
+        await TAStore.save(state.lib,undefined,undefined,undefined,scopes);
         if (version !== editVersion) return false;
+        resetDirty();
         state.save = 'saved'; return true;
       } catch (error) {
         if (version === editVersion) { state.save = 'error'; toast(root.TAI18n.t(error.message),{kind:'error'}); }
@@ -325,7 +343,7 @@
     finally { if (pendingSave?.job === job) pendingSave = null; }
   }
 
-  async function commitLibrary(candidate, snapshots = [], clearVersions = false, draft = null) {
+  async function commitLibrary(candidate, snapshots = [], clearVersions = false, draft = null, options = {}) {
     if (replacing) throw new Error('正在保存，请稍后重试。');
     const app = document.getElementById('app'), wasInert = app.inert, prior = state.save;
     const version = ++editVersion;
@@ -333,9 +351,12 @@
     state.save = 'saving'; paintSave();
     try {
       const guard = () => version===editVersion;
-      const warning = clearVersions ? await TAStore.erase(candidate,guard) : await TAStore.save(candidate,guard,snapshots,draft);
+      const scopes=options.scopes && !dirtyWholeLibrary && (prior==='saved' || dirtyScopes.size) ?
+        [...dirtyScopes.values(),...options.scopes] : undefined;
+      const warning = clearVersions ? await TAStore.erase(candidate,guard) : await TAStore.save(candidate,guard,snapshots,draft,scopes,options.restore);
       if (version !== editVersion) throw new Error('资料库已变化，请重新打开。');
       state.lib = candidate; state.save = 'saved';
+      resetDirty();
       if(draft)root.TAStudioDrafts.committed(draft);
       if(clearVersions){
         state.replyReference=null;state.regexExamples=null;state.journalScope=null;state.journalJump=null;state.lab='';
@@ -353,8 +374,10 @@
   function ensureTheme(lib=state.lib) {
     if (!lib.themes.length) {
       lib.themes.push({ id: 'theme_live', name: '夜漆', vars: { bg: '#1c1c1c', lacquer: '#141414', paper: '#2e2e2e', ink: '#e8e8e8', accent: '#d0d0d0', fontScale: 1, radius: 10 } });
+      if (lib===state.lib) markDirty();
     }
     const theme = lib.themes.find((item) => item.id === lib.activeThemeId) || lib.themes[0];
+    if (lib===state.lib && lib.activeThemeId!==theme.id) markDirty('activeThemeId');
     lib.activeThemeId = theme.id;
     if (!theme.vars) theme.vars = {};
     return theme;
@@ -739,7 +762,7 @@
     return `<input data-field="${name}" type="text" value="${esc(value || '')}" placeholder="${esc(placeholder || '')}">`;
   }
 
-  function bindFields(rootNode, obj, onChange) {
+  function bindFields(rootNode, obj, onChange, scope = []) {
     rootNode.querySelectorAll('[data-field]').forEach((node) => {
       const eventName = node.tagName === 'SELECT' || node.type === 'checkbox' ? 'change' : 'input';
       node.addEventListener(eventName, () => {
@@ -748,14 +771,14 @@
         else if (node.type === 'number' || node.type === 'range') value = node.value === '' ? '' : Number(node.value);
         obj[node.dataset.field] = value;
         if (onChange) onChange(node.dataset.field, value);
-        markDirty();
+        markDirty(...scope);
       });
     });
   }
 
   function picker(items, currentId, subtitle) {
     if (!items.length) return '';
-    return `<div class="picker">${items.map((item) => `<button type="button" class="pick${item.id === currentId ? ' on' : ''}" data-id="${esc(item.id)}"><b data-no-translate>${esc(item.name || root.TAI18n?.t('未命名') || '未命名')}</b><small>${esc(subtitle ? subtitle(item) : '')}</small></button>`).join('')}</div>`;
+    return `<div class="picker">${items.map((item) => `<button type="button" class="pick${item.id === currentId ? ' on' : ''}" data-id="${esc(item.id)}"><b data-no-translate>${esc(root.TAIntegrityPanel.displayName(item))}</b><small>${esc(subtitle ? subtitle(item) : '')}</small></button>`).join('')}</div>`;
   }
 
   function bindPicker(rootNode, assign) {
@@ -784,6 +807,7 @@
     });
     if (answer !== 'yes') return;
     try { await commitLibrary(TAStore.normalize(TAStore.demoLibrary())); } catch(error) { toast(root.TAI18n.t(error.message),{kind:'error'}); return; }
+    root.TAIntegrityPanel?.resetUndo();
     state.loreUndo?.clear();
     toast('已载入听雨楼示例');
     renderStage();
@@ -800,6 +824,7 @@
     });
     if (answer !== 'yes') return;
     try { await commitLibrary(TAStore.emptyLibrary(),[],true); } catch(error) { toast(root.TAI18n.t(error.message),{kind:'error'}); return; }
+    root.TAIntegrityPanel?.resetUndo();
     state.loreUndo?.clear();
     toast('库已清空');
     renderStage();
@@ -818,12 +843,13 @@
       </label>
       <label class="check"><input id="set-teach" type="checkbox"> ${tr('显示逐步说明和导入解读')}</label>
       <label class="check"><input id="set-json" type="checkbox"> 书写时用 JSON 互转（默认关闭）</label>
-      <p class="field-label">模型接口（密钥只留在这台浏览器）</p>
+      <p class="field-label" data-model-heading>${tr('模型接入')}</p>
       <label class="field"><span class="field-label">模型配置</span><select id="connection-profiles" data-no-translate></select></label>
       <div class="row"><input id="profile-name" placeholder="配置名称"><button class="btn" id="add-profile" type="button">新建配置</button></div>
       <label class="field"><span class="field-label">地址</span><input id="set-base" type="text" placeholder="https://api.openai.com/v1" autocomplete="off"></label>
       <label class="field"><span class="field-label">接口协议</span><select id="set-protocol"><option value="auto">自动（优先 Responses）</option><option value="responses">Responses</option><option value="chat">Chat Completions</option></select></label>
       <label class="field"><span class="field-label">密钥</span><input id="set-key" type="password" autocomplete="off"></label>
+      <div class="row"><small class="help" id="model-key-status" role="status" data-no-translate></small><button type="button" class="btn btn-small" id="model-key-retry" hidden>${tr('重试')}</button></div>
       <div class="row"><button type="button" class="btn btn-primary" id="set-connect">连接</button></div>
       <p class="help">点连接后，从接口列出的模型里选一个。不用手填名称。</p>
       <label class="field"><span class="field-label">手动输入模型 ID</span><input id="model-id" autocomplete="off"></label>
@@ -866,6 +892,26 @@
     host.querySelector('#set-reasoning').value = model.reasoningEffort || 'auto';
     host.querySelector('#set-key').value = model.key || '';
     const api = root.NIJANModel, choices = host.querySelector('#connection-profiles'), modelId = host.querySelector('#model-id');
+    const keyInput=host.querySelector('#set-key'), keyNote=host.querySelector('#model-key-status'), keyRetry=host.querySelector('#model-key-retry');
+    function paintKeyStatus(){
+      const status=api.credentialStatus();
+      keyNote.textContent=tr(status.issue || (status.opening?'正在解锁保存的密钥…':status.pending?'正在保护模型密钥…':
+        root.nijanDesktop?'模型密钥由操作系统保护。':'模型密钥使用此浏览器的本地加密密钥保护。'));
+      keyRetry.hidden=!status.issue;
+      const locked=status.opening || status.locked;
+      for(const el of host.querySelectorAll('#settings-model-panel input,#settings-model-panel select,#settings-model-panel button')){
+        if(el===keyRetry || el.id==='set-model')continue;
+        if(locked)el.disabled=true;
+      }
+    }
+    function keyEvent(){
+      if(!keyNote.isConnected){root.removeEventListener('quilvori-credential-status',keyEvent);return;}
+      paintKeyStatus();
+    }
+    if(host.keyStatusListener)root.removeEventListener('quilvori-credential-status',host.keyStatusListener);
+    host.keyStatusListener=keyEvent;
+    root.addEventListener('quilvori-credential-status',keyEvent);
+    keyRetry.onclick=async()=>{try{await api.retryCredentials();}catch(_){}if(keyNote.isConnected)openSettings();};
     choices.innerHTML = api.profiles().map(row=>`<option value="${esc(row.id)}" ${row.active?'selected':''}>${esc(row.name)}</option>`).join('');
     const changeProfile = fn => { try { fn(); openSettings(); renderStage(); } catch(error) { toast(tr(error.message)); } };
     choices.onchange = () => changeProfile(()=>api.selectProfile(choices.value));
@@ -903,7 +949,7 @@
     };
     syncThemeInputs();
     root.TAThemeLibrary.mountSettings(host.querySelector('#theme-import-panel'),syncThemeInputs);
-    themeChoice.onchange = () => { ensureTheme().useRoomPalette = themeChoice.checked; applyTheme(); syncThemeInputs(); markDirty(); };
+    themeChoice.onchange = () => { const theme=ensureTheme(); theme.useRoomPalette = themeChoice.checked; applyTheme(); syncThemeInputs(); markDirty('themes',theme.id); };
     const paintTheme = (key, value) => {
       const theme=ensureTheme(), vars=theme.vars;
       if (key !== 'radius') {
@@ -915,7 +961,7 @@
       }
       vars[key] = key === 'radius' ? Number(value) : value;
       applyTheme();
-      markDirty();
+      markDirty('themes',theme.id);
     };
     host.querySelector('#set-bg').oninput = (event) => paintTheme('bg', event.target.value);
     host.querySelector('#set-paper').oninput = (event) => paintTheme('paper', event.target.value);
@@ -939,7 +985,7 @@
         replyLength: host.querySelector('#set-length').value,
         replyChars: Number(host.querySelector('#set-chars').value) || 600,
       });
-      if (root.NIJANModel) {
+      if (root.NIJANModel && !api.credentialStatus().locked && !api.credentialStatus().opening) {
         root.NIJANModel.save({
           baseUrl: host.querySelector('#set-base').value.trim(),
           protocol: host.querySelector('#set-protocol').value,
@@ -957,7 +1003,10 @@
     host.querySelector('#set-base').oninput = () => { commit(); paintInfo(); paintModels(api.rememberedModels(),modelId.value); };
     host.querySelector('#set-protocol').onchange = commit;
     host.querySelector('#set-reasoning').onchange = commit;
-    host.querySelector('#set-key').oninput = () => { commit(); paintInfo(); paintModels(api.rememberedModels(),modelId.value); };
+    keyInput.oninput = () => {
+      if(api.profiles().find(row=>row.active)?.id!==choices.value){toast(tr('另一窗口已修改模型配置。请重新打开工作台再编辑。'),{kind:'error'});return;}
+      api.save({key:keyInput.value});paintKeyStatus();paintInfo();paintModels(api.rememberedModels(),modelId.value);
+    };
     const reply = host.querySelector('#set-reply');
     const say = (text) => { reply.textContent = text; };
     host.querySelector('#set-model').onchange = (event) => {
@@ -972,9 +1021,9 @@
     };
     host.querySelector('#set-connect').onclick = async () => {
       if (!root.NIJANModel) return;
-      root.NIJANModel.save({ baseUrl: host.querySelector('#set-base').value.trim(), key: host.querySelector('#set-key').value });
       say(tr('正在读取模型列表…'));
       try {
+        root.NIJANModel.save({ baseUrl: host.querySelector('#set-base').value.trim(), key: keyInput.value });
         const names = await root.NIJANModel.listModels();
         const current = root.NIJANModel.load().model;
         paintModels(names, names.includes(current) ? current : '');
@@ -1007,15 +1056,21 @@
       host.querySelector('#set-cursor-n').textContent = host.querySelector('#set-cursor').value;
       commit();
     };
-    const close = () => {
-      try { commit(); }
-      catch (error) { toast(`设置保存失败：${error.message}`); }
-      finally { host.classList.remove('show'); host.innerHTML = ''; host.onclick = null; previousFocus?.focus?.(); }
+    const close = async () => {
+      const status=api.credentialStatus();
+      try { commit(); if(!status.locked && !status.opening)await api.flushCredentials(); }
+      catch (error) { toast(tr(error.message),{kind:'error'}); }
+      if(!keyNote.isConnected)return;
+      root.removeEventListener('quilvori-credential-status',keyEvent);
+      host.keyStatusListener=null;
+      host.classList.remove('show'); host.innerHTML = ''; host.onclick = null; previousFocus?.focus?.();
     };
     host.querySelector('#set-close').onclick = close;
     host.onclick = (event) => { if (event.target === host) close(); };
     if (root.TAWorkspace) root.TAWorkspace.prepareSettings(host);
     if (root.TAI18n) root.TAI18n.localize(host);
+    paintKeyStatus();
+    if(api.credentialStatus().opening)api.ready.then(()=>{if(keyNote.isConnected)openSettings();});
   }
 
   function mount(registered, loaded = TAStore.load()) {
@@ -1154,6 +1209,7 @@
       if (openAddress(link.href)) event.preventDefault();
     });
     window.addEventListener('beforeunload', event => {
+      if (root.NIJANModel?.credentialStatus().pending) { event.preventDefault(); event.returnValue=''; }
       if (root.TAThemeWorkshop?.unsaved() || root.TATaskActivity?.pending() || root.NIJANStudio?.running() || root.NIJANOrganizePanel?.running()) {
         event.preventDefault(); event.returnValue = '';
       }

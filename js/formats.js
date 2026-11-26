@@ -591,12 +591,12 @@
     if (!message || typeof message !== 'object' || Array.isArray(message)) throw new Error('认不出的聊天格式');
     const isUser = !!(message.is_user || message.isUser || message.role === 'user');
     return {
-      ...otherFields(message,['name','is_user','is_system','mes','send_date']),
+      ...message,
       name: message.name || (isUser ? '你' : '角色'),
       is_user: isUser,
       is_system: !!(message.is_system || message.role === 'system'),
       mes: message.mes ?? message.message ?? message.content ?? '',
-      send_date: message.send_date || message.sendDate || '',
+      send_date: message.send_date ?? message.sendDate ?? '',
     };
   }
 
@@ -609,13 +609,13 @@
     let userName = '你';
     let characterName = '';
     let name = baseName;
-    let messages = [], stHeader;
+    let messages = [], stHeader, extra = {}, bookmarks = [];
     if (jsonl) {
       const objects = lines.map((line) => JSON.parse(line));
       let start = 0;
       const head = objects[0] || {};
-      if (head.mes == null && (head.user_name || head.character_name || head.chat_metadata)) {
-        stHeader = otherFields(head,[]);
+      if (head.mes == null && ['user_name','character_name','chat_metadata'].some(key => Object.hasOwn(head,key))) {
+        stHeader = structuredClone(head);
         userName = head.user_name || userName;
         characterName = head.character_name || '';
         start = 1;
@@ -624,12 +624,22 @@
     } else {
       const json = JSON.parse(trimmed);
       if (Array.isArray(json)) messages = json.map(normalizeMessage);
-      else if (Array.isArray(json.messages)) {
+      else if (json && Array.isArray(json.messages)) {
+        // Quilvori's standalone reading copy is an entire chat record, including
+        // bookmarks, message indices, ST's original header and extension fields.
+        if (Object.hasOwn(json,'bookmarks') && !Array.isArray(json.bookmarks)) throw new Error('认不出的聊天格式');
+        if (Object.hasOwn(json,'id') && Array.isArray(json.bookmarks) &&
+            (Object.hasOwn(json,'userName') || Object.hasOwn(json,'characterName') ||
+             json.messages.every(m=>m && typeof m==='object' && Object.hasOwn(m,'mes')))) {
+          return {name:baseName,userName,characterName,...json};
+        }
+        extra=json;
+        bookmarks=json.bookmarks || [];
         messages = json.messages.map(normalizeMessage);
         userName = json.user_name || json.userName || userName;
         characterName = json.character_name || json.characterName || '';
         name = json.name || name;
-      } else if (json.mes || json.name) messages = [normalizeMessage(json)];
+      } else if (json && (json.mes || json.name)) messages = [normalizeMessage(json)];
       else throw new Error('认不出的聊天格式');
     }
     messages = messages.filter((message) => message.mes || message.name);
@@ -637,7 +647,7 @@
       const first = messages.find((message) => !message.is_user && !message.is_system);
       characterName = first ? first.name : '角色';
     }
-    return { name, userName, characterName, messages, bookmarks: [], ...(stHeader ? {stHeader} : {}) };
+    return { ...extra, name, userName, characterName, messages, bookmarks, ...(stHeader ? {stHeader} : {}) };
   }
 
   function timelineToExport(library) {
@@ -648,14 +658,18 @@
     };
   }
 
+  function scriptSpeaker(beat,library) {
+    if (beat.speaker === 'narrator') return '旁白';
+    const member=(library.characters || []).find(card=>String(card.id)===String(beat.speaker));
+    return member?.name || beat.speakerName || (root.TAI18n?.t('未指定发言人') || '未指定发言人');
+  }
   function scriptToExport(script, library) {
-    const byId = new Map((library.characters || []).map((character) => [character.id, character]));
     return {
       format: 'tavern-atelier.script.v1',
       name: script.name || '未命名剧本',
       beats: (script.beats || []).map((beat, index) => ({
         order: index + 1,
-        speaker: beat.speaker === 'narrator' ? '旁白' : (byId.get(beat.speaker)?.name || '旁白'),
+        speaker: scriptSpeaker(beat,library),
         speaker_id: beat.speaker,
         line: beat.line || '',
         trigger: beat.trigger || '',
@@ -881,310 +895,314 @@
     });
   }
 
-  const FLAG_TEXT = {
-    g: '全局',
-    i: '忽略大小写',
-    m: '按行匹配',
-    s: '点号含换行',
-    u: 'Unicode',
-    y: '从上次位置接着找',
-  };
-
-  const FLAG_DETAIL = {
-    g: '全局。试一句时每一处都找，替换也逐处换。没有它就只动第一处。',
-    i: '忽略大小写。大写和小写算同一个字。',
-    m: '多行。^ 和 $ 按每一行的头尾算，不只是整段文字的头尾。',
-    s: '点号含换行。没有它时，通配 . 碰不到换行。',
-    u: '按 Unicode 处理。生僻字也算一个字符。',
-    y: '粘连。从上次停下的位置接着找，中间不能跳过。',
-  };
-
-  function splitRegexInput(input) {
-    const trimmed = String(input || '').trim();
-    if (!trimmed) return { empty: true };
-    if (trimmed.startsWith('/')) {
-      let index = 1;
-      let escaped = false;
-      for (; index < trimmed.length; index += 1) {
-        const ch = trimmed[index];
-        if (escaped) { escaped = false; continue; }
-        if (ch === '\\') { escaped = true; continue; }
-        if (ch === '/') break;
-      }
-      if (index >= trimmed.length) return { error: '开头写了斜杠，却没有用来结束的斜杠。' };
-      const source = trimmed.slice(1, index);
-      const flags = trimmed.slice(index + 1);
-      if (!source) return { error: '两条斜杠中间是空的，没有要查找的内容。' };
-      if (!/^[gimsuy]*$/.test(flags)) return { error: '斜杠后面的标志只能是 g、i、m、s、u、y。' };
-      const seen = new Set();
-      for (const flag of flags) {
-        if (seen.has(flag)) return { error: `标志「${flag}」写了两次。` };
-        seen.add(flag);
-      }
-      return { source, flags, wrapped: true };
-    }
-    return { source: trimmed, flags: 'g', wrapped: false };
-  }
-
-  function explainRegExpError(message) {
-    const text = String(message || '');
-    if (/Nothing to repeat/i.test(text)) return '量词前面没有可重复的内容。';
-    if (/Unterminated group/i.test(text)) return '有分组没有用右括号关上。';
-    if (/Unmatched/i.test(text)) return '多了一个右括号。';
-    if (/Unterminated character class/i.test(text)) return '字符类没有用 ] 关上。';
-    if (/Range out of order/i.test(text)) return '字符类里的范围写反了，起点比终点大。';
-    if (/Invalid escape/i.test(text)) return '有一处转义写得不完整。';
-    if (/Invalid group/i.test(text)) return '分组的写法不认识。';
-    if (/Invalid regular expression flags/i.test(text)) return '标志不合法。';
-    if (/Incomplete quantifier/i.test(text)) return '花括号里的次数没有写完。';
-    return '这则表达式编译不过。检查括号、方括号和量词是否成对。';
-  }
-
-  function walkRegex(source) {
-    const groups = [];
-    const steps = [];
-    let index = 0;
-    let capturing = 0;
-    const fail = (message) => {
-      const at = Math.min(index, source.length);
-      const ch = source[at] || '结尾';
-      const around = `${source.slice(Math.max(0, at - 8), at)}【${ch}】${source.slice(at + (source[at] ? 1 : 0), at + 9)}`;
-      return { error: `第 ${at + 1} 个字符「${ch}」这里断了：${message} 上下文 ${around}`, groups, steps, reading: '' };
+  function createRegexEngine(t) {
+    const FLAG_TEXT = {
+      g: '全局',
+      i: '忽略大小写',
+      m: '按行匹配',
+      s: '点号含换行',
+      u: 'Unicode',
+      y: '从上次位置接着找',
     };
-    function push(text) { if (text) steps.push(t(text)); }
-    function readQuantifier() {
-      const ch = source[index];
-      if (ch !== '*' && ch !== '+' && ch !== '?' && ch !== '{') return { text: '' };
-      if (ch === '{') {
-        const matched = source.slice(index).match(/^\{(\d+)(,(\d+)?)?\}/);
-        if (!matched) return { text: '' };
-        index += matched[0].length;
-        let text = !matched[2] ? t('rx.quant', { n: matched[1] }) : matched[3] === undefined ? t('rx.quantMin', { n: matched[1] }) : t('rx.quantRange', { a: matched[1], b: matched[3] });
-        if (source[index] === '?') { text += '后面的问号表示尽量少。'; index += 1; }
+
+    const FLAG_DETAIL = {
+      g: '全局。试一句时每一处都找，替换也逐处换。没有它就只动第一处。',
+      i: '忽略大小写。大写和小写算同一个字。',
+      m: '多行。^ 和 $ 按每一行的头尾算，不只是整段文字的头尾。',
+      s: '点号含换行。没有它时，通配 . 碰不到换行。',
+      u: '按 Unicode 处理。生僻字也算一个字符。',
+      y: '粘连。从上次停下的位置接着找，中间不能跳过。',
+    };
+
+    function splitRegexInput(input) {
+      const trimmed = String(input || '').trim();
+      if (!trimmed) return { empty: true };
+      if (trimmed.startsWith('/')) {
+        let index = 1;
+        let escaped = false;
+        for (; index < trimmed.length; index += 1) {
+          const ch = trimmed[index];
+          if (escaped) { escaped = false; continue; }
+          if (ch === '\\') { escaped = true; continue; }
+          if (ch === '/') break;
+        }
+        if (index >= trimmed.length) return { error: '开头写了斜杠，却没有用来结束的斜杠。' };
+        const source = trimmed.slice(1, index);
+        const flags = trimmed.slice(index + 1);
+        if (!source) return { error: '两条斜杠中间是空的，没有要查找的内容。' };
+        if (!/^[gimsuy]*$/.test(flags)) return { error: '斜杠后面的标志只能是 g、i、m、s、u、y。' };
+        const seen = new Set();
+        for (const flag of flags) {
+          if (seen.has(flag)) return { error: `标志「${flag}」写了两次。` };
+          seen.add(flag);
+        }
+        return { source, flags, wrapped: true };
+      }
+      return { source: trimmed, flags: 'g', wrapped: false };
+    }
+
+    function explainRegExpError(message) {
+      const text = String(message || '');
+      if (/Nothing to repeat/i.test(text)) return '量词前面没有可重复的内容。';
+      if (/Unterminated group/i.test(text)) return '有分组没有用右括号关上。';
+      if (/Unmatched/i.test(text)) return '多了一个右括号。';
+      if (/Unterminated character class/i.test(text)) return '字符类没有用 ] 关上。';
+      if (/Range out of order/i.test(text)) return '字符类里的范围写反了，起点比终点大。';
+      if (/Invalid escape/i.test(text)) return '有一处转义写得不完整。';
+      if (/Invalid group/i.test(text)) return '分组的写法不认识。';
+      if (/Invalid regular expression flags/i.test(text)) return '标志不合法。';
+      if (/Incomplete quantifier/i.test(text)) return '花括号里的次数没有写完。';
+      return '这则表达式编译不过。检查括号、方括号和量词是否成对。';
+    }
+
+    function walkRegex(source) {
+      const groups = [];
+      const steps = [];
+      let index = 0;
+      let capturing = 0;
+      const fail = (message) => {
+        const at = Math.min(index, source.length);
+        const ch = source[at] || '结尾';
+        const around = `${source.slice(Math.max(0, at - 8), at)}【${ch}】${source.slice(at + (source[at] ? 1 : 0), at + 9)}`;
+        return { error: `第 ${at + 1} 个字符「${ch}」这里断了：${message} 上下文 ${around}`, groups, steps, reading: '' };
+      };
+      function push(text) { if (text) steps.push(t(text)); }
+      function readQuantifier() {
+        const ch = source[index];
+        if (ch !== '*' && ch !== '+' && ch !== '?' && ch !== '{') return { text: '' };
+        if (ch === '{') {
+          const matched = source.slice(index).match(/^\{(\d+)(,(\d+)?)?\}/);
+          if (!matched) return { text: '' };
+          index += matched[0].length;
+          let text = !matched[2] ? t('rx.quant', { n: matched[1] }) : matched[3] === undefined ? t('rx.quantMin', { n: matched[1] }) : t('rx.quantRange', { a: matched[1], b: matched[3] });
+          if (source[index] === '?') { text += '后面的问号表示尽量少。'; index += 1; }
+          return { text };
+        }
+        index += 1;
+        const base = ch === '*' ? '量词 *：上一项可以零次或多次，默认尽量多。' : ch === '+' ? '量词 +：上一项至少一次，默认尽量多。' : '量词 ?：上一项可有可无，出现零次或一次。';
+        let text = base;
+        if (source[index] === '?') { text += '后面的问号表示尽量少，而不是尽量多。'; index += 1; }
         return { text };
       }
-      index += 1;
-      const base = ch === '*' ? '量词 *：上一项可以零次或多次，默认尽量多。' : ch === '+' ? '量词 +：上一项至少一次，默认尽量多。' : '量词 ?：上一项可有可无，出现零次或一次。';
-      let text = base;
-      if (source[index] === '?') { text += '后面的问号表示尽量少，而不是尽量多。'; index += 1; }
-      return { text };
-    }
-    function readEscape() {
-      const startAt = index;
-      index += 1;
-      const name = source[index];
-      if (!name) return fail('末尾有一个单独的反斜杠，它不知道要转义谁。');
-      index += 1;
-      const named = {
-        d: '转义 \\d：一个数字。反斜杠让 d 不再是字面字母。',
-        D: '转义 \\D：一个非数字。',
-        w: '转义 \\w：一个单词字符（字母、数字或下划线）。',
-        W: '转义 \\W：一个非单词字符。',
-        s: '转义 \\s：一段空白，空格、换行、制表符都算。',
-        S: '转义 \\S：一个非空白字符。',
-        n: '转义 \\n：一个换行，不是字母 n。',
-        t: '转义 \\t：一个制表符。',
-        r: '转义 \\r：一个回车。',
-        b: '转义 \\b：单词边界。它不吃字符，只卡在词和词的交界。',
-        B: '转义 \\B：非单词边界。',
-        f: '转义 \\f：换页符。',
-      };
-      if (named[name]) return { text: named[name] };
-      if (/[1-9]/.test(name)) return { text: t('rx.backref', { n: name }) };
-      if (name === 'k' && source[index] === '<') {
-        const from = index + 1;
-        const close = source.indexOf('>', from);
-        if (close < 0) return fail('命名引用 \\k<名字> 没有写完。');
-        const groupName = source.slice(from, close);
-        index = close + 1;
-        return { text: t('rx.kref', { name: groupName }) };
-      }
-      return { text: t('rx.litEscape', { name }) };
-    }
-    function readClass() {
-      index += 1;
-      const negated = source[index] === '^';
-      if (negated) index += 1;
-      let body = '';
-      while (index < source.length && source[index] !== ']') {
-        if (source[index] === '\\') {
-          const name = source[index + 1] || '';
-          const named = { n: '换行', t: '制表符', r: '回车', d: '数字', D: '非数字', w: '单词', W: '非单词', s: '空白', S: '非空白' };
-          body += named[name] || name || '反斜杠';
-          index += name ? 2 : 1;
-          continue;
+      function readEscape() {
+        const startAt = index;
+        index += 1;
+        const name = source[index];
+        if (!name) return fail('末尾有一个单独的反斜杠，它不知道要转义谁。');
+        index += 1;
+        const named = {
+          d: '转义 \\d：一个数字。反斜杠让 d 不再是字面字母。',
+          D: '转义 \\D：一个非数字。',
+          w: '转义 \\w：一个单词字符（字母、数字或下划线）。',
+          W: '转义 \\W：一个非单词字符。',
+          s: '转义 \\s：一段空白，空格、换行、制表符都算。',
+          S: '转义 \\S：一个非空白字符。',
+          n: '转义 \\n：一个换行，不是字母 n。',
+          t: '转义 \\t：一个制表符。',
+          r: '转义 \\r：一个回车。',
+          b: '转义 \\b：单词边界。它不吃字符，只卡在词和词的交界。',
+          B: '转义 \\B：非单词边界。',
+          f: '转义 \\f：换页符。',
+        };
+        if (named[name]) return { text: named[name] };
+        if (/[1-9]/.test(name)) return { text: t('rx.backref', { n: name }) };
+        if (name === 'k' && source[index] === '<') {
+          const from = index + 1;
+          const close = source.indexOf('>', from);
+          if (close < 0) return fail('命名引用 \\k<名字> 没有写完。');
+          const groupName = source.slice(from, close);
+          index = close + 1;
+          return { text: t('rx.kref', { name: groupName }) };
         }
-        body += source[index];
-        index += 1;
+        return { text: t('rx.litEscape', { name }) };
       }
-      if (source[index] !== ']') return fail('字符类开了方括号，却没有用 ] 关上。');
-      index += 1;
-      const shown = body || '空';
-      return { text: negated ? t('rx.classNot', { set: shown }) : t('rx.class', { set: shown }) };
-    }
-    function readGroup() {
-      index += 1;
-      let kind = 'capture';
-      let name = '';
-      if (source[index] === '?') {
+      function readClass() {
         index += 1;
-        const mark = source[index];
-        if (mark === ':') { kind = 'noncap'; index += 1; }
-        else if (mark === '=') { kind = 'ahead'; index += 1; }
-        else if (mark === '!') { kind = 'negAhead'; index += 1; }
-        else if (mark === '<') {
-          index += 1;
-          if (source[index] === '=') { kind = 'behind'; index += 1; }
-          else if (source[index] === '!') { kind = 'negBehind'; index += 1; }
-          else {
-            const from = index;
-            while (index < source.length && source[index] !== '>') index += 1;
-            if (source[index] !== '>') return fail('命名分组 (?<名字> 没有写完名字。');
-            name = source.slice(from, index);
-            if (!name) return fail('命名分组的名字是空的。');
-            index += 1;
-            kind = 'named';
+        const negated = source[index] === '^';
+        if (negated) index += 1;
+        let body = '';
+        while (index < source.length && source[index] !== ']') {
+          if (source[index] === '\\') {
+            const name = source[index + 1] || '';
+            const named = { n: '换行', t: '制表符', r: '回车', d: '数字', D: '非数字', w: '单词', W: '非单词', s: '空白', S: '非空白' };
+            body += named[name] || name || '反斜杠';
+            index += name ? 2 : 1;
+            continue;
           }
-        } else return fail('问号开头的分组写不认识。');
-      }
-      let header = '不捕获分组 (?: )：只把里面几项绑在一起，不单独记成一组。';
-      let groupNo = 0;
-      if (kind === 'capture' || kind === 'named') {
-        capturing += 1;
-        groupNo = capturing;
-        groups.push({ index: capturing, name });
-        header = name
-          ? t('rx.groupNamed', { n: capturing, name })
-          : t('rx.group', { n: capturing });
-      } else if (kind === 'ahead') header = '正向先行 (?= )：要求后面接着括号里的内容，但这一段本身不占匹配结果。';
-      else if (kind === 'negAhead') header = '负向先行 (?! )：要求后面不能接着括号里的内容，它自己不吃字符。';
-      else if (kind === 'behind') header = '正向后行 (?<= )：要求前面已经是括号里的内容。';
-      else if (kind === 'negBehind') header = '负向后行 (?<! )：要求前面不能是括号里的内容。';
-      push(header);
-      const inner = readSeq(')');
-      if (inner.error) return inner;
-      if (source[index] !== ')') return fail('有分组没有用右括号关上。');
-      index += 1;
-      push(groupNo ? t('rx.groupEnd', { n: groupNo }) : '这个分组到这里结束。');
-      return { text: '组', silent: true };
-    }
-    function readAtom() {
-      const ch = source[index];
-      if (ch === '\\') return readEscape();
-      if (ch === '.') { index += 1; return { text: '通配 .：任意一个字符。没有 s 标志时，它碰不到换行。' }; }
-      if (ch === '^') { index += 1; return { text: '锚点 ^：必须从一行开头匹配。它不吃掉字符。' }; }
-      if (ch === '$') { index += 1; return { text: '锚点 $：必须碰到一行结尾。它不吃掉字符。' }; }
-      if (ch === '[') return readClass();
-      if (ch === '(') return readGroup();
-      if (ch === '{') { index += 1; return { text: '字面「{」：这里的花括号不是次数，按左花括号原样匹配。' }; }
-      let literal = '';
-      while (index < source.length && !'\\.^$|[]()*+?{}'.includes(source[index])) {
-        literal += source[index];
-        index += 1;
-      }
-      if (!literal) return fail('这里有一个写不下去的符号。');
-      return { text: t('rx.literal', { text: literal }) };
-    }
-    function readSeq(stop) {
-      let pieces = 0;
-      let lastWasAlt = false;
-      while (index < source.length && source[index] !== stop) {
-        if (source[index] === '|') {
-          if (!pieces || lastWasAlt) return fail('竖线 | 旁边少了要匹配的内容。');
+          body += source[index];
           index += 1;
-          push('或者 |：左边和右边只要有一边对上就算匹配。竖线自己不吃字符。');
-          lastWasAlt = true;
-          continue;
         }
-        if ('*+?'.includes(source[index]) || (source[index] === '{' && /^\{\d/.test(source.slice(index)))) {
-          return fail('量词前面没有可重复的内容。');
+        if (source[index] !== ']') return fail('字符类开了方括号，却没有用 ] 关上。');
+        index += 1;
+        const shown = body || '空';
+        return { text: negated ? t('rx.classNot', { set: shown }) : t('rx.class', { set: shown }) };
+      }
+      function readGroup() {
+        index += 1;
+        let kind = 'capture';
+        let name = '';
+        if (source[index] === '?') {
+          index += 1;
+          const mark = source[index];
+          if (mark === ':') { kind = 'noncap'; index += 1; }
+          else if (mark === '=') { kind = 'ahead'; index += 1; }
+          else if (mark === '!') { kind = 'negAhead'; index += 1; }
+          else if (mark === '<') {
+            index += 1;
+            if (source[index] === '=') { kind = 'behind'; index += 1; }
+            else if (source[index] === '!') { kind = 'negBehind'; index += 1; }
+            else {
+              const from = index;
+              while (index < source.length && source[index] !== '>') index += 1;
+              if (source[index] !== '>') return fail('命名分组 (?<名字> 没有写完名字。');
+              name = source.slice(from, index);
+              if (!name) return fail('命名分组的名字是空的。');
+              index += 1;
+              kind = 'named';
+            }
+          } else return fail('问号开头的分组写不认识。');
         }
-        const atom = readAtom();
-        if (atom.error) return atom;
-        if (!atom.silent) push(atom.text);
-        if (atom.text) { pieces += 1; lastWasAlt = false; }
-        const quantifier = readQuantifier();
-        if (quantifier.error) return quantifier;
-        if (quantifier.text) push(quantifier.text);
+        let header = '不捕获分组 (?: )：只把里面几项绑在一起，不单独记成一组。';
+        let groupNo = 0;
+        if (kind === 'capture' || kind === 'named') {
+          capturing += 1;
+          groupNo = capturing;
+          groups.push({ index: capturing, name });
+          header = name
+            ? t('rx.groupNamed', { n: capturing, name })
+            : t('rx.group', { n: capturing });
+        } else if (kind === 'ahead') header = '正向先行 (?= )：要求后面接着括号里的内容，但这一段本身不占匹配结果。';
+        else if (kind === 'negAhead') header = '负向先行 (?! )：要求后面不能接着括号里的内容，它自己不吃字符。';
+        else if (kind === 'behind') header = '正向后行 (?<= )：要求前面已经是括号里的内容。';
+        else if (kind === 'negBehind') header = '负向后行 (?<! )：要求前面不能是括号里的内容。';
+        push(header);
+        const inner = readSeq(')');
+        if (inner.error) return inner;
+        if (source[index] !== ')') return fail('有分组没有用右括号关上。');
+        index += 1;
+        push(groupNo ? t('rx.groupEnd', { n: groupNo }) : '这个分组到这里结束。');
+        return { text: '组', silent: true };
       }
-      if (lastWasAlt) return fail('竖线右边没有内容。');
-      return { ok: true };
-    }
-    const seq = readSeq('');
-    if (seq.error) return seq;
-    if (index < source.length) return fail(source[index] === ')' ? '多了一个右括号，找不到配对的左括号。' : '表达式没有读完。');
-    return { groups, steps, reading: steps.join(' '), error: '' };
-  }
-
-  function describeRegex(input) {
-    const split = splitRegexInput(input);
-    if (split.empty) return { ok: false, empty: true, error: '还没写查找表达式。', flags: '', flagText: '', groups: [], steps: [], reading: '', pattern: null };
-    if (split.error) return { ok: false, empty: false, error: split.error, flags: '', flagText: '', groups: [], steps: [], reading: '', pattern: null };
-    const walked = walkRegex(split.source);
-    let pattern = null;
-    let compileError = '';
-    try {
-      pattern = new RegExp(split.source, split.flags);
-    } catch (error) {
-      compileError = explainRegExpError(error.message);
-    }
-    const flagSteps = [];
-    if (split.wrapped) {
-      if (!split.flags) flagSteps.push('标志：结束斜杠后面是空的。只找第一处，并且区分大小写。');
-      else [...split.flags].forEach((flag) => flagSteps.push(t('rx.flagLine', { flag, detail: t(FLAG_DETAIL[flag] || flag) })));
-    } else flagSteps.push('写法：没有用斜杠包起来，所以按全局 g 查找，并且区分大小写。');
-    const flagText = split.flags
-      ? [...split.flags].map((flag) => FLAG_TEXT[flag] || flag).join('、') + (split.wrapped ? '' : '（没写斜杠，默认全局）')
-      : '只找第一处';
-    const steps = [...(walked.steps || []), ...flagSteps];
-    if (walked.error || compileError) {
-      return { ok: false, empty: false, error: walked.error || compileError, flags: split.flags, flagText, groups: walked.groups || [], steps, reading: steps.join(' '), pattern: null };
-    }
-    return { ok: true, empty: false, error: '', flags: split.flags, flagText, groups: walked.groups, reading: steps.join(' '), steps, pattern };
-  }
-
-  function regexTrial(input, sample, replacement) {
-    const described = describeRegex(input);
-    const text = String(sample ?? '');
-    if (!described.ok) return Object.assign({ matches: [], replaced: '', unmatched: [], miss: false }, described);
-    if (!text) return Object.assign({ matches: [], replaced: '', unmatched: [], miss: false }, described);
-    const matches = [];
-    try {
-      const flags = described.pattern.flags.includes('g') ? described.pattern.flags : `${described.pattern.flags}g`;
-      const globalPattern = new RegExp(described.pattern.source, flags);
-      for (const match of text.matchAll(globalPattern)) {
-        matches.push({
-          text: match[0],
-          index: match.index,
-          groups: match.slice(1).map((item, groupIndex) => ({
-            index: groupIndex + 1,
-            name: described.groups[groupIndex]?.name || '',
-            value: item === undefined ? '' : item,
-          })),
-        });
-        if (matches.length >= 8) break;
+      function readAtom() {
+        const ch = source[index];
+        if (ch === '\\') return readEscape();
+        if (ch === '.') { index += 1; return { text: '通配 .：任意一个字符。没有 s 标志时，它碰不到换行。' }; }
+        if (ch === '^') { index += 1; return { text: '锚点 ^：必须从一行开头匹配。它不吃掉字符。' }; }
+        if (ch === '$') { index += 1; return { text: '锚点 $：必须碰到一行结尾。它不吃掉字符。' }; }
+        if (ch === '[') return readClass();
+        if (ch === '(') return readGroup();
+        if (ch === '{') { index += 1; return { text: '字面「{」：这里的花括号不是次数，按左花括号原样匹配。' }; }
+        let literal = '';
+        while (index < source.length && !'\\.^$|[]()*+?{}'.includes(source[index])) {
+          literal += source[index];
+          index += 1;
+        }
+        if (!literal) return fail('这里有一个写不下去的符号。');
+        return { text: t('rx.literal', { text: literal }) };
       }
-    } catch (error) {
-      return Object.assign({ matches: [], replaced: '', unmatched: [], miss: false, error: explainRegExpError(error.message), ok: false }, described);
+      function readSeq(stop) {
+        let pieces = 0;
+        let lastWasAlt = false;
+        while (index < source.length && source[index] !== stop) {
+          if (source[index] === '|') {
+            if (!pieces || lastWasAlt) return fail('竖线 | 旁边少了要匹配的内容。');
+            index += 1;
+            push('或者 |：左边和右边只要有一边对上就算匹配。竖线自己不吃字符。');
+            lastWasAlt = true;
+            continue;
+          }
+          if ('*+?'.includes(source[index]) || (source[index] === '{' && /^\{\d/.test(source.slice(index)))) {
+            return fail('量词前面没有可重复的内容。');
+          }
+          const atom = readAtom();
+          if (atom.error) return atom;
+          if (!atom.silent) push(atom.text);
+          if (atom.text) { pieces += 1; lastWasAlt = false; }
+          const quantifier = readQuantifier();
+          if (quantifier.error) return quantifier;
+          if (quantifier.text) push(quantifier.text);
+        }
+        if (lastWasAlt) return fail('竖线右边没有内容。');
+        return { ok: true };
+      }
+      const seq = readSeq('');
+      if (seq.error) return seq;
+      if (index < source.length) return fail(source[index] === ')' ? '多了一个右括号，找不到配对的左括号。' : '表达式没有读完。');
+      return { groups, steps, reading: steps.join(' '), error: '' };
     }
-    let replaced = '';
-    try {
-      replaced = text.replace(described.pattern, replacement || '');
-    } catch (error) {
-      return Object.assign({ matches, replaced: '', unmatched: [], miss: false, error: '替换式写不通。$ 后面要接组号，例如 $1。', ok: false }, described);
+
+    function describeRegex(input) {
+      const split = splitRegexInput(input);
+      if (split.empty) return { ok: false, empty: true, error: '还没写查找表达式。', flags: '', flagText: '', groups: [], steps: [], reading: '', pattern: null };
+      if (split.error) return { ok: false, empty: false, error: split.error, flags: '', flagText: '', groups: [], steps: [], reading: '', pattern: null };
+      const walked = walkRegex(split.source);
+      let pattern = null;
+      let compileError = '';
+      try {
+        pattern = new RegExp(split.source, split.flags);
+      } catch (error) {
+        compileError = explainRegExpError(error.message);
+      }
+      const flagSteps = [];
+      if (split.wrapped) {
+        if (!split.flags) flagSteps.push('标志：结束斜杠后面是空的。只找第一处，并且区分大小写。');
+        else [...split.flags].forEach((flag) => flagSteps.push(t('rx.flagLine', { flag, detail: t(FLAG_DETAIL[flag] || flag) })));
+      } else flagSteps.push('写法：没有用斜杠包起来，所以按全局 g 查找，并且区分大小写。');
+      const flagText = split.flags
+        ? [...split.flags].map((flag) => FLAG_TEXT[flag] || flag).join('、') + (split.wrapped ? '' : '（没写斜杠，默认全局）')
+        : '只找第一处';
+      const steps = [...(walked.steps || []), ...flagSteps];
+      if (walked.error || compileError) {
+        return { ok: false, empty: false, error: walked.error || compileError, flags: split.flags, flagText, groups: walked.groups || [], steps, reading: steps.join(' '), pattern: null };
+      }
+      return { ok: true, empty: false, error: '', flags: split.flags, flagText, groups: walked.groups, reading: steps.join(' '), steps, pattern };
     }
-    const unmatched = [];
-    let cursor = 0;
-    matches.forEach((match) => {
-      const start = match.index;
-      const end = start + match.text.length;
-      if (start > cursor) unmatched.push(text.slice(cursor, start));
-      cursor = Math.max(cursor, end || start);
-      if (!match.text.length) cursor += 1;
-    });
-    if (cursor < text.length) unmatched.push(text.slice(cursor));
-    return Object.assign({ matches, replaced, unmatched: unmatched.filter((part) => part.length), miss: matches.length === 0 }, described);
+
+    function regexTrial(input, sample, replacement) {
+      const described = describeRegex(input);
+      const text = String(sample ?? '');
+      if (!described.ok) return Object.assign({ matches: [], replaced: '', unmatched: [], miss: false }, described);
+      if (!text) return Object.assign({ matches: [], replaced: '', unmatched: [], miss: false }, described);
+      const matches = [];
+      try {
+        const flags = described.pattern.flags.includes('g') ? described.pattern.flags : `${described.pattern.flags}g`;
+        const globalPattern = new RegExp(described.pattern.source, flags);
+        for (const match of text.matchAll(globalPattern)) {
+          matches.push({
+            text: match[0],
+            index: match.index,
+            groups: match.slice(1).map((item, groupIndex) => ({
+              index: groupIndex + 1,
+              name: described.groups[groupIndex]?.name || '',
+              value: item === undefined ? '' : item,
+            })),
+          });
+          if (matches.length >= 8) break;
+        }
+      } catch (error) {
+        return Object.assign({ matches: [], replaced: '', unmatched: [], miss: false, error: explainRegExpError(error.message), ok: false }, described);
+      }
+      let replaced = '';
+      try {
+        replaced = text.replace(described.pattern, replacement || '');
+      } catch (error) {
+        return Object.assign({ matches, replaced: '', unmatched: [], miss: false, error: '替换式写不通。$ 后面要接组号，例如 $1。', ok: false }, described);
+      }
+      const unmatched = [];
+      let cursor = 0;
+      matches.forEach((match) => {
+        const start = match.index;
+        const end = start + match.text.length;
+        if (start > cursor) unmatched.push(text.slice(cursor, start));
+        cursor = Math.max(cursor, end || start);
+        if (!match.text.length) cursor += 1;
+      });
+      if (cursor < text.length) unmatched.push(text.slice(cursor));
+      return Object.assign({ matches, replaced, unmatched: unmatched.filter((part) => part.length), miss: matches.length === 0 }, described);
+    }
+    return {describeRegex,regexTrial};
   }
+  const {describeRegex,regexTrial} = createRegexEngine(t);
 
   function t(key, vars) {
     return root.TAI18n ? root.TAI18n.t(key, vars) : key;
@@ -1355,6 +1373,7 @@
     regexToExport,
     regexFromImport,
     regexFromString,
+    createRegexEngine,
     describeRegex,
     regexTrial,
     explainCard,
@@ -1367,6 +1386,7 @@
     chatFromText,
     timelineToExport,
     scriptToExport,
+    scriptSpeaker,
     graphToBook,
     themeToExport,
     themeToCss,

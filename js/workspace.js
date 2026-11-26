@@ -401,7 +401,7 @@
     children.forEach((child) => {
       if (child === heading || child === footer) return;
       if (child.querySelector('#set-json')) group = 'writing';
-      if (child.matches('p.field-label') && child.textContent.includes('模型接口')) group = 'model';
+      if (child.hasAttribute('data-model-heading')) group = 'model';
       if (child.querySelector('#set-profile')) group = 'writing';
       if (child.matches('p.field-label') && child.textContent.trim() === '主题') group = 'appearance';
       panels[group].append(child);

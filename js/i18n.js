@@ -916,5 +916,17 @@
     Object.entries(templates||{}).forEach(([key,row])=>{TEMPLATES[key]=Object.assign({},TEMPLATES[key]||{},row);});
     phraseKeys=null;reversePhrase=null;
   }
-  root.TAI18n = { t, load, save, apply, localize, add, languages:LANGUAGES, catalog:()=>JSON.parse(JSON.stringify({phrases:PHRASE,templates:TEMPLATES})), get prefs() { return prefs; } };
+  function workerMessages(prefix) {
+    const lang = language(prefs.lang), messages = Object.create(null);
+    if (lang !== 'zh') {
+      for (const [key, row] of Object.entries(PHRASE)) {
+        if (row[lang]) messages[key] = row[lang];
+      }
+    }
+    for (const key of Object.keys(TEMPLATES)) {
+      if (key.startsWith(prefix)) messages[key] = t(key);
+    }
+    return messages;
+  }
+  root.TAI18n = { t, load, save, apply, localize, add, workerMessages, languages:LANGUAGES, catalog:()=>JSON.parse(JSON.stringify({phrases:PHRASE,templates:TEMPLATES})), get prefs() { return prefs; } };
 })(typeof globalThis !== 'undefined' ? globalThis : window);

@@ -1,179 +1,350 @@
-/* The old Web Storage copy is read only during the first successful migration. */
+/* IndexedDB stores editable works separately and retains the preceding transaction for recovery. */
 (function(root) {
   'use strict';
-  const primary = 'current', previous = 'previous', migration = 'migration';
-  let activeDatabase, clearEpoch=0;
+  const headKey = 'current', undoKey = 'previous', archiveKey = 'migration', checkpointKey = 'recoveryCheckpoint';
+  const format = 'records-v1', records = 'libraryRecords', layoutKey = 'layout';
+  const payloadFields = new Map([['assets','dataUrl'],['chats','messages'],['stickerPacks','stickers']]);
+  let activeDatabase, currentRevision = 0, clearEpoch = 0;
   const conflict = () => new Error('资料库已变化，请重新打开。');
+  const unavailable = () => new Error('无法打开本机资料库');
   const storageError = error => {
-    if (error?.name !== 'QuotaExceededError') return error || new Error('版本库存储不可用');
+    if (error?.name !== 'QuotaExceededError') return error || unavailable();
     const wrapped = new Error('本机存储空间不足，请导出备份后释放空间。');
     wrapped.code = 'quota'; return wrapped;
   };
-  function open() {
+  function request(req) {
     return new Promise((resolve,reject) => {
-      const request = indexedDB.open('quilvori-library',4);
-      let blocked=false;
-      request.onupgradeneeded = () => {
-        const db = request.result;
-        if (!db.objectStoreNames.contains('library')) db.createObjectStore('library');
-        if (!db.objectStoreNames.contains('creationRecords')) {
-          const records=db.createObjectStore('creationRecords',{keyPath:'id'});
-          records.createIndex('startedAt','startedAt');
-        }
-        if (!db.objectStoreNames.contains('drafts')) db.createObjectStore('drafts',{keyPath:'id'});
-        if (!db.objectStoreNames.contains('versions')) {
-          const versions = db.createObjectStore('versions',{keyPath:'seq',autoIncrement:true});
-          versions.createIndex('entity','entity');
-        }
-      };
-      request.onsuccess = () => {
-        const db=request.result;
-        if(blocked){db.close();return;}
-        db.onversionchange=()=>db.close();resolve(db);
-      };
-      request.onblocked = () => {blocked=true;reject(new Error('请关闭其他工作台窗口后重试。'));};
-      request.onerror = () => reject(request.error);
-    });
-  }
-  function read(db,key=primary,onlyKey=false) {
-    return new Promise((resolve,reject) => {
-      const table = db.transaction('library').objectStore('library');
-      const req = onlyKey ? table.getKey(key) : table.get(key);
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
     });
   }
-  function replace(db,expected,data,keepPrevious,guard,snapshots = [],clearVersions = false,archive = null,draft = null,epoch = null) {
+  async function open() {
+    const req = indexedDB.open('quilvori-library',5);
+    let blocked = false;
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains('library')) db.createObjectStore('library');
+      if (!db.objectStoreNames.contains(records)) db.createObjectStore(records,{keyPath:'key'});
+      if (!db.objectStoreNames.contains('creationRecords')) {
+        const table = db.createObjectStore('creationRecords',{keyPath:'id'});
+        table.createIndex('startedAt','startedAt');
+      }
+      if (!db.objectStoreNames.contains('drafts')) db.createObjectStore('drafts',{keyPath:'id'});
+      if (!db.objectStoreNames.contains('versions')) {
+        const table = db.createObjectStore('versions',{keyPath:'seq',autoIncrement:true});
+        table.createIndex('entity','entity');
+      }
+      if (!db.objectStoreNames.contains('versionLimits')) db.createObjectStore('versionLimits');
+      if (!db.objectStoreNames.contains('versionInfo')) {
+        const index = db.createObjectStore('versionInfo',{keyPath:'seq'});
+        index.createIndex('entity','entity');
+        const cursor = req.transaction.objectStore('versions').openCursor();
+        cursor.onsuccess = () => {
+          const row=cursor.result;
+          if (row) { index.put(root.TAHistory.summary(row.value,row.primaryKey)); row.continue(); }
+        };
+      }
+    };
     return new Promise((resolve,reject) => {
-      const tables=['library'];
-      if(clearVersions || snapshots.length)tables.push('versions');
-      if(clearVersions || draft)tables.push('drafts');
-      if(clearVersions)tables.push('creationRecords');
-      const tx=db.transaction(tables,'readwrite'),table=tx.objectStore('library');
-      const get = table.get(primary);
+      req.onsuccess = () => {
+        const db=req.result;
+        if (blocked) { db.close(); return; }
+        db.onversionchange=()=>db.close(); resolve(db);
+      };
+      req.onblocked = () => { blocked=true; reject(new Error('请关闭其他工作台窗口后重试。')); };
+      req.onerror = () => reject(req.error);
+    });
+  }
+  const keyOf = (field,id) => JSON.stringify(id===undefined ? [field] : [field,id]);
+  const payloadKey = (field,id) => JSON.stringify([field,id,'payload']);
+  function metadata(field,item) {
+    const body=payloadFields.get(field);
+    const key=keyOf(field,item.id);
+    if (!body || !Object.hasOwn(item,body)) return {key,value:item};
+    const value={...item};
+    delete value[body];
+    return {key,value,body};
+  }
+  function pack(library) {
+    const rows=[], layout=[];
+    for (const [field,value] of Object.entries(library)) {
+      if (root.TAStore.collections.includes(field)) {
+        layout.push([field,value.map(item=>item.id)]);
+        for (const item of value) {
+          const row=metadata(field,item);
+          rows.push(row);
+          if (row.body) rows.push({key:payloadKey(field,item.id),value:item[row.body]});
+        }
+      } else {
+        layout.push([field,null]);
+        rows.push({key:keyOf(field),value});
+      }
+    }
+    rows.push({key:layoutKey,value:layout});
+    return {full:true,rows};
+  }
+  function unpack(rows, undo = []) {
+    const items=new Map(rows.map(row=>[row.key,row]));
+    for (const row of undo) items.set(row.key,row);
+    const take = key => {
+      if (!items.has(key)) throw unavailable();
+      const value=items.get(key); items.delete(key); return value;
+    };
+    const fields=take(layoutKey).value;
+    if (!Array.isArray(fields)) throw unavailable();
+    const library=Object.fromEntries(fields.map(([field,ids])=>[field,
+      ids===null ? take(keyOf(field)).value : ids.map(id=>{
+        const row=take(keyOf(field,id));
+        if (row.value?.id!==id) throw unavailable();
+        if (!row.body) return row.value;
+        if (row.body!==payloadFields.get(field)) throw unavailable();
+        return {...row.value,[row.body]:take(payloadKey(field,id)).value};
+      })]));
+    if (items.size || Object.keys(library).length!==fields.length) throw unavailable();
+    return root.TAStore.verify(library);
+  }
+  // Scope hints only describe existing records. Insertions, deletions and bulk operations
+  // without a specific scope go through full validation and replace the ordered layout.
+  function changes(library,scopes) {
+    const store=root.TAStore;
+    const keys=new Map(scopes.map(scope=>[keyOf(...scope),scope]));
+    keys.set(keyOf('meta'),['meta']);
+    const rows=[];
+    for (const [key,[field,id]] of keys) {
+      let value;
+      if (store.collections.includes(field)) {
+        const item=library[field].find(row=>row.id===id);
+        if (!item) throw conflict();
+        const row=metadata(field,item);
+        row.value=store.verify({[field]:[structuredClone(row.value)]})[field][0];
+        if (row.body) delete row.value[row.body];
+        rows.push(row);
+        continue;
+      } else {
+        if (!Object.hasOwn(library,field) || id!==undefined) throw conflict();
+        value=store.verify({characters:[],[field]:structuredClone(library[field])})[field];
+        if (field==='meta') value.updatedAt=new Date().toISOString();
+      }
+      rows.push({key,value});
+    }
+    return {full:false,rows};
+  }
+  async function loadedState(db) {
+    // Read the pointer and its records in a single transaction, including during migration.
+    const tx=db.transaction(['library',records]);
+    const [head,rows]=await Promise.all([request(tx.objectStore('library').get(headKey)),request(tx.objectStore(records).getAll())]);
+    return {head,rows};
+  }
+  const readControl = (db,key,onlyKey=false) => {
+    const table=db.transaction('library').objectStore('library');
+    return request(onlyKey ? table.getKey(key) : table.get(key));
+  };
+  function commit(db,expected,batch,options={}) {
+    const {guard,snapshots=[],draft,clear,archive,epoch}=options;
+    const history=root.TAHistory;
+    const tables=['library',records];
+    if (clear || snapshots.length || options.restore) tables.push(...history.tables);
+    if (clear || draft) tables.push('drafts');
+    if (clear) tables.push('creationRecords');
+    return new Promise((resolve,reject) => {
+      const tx=db.transaction(tables,'readwrite'),control=tx.objectStore('library'),parts=tx.objectStore(records);
       let failure;
-      tx.onabort = () => reject(failure || storageError(tx.error));
-      tx.oncomplete = () => resolve(expected + 1);
-      get.onsuccess = () => {
-        const old = get.result;
-        if ((old?.seq ?? 0) !== expected || (guard && !guard())) { failure=conflict(); tx.abort(); return; }
-        if(draft) root.TAStudioDrafts.writeTo(tx.objectStore('drafts'),draft,error=>{failure=error;tx.abort();});
-        if (keepPrevious === true && old) table.put(old,previous);
-        else if (keepPrevious === false) table.delete(previous);
-        table.put({seq:expected+1,data},primary);
-        if (archive) table.put(archive,migration);
-        if (clearVersions) { table.put(epoch,'creationEpoch'); tx.objectStore('versions').clear(); tx.objectStore('drafts').clear(); tx.objectStore('creationRecords').clear(); table.delete(migration); }
-        if (snapshots.length) for (const row of snapshots) tx.objectStore('versions').add(row);
+      const abort=error=>{if (!failure) {failure=error;tx.abort();}};
+      tx.onabort=()=>reject(failure || storageError(tx.error));
+      tx.oncomplete=()=>resolve(expected+1);
+      const get=control.get(headKey);
+      get.onsuccess=()=>{
+        const old=get.result;
+        if ((old?.seq ?? 0)!==expected || (guard && !guard())) { abort(conflict()); return; }
+        if (options.restore) {
+          // A different window may prune the selected revision after the comparison was opened.
+          const source=tx.objectStore('versionInfo').get(options.restore.seq);
+          source.onsuccess=()=>{if (source.result?.entity!==options.restore.entity) abort(conflict());};
+        }
+        function finish(previous) {
+          try {
+            if (guard && !guard()) { abort(conflict());return; }
+            if (options.undo==='discard') {control.delete(undoKey);control.delete(checkpointKey);}
+            else if (previous?.full || previous?.data) {
+              // A bulk operation already has the independent recovery copy. Keep it if a later
+              // incremental write needs to replace its much smaller one-step inverse.
+              control.put(previous,checkpointKey);
+              control.put({checkpoint:true},undoKey);
+            } else if (previous) control.put(previous,undoKey);
+            if (batch.full) parts.clear();
+            for (const row of batch.rows) parts.put(row);
+            control.put({seq:expected+1,format},headKey);
+            if (archive) control.put(archive,archiveKey);
+            if (draft) root.TAStudioDrafts.writeTo(tx.objectStore('drafts'),draft,abort);
+            if (clear) {
+              control.put(epoch,'creationEpoch'); control.delete(archiveKey);
+              for (const name of [...history.tables,'drafts','creationRecords']) tx.objectStore(name).clear();
+            }
+            if (snapshots.length) history.append(tx,snapshots);
+          } catch (error) { abort(error); }
+        }
+        if (batch.full) {
+          if (options.undo==='keep' && old?.format===format) {
+            const getAll=parts.getAll();
+            getAll.onsuccess=()=>finish({full:true,rows:getAll.result});
+          } else if (options.undo==='migrate') {
+            const previous=control.get(undoKey);
+            previous.onsuccess=()=>finish(previous.result?.data ? previous.result : {data:old.data});
+          } else {
+            finish(options.fallback ? {data:options.fallback} : options.undo==='keep' && old ? {data:old.data} : null);
+          }
+          return;
+        }
+        if (old?.format!==format) {abort(conflict());return;}
+        // Only read the persisted values actually needed to undo this edit.
+        let remaining=batch.rows.length;
+        const prior=[];
+        for (const row of batch.rows) {
+          const getOld=parts.get(row.key);
+          getOld.onsuccess=()=>{
+            if (!getOld.result || getOld.result.body!==row.body) {abort(conflict());return;}
+            prior.push(getOld.result);
+            if (--remaining===0) finish({full:false,rows:prior});
+          };
+        }
       };
     });
   }
   async function adapt() {
-    const store = root.TAStore, marker = store.databaseMarker;
-    let migrated = false;
-    try { migrated = localStorage.getItem(marker) === '1' || localStorage.getItem(store.KEY) === store.databaseRedirect; } catch (_) {}
+    const store=root.TAStore, marker=store.databaseMarker;
+    let migrated=false;
+    try { migrated=localStorage.getItem(marker)==='1' || localStorage.getItem(store.KEY)===store.databaseRedirect; } catch (_) {}
     if (!root.indexedDB) {
-      if (migrated) throw new Error('无法打开本机资料库');
+      if (migrated) throw unavailable();
       return store.load();
     }
-    const db = await open();
+    const db=await open();
+    let {head,rows}=await loadedState(db);
+    let initial,archive;
     async function previousVersion() {
-      const prior = await read(db,previous);
-      try { return store.verify(prior?.data); } catch (_) {}
-      const archived = await read(db,migration);
-      try { return store.verify(JSON.parse(archived?.raw)); } catch (_) { return null; }
+      const prior=await readControl(db,undoKey);
+      try {
+        if (prior?.rows) return unpack(prior.full ? prior.rows : rows,prior.full ? [] : prior.rows);
+        if (prior?.data) return store.verify(prior.data);
+      } catch (_) {}
+      const checkpoint=await readControl(db,checkpointKey);
+      try {
+        if (checkpoint?.full) return unpack(checkpoint.rows);
+        if (checkpoint?.data) return store.verify(checkpoint.data);
+      } catch (_) {}
+      const archived=await readControl(db,archiveKey);
+      try {return store.verify(JSON.parse(archived?.raw));} catch (_) {return null;}
     }
-    let record = await read(db), initial, archive;
-    if (!record) {
-      const legacyRaw = localStorage.getItem(store.KEY);
-      const legacy = store.load();
-      if (migrated) {
-        // Offer explicit recovery if the active record was removed while the migration marker survived.
-        record = {seq:0,data:null};
-        initial = {corrupt:true,missing:true,raw:null,previous:await previousVersion() || (legacy.fresh ? null : legacy.library || legacy.previous)};
+    if (!head) {
+      const legacyRaw=localStorage.getItem(store.KEY), legacy=store.load();
+      if (migrated || rows.length) {
+        let fallback=await previousVersion();
+        if (!fallback && rows.length) {try {fallback=unpack(rows);} catch (_) {}}
+        initial={corrupt:true,missing:true,raw:null,previous:fallback || (legacy.fresh ? null : legacy.library || legacy.previous)};
       } else {
-        if (legacy.corrupt) { db.close(); return legacy; }
-        if (!legacy.persistent && !legacy.fresh) throw new Error('无法读取原始存档');
+        if (legacy.corrupt) {db.close();return legacy;}
+        if (!legacy.persistent && !legacy.fresh) {db.close();throw unavailable();}
+        archive=legacyRaw===null ? null : {raw:legacyRaw,previous:localStorage.getItem(store.KEY+'.previous')};
         try {
-          archive = legacyRaw === null ? null : {raw:legacyRaw,previous:localStorage.getItem(store.KEY+'.previous')};
-          const seq = await replace(db,0,legacy.library,false,()=>localStorage.getItem(store.KEY)===legacyRaw,[],false,archive);
-          record = {seq,data:legacy.library};
-          initial = {...legacy,persistent:true,fresh:false};
+          const seq=await commit(db,0,pack(legacy.library),{undo:'discard',archive,guard:()=>localStorage.getItem(store.KEY)===legacyRaw});
+          head={seq,format}; initial={...legacy,persistent:true,fresh:false};
         } catch (error) {
-          record = await read(db);
-          if (!record) throw error;
+          ({head,rows}=await loadedState(db));
+          if (!head) {db.close();throw error;}
         }
       }
     }
-    let seq = record.seq, locked = !!initial?.corrupt, chain = Promise.resolve();
-    const enqueue = fn => {
-      const job = chain.then(fn); chain = job.catch(()=>{}); return job;
-    };
-    const write = async (data,guard,keepPrevious=true,snapshots=[],draft=null) => {
-      try { seq = await replace(db,seq,data,keepPrevious,guard,snapshots,false,null,draft); }
-      catch(error) {
-        if (error.code !== 'quota' || !keepPrevious) throw error;
-        seq = await replace(db,seq,data,false,guard,snapshots,false,null,draft);
-      }
-    };
     if (!initial) {
-      try { initial = {library:store.verify(record.data),persistent:true,fresh:false}; }
-      catch (_) {
-        locked = true;
-        const fallback = await previousVersion();
-        initial = {corrupt:true,raw:typeof record.data==='string'?record.data:JSON.stringify(record.data),previous:fallback};
+      try {
+        initial={library:head.format===format ? unpack(rows) : store.verify(head.data),persistent:true,fresh:false};
+      } catch (_) {
+        initial={corrupt:true,raw:head.format===format ? JSON.stringify({head,rows}) :
+          typeof head.data==='string' ? head.data : JSON.stringify(head.data),previous:await previousVersion()};
+      }
+      if (!initial.corrupt && head.format!==format) {
+        // A v4 database is kept intact if conversion runs out of space or another tab wins.
+        try {
+          const batch=pack(initial.library);
+          let seq;
+          try {seq=await commit(db,head.seq,batch,{undo:'migrate'});}
+          catch(error) {
+            if (error.code!=='quota') throw error;
+            seq=await commit(db,head.seq,batch,{undo:'preserve'});
+          }
+          head={seq,format};
+        }
+        catch (error) {
+          const current=await loadedState(db);
+          if (current.head?.format!==format) {db.close();throw error;}
+          head=current.head; initial.library=unpack(current.rows);
+        }
       }
     }
-    // The revision is checked inside every IndexedDB write transaction, including from another window.
-    activeDatabase = db;
-    store.backend = 'indexedDB';
-    store.save = (library,guard,snapshots,draft) => {
-      if (locked) throw new Error('请先恢复资料库。');
-      const data = store.verify(structuredClone(library));
-      data.meta ||= {}; data.meta.updatedAt = new Date().toISOString();
-      return enqueue(()=>write(data,guard,true,snapshots,draft));
+    let locked=!!initial.corrupt, chain=Promise.resolve();
+    const damaged=locked ? {raw:initial.raw,previous:initial.previous} : null;
+    const enqueue=fn=>{const job=chain.then(fn);chain=job.catch(()=>{});return job;};
+    activeDatabase=db; currentRevision=head?.seq ?? 0;
+    // Discard startup record copies. Recovery only needs its verified fallback and export text.
+    rows=null; head=null;
+    const persist=async (batch,options)=>{
+      try { currentRevision=await commit(db,currentRevision,batch,options); }
+      catch (error) {
+        if (error.code!=='quota' || options.undo!=='keep') throw error;
+        currentRevision=await commit(db,currentRevision,batch,{...options,undo:'discard'});
+      }
     };
-    store.erase = (library,guard) => enqueue(async () => {
+    store.backend='indexedDB';
+    store.save=(library,guard,snapshots,draft,scopes,restore)=>{
       if (locked) throw new Error('请先恢复资料库。');
-      const epoch=store.uid('clear');
-      seq = await replace(db,seq,library,false,guard,[],true,null,null,epoch);
-      clearEpoch=epoch;
-      store.hasMigrationBackup = false;
-      try {
-        localStorage.removeItem(store.KEY);
-        localStorage.removeItem(store.KEY+'.previous');
-      } catch (_) { return '旧迁移副本未能清除'; }
-    });
-    store.recover = async (raw,library) => {
-      if (!locked || raw !== initial.raw) throw conflict();
-      const verified = store.verify(structuredClone(library));
-      await enqueue(()=>write(verified,null,'preserve')); locked = false;
+      let batch;
+      if (scopes?.length && scopes.every(([field,,mode])=>!payloadFields.has(field) || mode==='metadata')) batch=changes(library,scopes);
+      else {
+        const data=store.verify(structuredClone(library));
+        data.meta.updatedAt=new Date().toISOString();
+        batch=pack(data);
+      }
+      return enqueue(()=>persist(batch,{guard,undo:'keep',snapshots,draft,restore}));
     };
-    store.hasMigrationBackup = Boolean(await read(db,migration,true));
-    store.migrationBackup = async () => (await read(db,migration))?.raw;
-    // Only compact the old keys after both the new active record and the exact
-    // original bytes have committed in one transaction. Preserve later legacy edits.
+    store.erase=(library,guard)=>{
+      if (locked) throw new Error('请先恢复资料库。');
+      const batch=pack(store.verify(structuredClone(library)));
+      return enqueue(async()=>{
+        const epoch=store.uid('clear');
+        await persist(batch,{guard,undo:'discard',clear:true,epoch}); clearEpoch=epoch;
+        store.hasMigrationBackup=false;
+        try {localStorage.removeItem(store.KEY);localStorage.removeItem(store.KEY+'.previous');}
+        catch (_) {return '旧迁移副本未能清除';}
+      });
+    };
+    store.recover=async(raw,library)=>{
+      if (!locked || raw!==damaged.raw) throw conflict();
+      const batch=pack(store.verify(structuredClone(library)));
+      await enqueue(()=>persist(batch,{undo:damaged.previous?'preserve':'discard',fallback:damaged.previous}));
+      locked=false;
+    };
+    store.hasMigrationBackup=!!(await readControl(db,archiveKey,true));
+    store.migrationBackup=async()=>(await readControl(db,archiveKey))?.raw;
     if (!migrated && store.hasMigrationBackup) {
-      archive ||= await read(db,migration);
+      archive ||= await readControl(db,archiveKey);
       try {
-        if (archive.raw === localStorage.getItem(store.KEY)) localStorage.setItem(store.KEY,store.databaseRedirect);
-        if (archive.previous && archive.previous === localStorage.getItem(store.KEY+'.previous')) localStorage.removeItem(store.KEY+'.previous');
-      } catch (_) { /* The old copy is still safe if Web Storage is read-only. */ }
+        if (archive.raw===localStorage.getItem(store.KEY)) localStorage.setItem(store.KEY,store.databaseRedirect);
+        if (archive.previous && archive.previous===localStorage.getItem(store.KEY+'.previous')) localStorage.removeItem(store.KEY+'.previous');
+      } catch (_) {}
     }
-    try { localStorage.setItem(marker,'1'); } catch (_) {}
+    try {localStorage.setItem(marker,'1');} catch (_) {}
     return initial;
   }
   async function start(views) {
     let loaded;
     try {
-      loaded = await adapt();
-      if(loaded.library){
+      loaded=await adapt();
+      if (loaded.library) {
         await root.TAStudioDrafts?.load(activeDatabase).catch(()=>{loaded.draftWarning=true;});
         await root.TACreationRecords?.load(activeDatabase).catch(()=>{loaded.archiveWarning=true;});
         if(activeDatabase && !loaded.draftWarning)await root.NIJANStudio?.migrateSessionDrafts(loaded.library);
       }
-    }
-    catch (error) { loaded = {unavailable:true,message:error.message}; }
+    } catch(error) {loaded={unavailable:true,message:error.message};}
     root.TAUI.mount(views,loaded);
   }
-  root.TALibraryDB = { start, database:()=>activeDatabase, clearEpoch:()=>clearEpoch };
+  root.TALibraryDB={start,database:()=>activeDatabase,revision:()=>currentRevision,clearEpoch:()=>clearEpoch};
 })(globalThis);

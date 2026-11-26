@@ -10,6 +10,8 @@ try {
   const env = {...process.env, QUILVORI_TEST_PROFILE:sandbox};
   delete env.ELECTRON_RUN_AS_NODE;
   const phases={
+    'regex-and-credentials':'regex-preview-ui.cjs',
+    storage:'storage-history-ui.cjs',
     exercise:'workbench-ui.cjs', restart:'workbench-ui.cjs', navigation:'ai-navigation-ui.cjs',
     compatibility:'creative-compat-ui.cjs', 'compatibility-restart':'creative-compat-ui.cjs',
     expressions:'expression-export-ui.cjs', themes:'theme-import-ui.cjs','theme-panel':'theme-st-panel-ui.cjs', 'theme-workshop':'theme-workshop-ui.cjs',

@@ -1,6 +1,8 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('nijanDesktop', {
+  sealModelKey: (id,key) => ipcRenderer.invoke('model-key:seal',id,key),
+  openModelKey: (id,blob) => ipcRenderer.invoke('model-key:open',id,blob),
   getPaths: () => ipcRenderer.invoke('folders:get'),
   pick: (kind) => ipcRenderer.invoke('folders:pick', kind),
   list: (folder) => ipcRenderer.invoke('folders:list', folder),

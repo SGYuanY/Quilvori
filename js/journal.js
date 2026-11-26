@@ -62,7 +62,7 @@
     const lib=ui().state.lib, id=root.TAStore.uid(kind);
     const row=kind==='beat'?{id,title:tr('新情节'),summary:'',order:lib.timeline.beats.length+1,...link}:{id,title:tr('新注记'),body:'',...link};
     lib.timeline[collection(kind)].push(row);
-    ui().state.sel.tlKind=kind;ui().state.sel.tl=id;ui().markDirty();
+    ui().state.sel.tlKind=kind;ui().state.sel.tl=id;ui().markDirty('timeline');
     return row;
   }
   function assistScope(lib,chatId,from,to) {
@@ -171,19 +171,19 @@
       const excerpt=editor.querySelector('[data-source-excerpt]');
       excerpt.textContent=location.state==='message'?lineLabel(chat.messages[location.floor],location.floor):hasChat?sourceText(location,row):'';
       open.onclick=()=>goMessage(resolve(ui().state.lib,row));
-      ui().bindFields(editor,row,()=>paintList());ui().mountLengths(editor);
-      pick.onchange=()=>{if(pick.value)row.chatId=pick.value;else delete row.chatId;delete row.messageStamp;row.floor=null;ui().markDirty();ui().renderStage();};
+      ui().bindFields(editor,row,()=>paintList(),['timeline']);ui().mountLengths(editor);
+      pick.onchange=()=>{if(pick.value)row.chatId=pick.value;else delete row.chatId;delete row.messageStamp;row.floor=null;ui().markDirty('timeline');ui().renderStage();};
       floor.onchange=()=>{
         const n=floor.value===''?null:Number(floor.value)-1;
         if (n!==null && (!pos(n) || (chat && !chat.messages[n]))) {floor.reportValidity();return;}
         if(chat && n!==null)Object.assign(row,attachment(chat,n));else {row.floor=n;delete row.messageStamp;}
-        ui().markDirty();ui().renderStage();
+        ui().markDirty('timeline');ui().renderStage();
       };
       editor.querySelector('#del-tl').onclick=async()=>{
         const yes=await ui().ask({title:tr('删除手记？'),body:title(row),actions:[{id:'yes',label:tr('删除'),kind:'btn-danger'},{id:'no',label:tr('取消')}]});
         if(yes!=='yes')return;
         const live=ui().state.lib.timeline[collection(kind)];const at=live.findIndex(item=>item.id===row.id);if(at<0)return;
-        live.splice(at,1);st.sel.tl=null;ui().markDirty();ui().renderStage();
+        live.splice(at,1);st.sel.tl=null;ui().markDirty('timeline');ui().renderStage();
       };
     }
     const selected=items.find(it=>it.row.id===st.sel.tl && it.kind===st.sel.tlKind) || items[0];

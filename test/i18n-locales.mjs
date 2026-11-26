@@ -22,6 +22,7 @@ const localeSources = [
   "recovery-phrases",
   "theme-phrases",
   "theme-st-phrases",
+  "integrity-phrases",
 ].map((file) => [file, fs.readFileSync(new URL(`../js/${file}.js`, import.meta.url), "utf8")]);
 function startup(saved, unavailable = false) {
   const storage = new Map(), reads = [], writes = [];

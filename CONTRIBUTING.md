@@ -6,7 +6,7 @@ The canonical repository is [ShangguanQian/Quilvori](https://github.com/Shanggua
 
 ## Set up a development copy
 
-Use Node.js 22 or 24, npm, and Git. Python 3 is optional for serving the web app.
+Use Node.js 22.12 or newer, npm, and Git. Python 3 is optional for serving the web app.
 
 ```bash
 git clone https://github.com/ShangguanQian/Quilvori.git
@@ -80,6 +80,18 @@ The syntax check parses the project's JavaScript. Behavior tests use fixtures an
 For a UI change, also check the affected workflow in the web app and, when desktop behavior is involved, in Electron. Useful cases include an empty library, existing data, long names, missing images, a narrow window, keyboard navigation, a second interface language, and a saved custom theme. Recheck the relevant save, import, preview, or undo behavior. `test/browser.mjs` is a separate browser helper with its own environment assumptions; it is not part of the default `npm test` command.
 
 For behavior changes, add a focused regression test when it protects a real failure mode. Prefer input/output and data-preservation assertions to tests that reproduce implementation details. Report what you actually verified; automated checks do not establish a particular provider's model quality or an untested live service's availability.
+
+### Build and test desktop downloads
+
+Use a Git checkout on Windows x64 or on the Mac architecture you want to distribute. The packager stages tracked HTML, application code and licensed assets in a temporary directory. Review new runtime files and add them to Git before building.
+
+```bash
+npm ci
+npm run build:desktop
+npm run test:desktop
+```
+
+The Windows portable executable or macOS disk image and its SHA-256 checksum appear in `dist/`. The test opens the actual download with a temporary user profile, edits a character and world book, saves a synthetic model credential, quits and verifies all three after restarting. The Desktop packages workflow builds and tests Windows x64, Apple silicon, and Intel Mac downloads for `release/**` branches, version tags and manual runs. Each platform has its own downloadable Actions artifact. Package publication is a separate release step.
 
 ## Preserve authored data and compatibility
 
