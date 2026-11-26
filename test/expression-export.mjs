@@ -7,7 +7,9 @@ import { test } from 'node:test';
 import { createRequire } from 'node:module';
 
 const {exportExpressions,overwriteOptions}=createRequire(import.meta.url)('../electron/expression-export');
-const tmp=await fs.mkdtemp(path.join(os.tmpdir(),'quilvori-expression-test-'));
+// Match the canonical paths used by the exporter, including on Windows runners with a short TEMP path.
+const tempParent=await fs.realpath(os.tmpdir());
+const tmp=await fs.mkdtemp(path.join(tempParent,'quilvori-expression-test-'));
 const yes={confirm:async()=>true};
 const image=(name,data='new')=>({name,dataUrl:'data:image/png;base64,'+Buffer.from(data).toString('base64')});
 const adapter=overrides=>Object.assign(Object.create(fs),overrides);
@@ -288,7 +290,7 @@ try{
     assert.equal(await text(path.join(recover,old.backup)),'irreplaceable');
   });
 } finally {
-  const safe=path.resolve(tmp);
-  if(path.dirname(safe)!==path.resolve(os.tmpdir()) || !path.basename(safe).startsWith('quilvori-expression-test-'))throw new Error('Unexpected expression test directory');
+  const safe=await fs.realpath(tmp);
+  if(path.dirname(safe)!==tempParent || !path.basename(safe).startsWith('quilvori-expression-test-'))throw new Error('Unexpected expression test directory');
   await fs.rm(safe,{recursive:true,force:true,maxRetries:4,retryDelay:100});
 }
