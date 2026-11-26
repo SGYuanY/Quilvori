@@ -603,7 +603,7 @@
     bookName.oninput = () => {
       if (!bookName.value.trim()) return;
       book.name = bookName.value;
-      bookSelect.selectedOptions[0].textContent = book.name;
+      bookSelect.selectedOptions[0].textContent = root.TAIntegrityPanel.displayName(book);
       const display = bookSelect.closest('.dark-select')?.querySelector('.dark-select-value');
       if (display) display.textContent = book.name;
       const address = editor.querySelector('.ws-address');
@@ -1239,44 +1239,42 @@
     const out = body.querySelector('#lab-out');
     let generation = 0, timer;
     function paintRegex(trial, sample) {
-      const described = trial;
       const read = body.querySelector('#rx-read');
       const error = body.querySelector('#rx-error');
       if (!String(script.findRegex || '').trim()) {
         error.textContent = '';
         UI.fillLesson(read, ['写下查找式后，这里按书写顺序讲每一截：字面、转义、字符类、锚点、量词、或者、分组和标志。']);
       } else {
-        error.textContent = described.ok ? '' : described.error;
-        const steps = [...(described.steps || [])];
-        if (!described.ok) steps.push(described.error);
-        else if (!described.groups.length) steps.push('这则表达式没有捕获组。括号如果写成 (?: )，只分组，不记成绩。');
-        else steps.push(UI.t('rx.groups', { count: described.groups.length, list: described.groups.map((group) => group.name ? UI.t('rx.groupNamed', { n: group.index, name: group.name }) : UI.t('rx.group', { n: group.index })).join('、') }));
+        error.textContent = trial.ok ? '' : UI.t(trial.error);
+        const steps = [...(trial.steps || [])];
+        if (!trial.ok) steps.push(UI.t(trial.error));
+        else if (!trial.groups.length) steps.push(UI.t('这则表达式没有捕获组。括号如果写成 (?: )，只分组，不记成绩。'));
+        else steps.push(UI.t('rx.groups', { count: trial.groups.length, list: trial.groups.map((group) => group.name ? UI.t('rx.groupNamed', { n: group.index, name: group.name }) : UI.t('rx.group', { n: group.index })).join('、') }));
         UI.fillLesson(read, steps);
       }
       if (!sample) {
-        out.textContent = '贴一句，再看整段匹配、每一组抓住的字、替换结果，以及没被吃掉的部分。';
+        out.textContent = UI.t('输入样例以预览匹配和替换。');
         return;
       }
       if (!trial.ok) {
-        out.textContent = trial.error || described.error;
+        out.textContent = UI.t(trial.error);
         return;
       }
       if (!trial.matches.length) {
-        out.textContent = `没有一处整段匹配。\n整句都算没被匹配：「${sample}」\n替换后还是原句：${trial.replaced}`;
+        out.textContent = UI.t('没有匹配。')+'\n'+trial.replaced;
         return;
       }
       const lines = [];
       trial.matches.forEach((match, index) => {
-        lines.push(`第 ${index + 1} 处整段匹配，从第 ${match.index + 1} 个字起：「${match.text}」`);
-        if (!match.groups.length) lines.push('这一处没有捕获组。');
+        lines.push(UI.t('匹配')+' '+(index+1)+' · '+UI.t('位置')+' '+(match.index+1)+' · '+match.text);
         match.groups.forEach((group) => {
-          const who = group.name ? `第 ${group.index} 组「${group.name}」` : `第 ${group.index} 组`;
-          lines.push(`${who}抓住了「${group.value}」。`);
+          const who = group.name ? UI.t('rx.groupNamed',{n:group.index,name:group.name}) : UI.t('rx.group',{n:group.index});
+          lines.push(who+' · '+group.value);
         });
       });
-      lines.push(trial.unmatched.length ? `没被匹配的部分：${trial.unmatched.map((part) => `「${part}」`).join('、')}。这些字留在原处。` : '没被匹配的部分：没有，整句都被吃进去了。');
-      lines.push(`替换后：${trial.replaced}`);
-      lines.push('被换掉的只是匹配到的段。');
+      if (trial.moreMatches) lines.push(UI.t('仅列出前八处匹配。'));
+      else if (trial.unmatched.length) lines.push(UI.t('未匹配文本')+'\n'+trial.unmatched.join(' · '));
+      lines.push(UI.t('替换结果')+'\n'+trial.replaced);
       out.textContent = lines.join('\n');
     }
     function stopTrial() {
@@ -1774,7 +1772,7 @@
         }
         const answer = await UI.ask({
           title: '恢复这份备份',
-          body: `备份里有 ${normalized.characters.length} 张角色、${normalized.worldBooks.length} 本世界书。\n${mergeError || UI.t('合并前逐项对比差异；替换会用备份覆盖整个资料库。')}`,
+          body: `${UI.t('角色卡')} · ${normalized.characters.length}    ${UI.t('世界书')} · ${normalized.worldBooks.length}\n${mergeError || UI.t('合并前逐项对比差异；替换会用备份覆盖整个资料库。')}`,
           content:review?.content,
           actions: [
             ...(review?[{ id: 'merge', label: '合并进来', kind: 'btn-primary' }]:[]),

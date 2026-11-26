@@ -17,8 +17,8 @@ function store(raw) {
   const map=new Map(raw?[['nijan-model',raw]]:[]);
   return {getItem:k=>map.get(k)??null,setItem:(k,v)=>map.set(k,v)};
 }
-function model(localStorage,provider) {
-  const ctx=vm.createContext({localStorage,TAModelKeyCodec:provider,crypto:webcrypto,structuredClone,Event});
+function model(localStorage,provider,extra={}) {
+  const ctx=vm.createContext({localStorage,TAModelKeyCodec:provider,crypto:webcrypto,structuredClone,Event,AbortController,setTimeout,clearTimeout,...extra});
   vm.runInContext(source('model'),ctx);
   return ctx.NIJANModel;
 }
@@ -70,6 +70,29 @@ test('desktop key envelopes require a real keystore and the matching profile',as
   await assert.rejects(vault.open('b',sealed));
   await assert.rejects(credentialVault({...mock,getSelectedStorageBackend:()=> 'basic_text'},'linux').seal('a','fixture'));
   await assert.rejects(credentialVault({...mock,isAsyncEncryptionAvailable:async()=>false},'darwin').seal('a','fixture'));
+});
+test('switching profiles sharing one endpoint and key keeps a late model list out of the other profile',async()=>{
+  let reply,started;
+  const requested=new Promise(resolve=>{started=resolve;});
+  const api=model(store(),codec(),{fetch:async()=>{started();return new Promise(resolve=>{reply=resolve;});}});
+  await api.ready;
+  const settings={baseUrl:'https://example.invalid',key:'fixture-private'};
+  api.save(settings);api.newProfile('Checking');api.save(settings);
+  const other=api.profiles().find(row=>row.active).id;
+  api.selectProfile('default');await api.flushCredentials();
+  const request=api.listModels();await requested;
+  api.selectProfile(other);
+  reply({ok:true,json:async()=>({data:[{id:'stale-model'}]})});
+  await assert.rejects(request,/配置已变化/);
+  assert.deepEqual(Array.from(api.rememberedModels()),[]);
+});
+test('single, zero-length and capped global previews correspond to the replacement result',()=>{
+  const ctx=vm.createContext({});vm.runInContext(source('formats'),ctx);
+  const check=ctx.TAFormats.regexTrial;
+  const one=check('/a/','aba','X');assert.equal(one.matches.length,1);assert.equal(one.replaced,'Xba');
+  const zero=check('/^/gm','day','*');assert.deepEqual(Array.from(zero.unmatched),['day']);
+  const many=check('/a/g','aaaaaaaaaa','X');
+  assert.equal(many.matches.length,8);assert.equal(many.moreMatches,true);assert.equal(many.replaced,'XXXXXXXXXX');
 });
 
 test('both cancellation and a deadline terminate the Worker; an old reply cannot settle a subsequent run',async()=>{

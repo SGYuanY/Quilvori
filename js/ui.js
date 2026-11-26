@@ -900,7 +900,7 @@
       keyRetry.hidden=!status.issue;
       const locked=status.opening || status.locked;
       for(const el of host.querySelectorAll('#settings-model-panel input,#settings-model-panel select,#settings-model-panel button')){
-        if(el===keyRetry || el.id==='set-model')continue;
+        if(el===keyRetry)continue;
         if(locked)el.disabled=true;
       }
     }
@@ -986,6 +986,7 @@
         replyChars: Number(host.querySelector('#set-chars').value) || 600,
       });
       if (root.NIJANModel && !api.credentialStatus().locked && !api.credentialStatus().opening) {
+        if(api.profiles().find(row=>row.active)?.id!==choices.value)throw new Error('另一窗口已修改模型配置。请重新打开工作台再编辑。');
         root.NIJANModel.save({
           baseUrl: host.querySelector('#set-base').value.trim(),
           protocol: host.querySelector('#set-protocol').value,
@@ -1209,7 +1210,8 @@
       if (openAddress(link.href)) event.preventDefault();
     });
     window.addEventListener('beforeunload', event => {
-      if (root.NIJANModel?.credentialStatus().pending) { event.preventDefault(); event.returnValue=''; }
+      const keys=root.NIJANModel?.credentialStatus();
+      if (keys?.pending && !keys.issue) { event.preventDefault(); event.returnValue=''; }
       if (root.TAThemeWorkshop?.unsaved() || root.TATaskActivity?.pending() || root.NIJANStudio?.running() || root.NIJANOrganizePanel?.running()) {
         event.preventDefault(); event.returnValue = '';
       }

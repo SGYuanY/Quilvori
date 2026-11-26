@@ -1,12 +1,11 @@
 import { execFileSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
-import { createReadStream } from 'node:fs';
-import { copyFile, lstat, mkdir, mkdtemp, open, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, open, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import builder from 'electron-builder';
 import { resolveElectron } from './start.mjs';
+import { publicFiles, writeChecksum } from './package-files.mjs';
 
 const { build, Platform } = builder;
 const project = await realpath(fileURLToPath(new URL('../', import.meta.url)));
@@ -33,40 +32,17 @@ if (platform === 'darwin') {
   } finally { await handle.close(); }
 }
 
-const legal = ['LICENSE', 'LICENSING.md', 'NOTICE', 'CONTRIBUTING.md'];
-function runtimeFile(name) {
-  return legal.includes(name) || /^[^/]+\.html$/.test(name) ||
-    /^(?:js|electron)\/[\w/-]+\.js$/.test(name) || /^css\/[\w/-]+\.css$/.test(name) ||
-    /^(?:img|fonts)\/[\w/.-]+\.(?:png|ico|svg|webp|woff2|txt|md)$/.test(name);
-}
-
 // Packaging runs from a fresh directory without user settings, development tools or local libraries.
-const tracked = execFileSync('git', ['ls-files', '--cached', '-z'], { cwd: project, encoding: 'utf8' });
-const sources = tracked.split('\0').filter(runtimeFile);
-for (const required of ['index.html', 'electron/main.js', 'electron/preload.js', ...legal, 'img/resources/ATTRIBUTION.md']) {
-  if (!sources.includes(required)) throw new Error('Missing version-controlled packaging input: '+required);
-}
+const sources = await publicFiles(project,{desktop:true});
 const scratch = await mkdtemp(path.join(os.tmpdir(), 'quilvori-package-'));
 const staging = path.join(scratch, 'app');
 const mac = platform === 'darwin';
 const stageFile = name => path.join(staging, name);
 try {
   await mkdir(staging);
-  for (const name of sources) {
-    const source = path.join(project, name);
-    if (!(await lstat(source)).isFile() || (await realpath(source)) !== source) {
-      throw new Error('Packaging inputs must be ordinary project files: '+name);
-    }
+  for (const [name,bytes] of sources) {
     await mkdir(path.dirname(stageFile(name)), { recursive: true });
-    await copyFile(source, stageFile(name));
-  }
-  // A new script wired into an HTML page must be explicitly included in Git before a build.
-  const included = new Set(sources);
-  for (const page of sources.filter(name => name.endsWith('.html'))) {
-    const html = await readFile(stageFile(page), 'utf8');
-    for (const match of html.matchAll(/(?:src|href)="((?:js|css|fonts|img)\/[^"?#]+)[^"]*"/g)) {
-      if (!included.has(match[1])) throw new Error(page+' references a missing packaging input: '+match[1]);
-    }
+    await writeFile(stageFile(name),bytes);
   }
   const { name, productName, version, description, main, license, repository, homepage } = metadata;
   const manifest = { name, productName, version, description, main, license, repository, homepage, author: 'Quilvori contributors' };
@@ -106,10 +82,8 @@ try {
     },
   });
 
-  const hash = createHash('sha256');
-  for await (const part of createReadStream(path.join(output, artifact))) hash.update(part);
-  await writeFile(path.join(output, artifact+'.sha256'), hash.digest('hex')+'  '+artifact+'\n');
-  console.log('Built '+path.join(output, artifact)+' from '+sources.length+' project files.');
+  await writeChecksum(path.join(output, artifact));
+  console.log('Built '+path.join(output, artifact)+' from '+sources.size+' project files.');
 } finally {
   if (path.dirname(scratch) !== os.tmpdir() || !path.basename(scratch).startsWith('quilvori-package-')) {
     throw new Error('Unexpected packaging directory');

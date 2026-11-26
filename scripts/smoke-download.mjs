@@ -1,8 +1,9 @@
-// Exercise the distributed executable twice against a fresh, private QA profile.
+// Open the actual distribution twice against a fresh, private QA profile.
 import assert from 'node:assert/strict';
 import { execFile, spawn } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { createReadStream } from 'node:fs';
+import http from 'node:http';
 import { mkdtemp, mkdir, open, readFile, rm } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import os from 'node:os';
@@ -10,12 +11,14 @@ import path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
+import { unzipSync } from 'fflate';
 
 const run = promisify(execFile);
 const project = fileURLToPath(new URL('../', import.meta.url));
 const metadata = JSON.parse(await readFile(path.join(project, 'package.json'), 'utf8'));
 const mac = process.platform === 'darwin';
-const name = 'Quilvori-'+metadata.version+'-'+(mac ? 'macOS-'+process.arch+'.dmg' : 'Windows-x64.exe');
+const web = process.argv.includes('--web');
+const name = 'Quilvori-'+metadata.version+'-'+(web ? 'web.zip' : mac ? 'macOS-'+process.arch+'.dmg' : 'Windows-x64.exe');
 const artifact = path.join(project, 'dist', name);
 const digest = createHash('sha256');
 for await (const chunk of createReadStream(artifact)) digest.update(chunk);
@@ -25,8 +28,12 @@ const scratch = await mkdtemp(path.join(os.tmpdir(), 'quilvori-desktop-test-'));
 const profile = path.join(scratch, 'library profile');
 const mount = path.join(scratch, 'image');
 const application = path.join(scratch, 'Quilvori.app');
-const appExe = mac ? path.join(application,'Contents','MacOS','Quilvori') : artifact;
-const nativeMacKeychain = mac && process.env.GITHUB_ACTIONS === 'true' && process.env.QUILVORI_HOSTED_RUNNER === 'github-hosted';
+const chrome = process.env.CHROME_BIN || (process.platform==='win32'
+  ? path.join(process.env.ProgramFiles,'Google','Chrome','Application','chrome.exe')
+  : mac ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' : 'google-chrome');
+const appExe = web ? chrome : mac ? path.join(application,'Contents','MacOS','Quilvori') : artifact;
+const nativeMacKeychain = mac && !web && process.env.GITHUB_ACTIONS === 'true' && process.env.QUILVORI_HOSTED_RUNNER === 'github-hosted';
+let webServer, webUrl;
 const fixtures = {
   card:'Dawn Courier', text:'Takes a ferry to the old beacon at dawn.',
   book:'Glass Harbor', entry:'The shore lights mark the eastern channel.',
@@ -103,7 +110,8 @@ async function exercise(mode) {
   delete env.ELECTRON_RUN_AS_NODE;
   const flags=['--user-data-dir='+profile,'--remote-debugging-address=127.0.0.1','--remote-debugging-port='+port,'--disable-gpu'];
   // A local Mac test must never alter the developer's keychain.
-  if(mac && !nativeMacKeychain) flags.push('--use-mock-keychain');
+  if(web)flags.push('--headless=new','--no-first-run','--no-default-browser-check','--disable-background-networking',webUrl);
+  else if(mac && !nativeMacKeychain) flags.push('--use-mock-keychain');
   const log=await open(path.join(scratch,mode+'.log'),'w');
   const child=spawn(appExe,flags,{cwd:scratch,env,stdio:['ignore',log.fd,log.fd],windowsHide:true});
   await log.close();
@@ -120,14 +128,15 @@ async function exercise(mode) {
       let items;
       try {items=await (await fetch('http://127.0.0.1:'+port+'/json/list',{signal:AbortSignal.timeout(1500)})).json();}
       catch{return false;}
-      return items.find(item=>item.type==='page' && /^file:/.test(item.url) && /[/\\]app\.asar[/\\]index\.html$/.test(decodeURI(item.url)));
+      return items.find(item=>item.type==='page' && (web ? item.url===webUrl : /^file:/.test(item.url) && /[/\\]app\.asar[/\\]index\.html$/.test(decodeURI(item.url))));
     },'the shipped main entry point',75000);
     page=await client(target.webSocketDebuggerUrl);
     const read=page.evaluate;
     await until(()=>read(()=>!!window.TAUI?.state.lib && !!document.querySelector('.collection-home')),'the collection');
     assert.equal(await read(()=>TAStore.backend),'indexedDB');
-    assert.deepEqual(await read(()=>window.nijanDesktop.getPaths()),{cards:'',worlds:''});
-    const credentials=await read(async(mode,fixture)=>{
+    if(web)assert.equal(await read(()=>typeof window.nijanDesktop),'undefined');
+    else assert.deepEqual(await read(()=>window.nijanDesktop.getPaths()),{cards:'',worlds:''});
+    const credentials=await read(async(mode,fixture,prefix)=>{
       await NIJANModel.ready;
       if(mode==='edit'){
         NIJANModel.newProfile(fixture.profile);
@@ -138,11 +147,11 @@ async function exercise(mode) {
       const active=raw.profiles.find(item=>item.id===raw.active);
       return {
         name:active?.name,
-        sealed:active?.sealedKey?.startsWith('os1.') && !Object.hasOwn(active.config,'key'),
+        sealed:active?.sealedKey?.startsWith(prefix) && !Object.hasOwn(active.config,'key'),
         plain:Object.values(localStorage).some(value=>String(value).includes(fixture.key)),
         restored:NIJANModel.load().key===fixture.key && NIJANModel.load().model==='package-test-model',
       };
-    },mode,fixtures);
+    },mode,fixtures,web?'web1.':'os1.');
     assert.deepEqual(credentials,{name:fixtures.profile,sealed:true,plain:false,restored:true});
     const click=(selector)=>read(s=>{const el=document.querySelector(s);if(!el||el.disabled)throw new Error('Unavailable: '+s);el.click();},selector);
     const edit=(selector,value)=>read((s,v)=>{const el=document.querySelector(s);if(!el)throw new Error('Missing editor: '+s);el.value=v;el.dispatchEvent(new Event('input',{bubbles:true}));},selector,value);
@@ -193,7 +202,20 @@ function keychainPaths(text) {
   return text.trim().split(/\r?\n/).filter(Boolean).map(line=>JSON.parse(line.trim()));
 }
 try {
-  if(mac) {
+  if(web) {
+    // Serve only the exact files from the finished ZIP, so missing dependencies fail this test.
+    const contents=unzipSync(new Uint8Array(await readFile(artifact)));
+    const types={'.html':'text/html','.js':'text/javascript','.css':'text/css','.svg':'image/svg+xml','.png':'image/png','.webp':'image/webp','.woff2':'font/woff2'};
+    const prefix=name.slice(0,-4)+'/';
+    webServer=http.createServer((req,res)=>{
+      const pathname=new URL(req.url,'http://127.0.0.1').pathname.slice(1) || 'index.html';
+      const bytes=contents[prefix+pathname];
+      if(!bytes){res.writeHead(404).end();return;}
+      res.writeHead(200,{'Content-Type':types[path.extname(pathname)] || 'application/octet-stream'}).end(bytes);
+    });
+    await new Promise((resolve,reject)=>{webServer.once('error',reject);webServer.listen(0,'127.0.0.1',resolve);});
+    webUrl='http://127.0.0.1:'+webServer.address().port+'/';
+  } else if(mac) {
     await mkdir(mount);
     await run('hdiutil',['attach','-readonly','-nobrowse','-mountpoint',mount,artifact]);
     attached=true;
@@ -215,9 +237,10 @@ try {
   }
   await exercise('edit');
   await exercise('reopen');
-  console.log('Passed packaged startup, character and world editing, encrypted model credentials, clean quit and persisted restart on '+process.platform+'/'+process.arch+'.');
+  console.log('Passed '+(web?'web ZIP':'desktop package')+' startup, character and world editing, encrypted model credentials, clean quit and persisted restart on '+process.platform+'/'+process.arch+'.');
   if(nativeMacKeychain)console.log('Used a dedicated, unlocked system Keychain on the hosted macOS runner.');
 } finally {
+  if(webServer?.listening){webServer.closeAllConnections();await new Promise(resolve=>webServer.close(resolve));}
   if(oldKeychains){
     try {
       if(keychainCreated)await security('delete-keychain',qaKeychain);

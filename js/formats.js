@@ -1164,10 +1164,12 @@
       if (!described.ok) return Object.assign({ matches: [], replaced: '', unmatched: [], miss: false }, described);
       if (!text) return Object.assign({ matches: [], replaced: '', unmatched: [], miss: false }, described);
       const matches = [];
+      let moreMatches = false;
       try {
         const flags = described.pattern.flags.includes('g') ? described.pattern.flags : `${described.pattern.flags}g`;
         const globalPattern = new RegExp(described.pattern.source, flags);
         for (const match of text.matchAll(globalPattern)) {
+          if (matches.length === 8) { moreMatches = true; break; }
           matches.push({
             text: match[0],
             index: match.index,
@@ -1177,7 +1179,7 @@
               value: item === undefined ? '' : item,
             })),
           });
-          if (matches.length >= 8) break;
+          if (!described.pattern.global) break;
         }
       } catch (error) {
         return Object.assign({ matches: [], replaced: '', unmatched: [], miss: false, error: explainRegExpError(error.message), ok: false }, described);
@@ -1194,11 +1196,10 @@
         const start = match.index;
         const end = start + match.text.length;
         if (start > cursor) unmatched.push(text.slice(cursor, start));
-        cursor = Math.max(cursor, end || start);
-        if (!match.text.length) cursor += 1;
+        cursor = Math.max(cursor, end);
       });
-      if (cursor < text.length) unmatched.push(text.slice(cursor));
-      return Object.assign({ matches, replaced, unmatched: unmatched.filter((part) => part.length), miss: matches.length === 0 }, described);
+      if (!moreMatches && cursor < text.length) unmatched.push(text.slice(cursor));
+      return Object.assign({ matches, replaced, moreMatches, unmatched: unmatched.filter((part) => part.length), miss: matches.length === 0 }, described);
     }
     return {describeRegex,regexTrial};
   }

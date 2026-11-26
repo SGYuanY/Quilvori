@@ -267,7 +267,9 @@ Your library and revision history use IndexedDB in the current browser or deskto
 
 IndexedDB schema v5 stores works as separate records. Editing a card field writes that card and its revision metadata. Editing an image name or a chat bookmark leaves the image data and message body in separate records. Imports and whole-library replacements still validate the complete candidate library.
 
-In **Version history → Manage snapshots for this work**, review the number of snapshots and their estimated content size. Preview the dated revisions selected for removal before confirming a retention limit or clearing the work’s history. A blank limit keeps all snapshots. A saved limit also applies to future manual and automatic snapshots. Size estimates use UTF-8 JSON bytes and exclude IndexedDB overhead.
+In **Version history → Manage snapshots for this work**, review the number of snapshots and their estimated content size. Preview the dated revisions selected for removal before confirming a retention limit or clearing the work’s history. A blank limit keeps all snapshots. A saved limit also applies to future manual and automatic snapshots. Size estimates use UTF-8 JSON bytes and exclude IndexedDB overhead. **Full-library backup → Library snapshot storage** shows totals and lets you review snapshots left by removed works.
+
+The storage phase of `npm run test:ui` compares five single-field saves with synthetic 64 KiB and 16 MiB image/chat payloads. It reports median input handling and save times, and measures snapshot growth after five 8 KiB additions to one work. Results depend on the device and describe these test libraries.
 
 Importing an individual chat reading copy restores its messages, bookmarks and original SillyTavern header. When deleting a character, review its references and choose whether to unlink them, replace the character or keep the speaker’s name on script lines. Character cards, world books, chats, groups, regex scripts and quick-reply sets offer **Undo deletion** in the confirmation toast after removal.
 

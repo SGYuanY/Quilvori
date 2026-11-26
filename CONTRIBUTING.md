@@ -91,7 +91,11 @@ npm run build:desktop
 npm run test:desktop
 ```
 
-The Windows portable executable or macOS disk image and its SHA-256 checksum appear in `dist/`. The test opens the actual download with a temporary user profile, edits a character and world book, saves a synthetic model credential, quits and verifies all three after restarting. The Desktop packages workflow builds and tests Windows x64, Apple silicon, and Intel Mac downloads for `release/**` branches, version tags and manual runs. Each platform has its own downloadable Actions artifact. Package publication is a separate release step.
+The Windows portable executable or macOS disk image and its SHA-256 checksum appear in `dist/`. The test opens the actual download with a temporary user profile, edits a character and world book, saves a synthetic model credential, quits and verifies all three after restarting.
+
+For the browser edition, run `npm run build:web` and `npm run test:web-download` with Chrome installed. Set `CHROME_BIN` if Chrome is outside its standard location. The test serves the finished ZIP on loopback in an isolated browser profile.
+
+The Desktop packages workflow builds and tests the browser ZIP, Windows x64, Apple silicon and Intel Mac downloads for `release/**` branches, version tags and manual runs. Each edition has its own downloadable Actions artifact. Package publication is a separate release step.
 
 ## Preserve authored data and compatibility
 

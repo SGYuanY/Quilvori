@@ -14,6 +14,28 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  web:
+    name: Package and test browser edition
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --fund=false
+      - run: npm run build:web
+      - run: npm run test:web-download
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: Quilvori-Web
+          path: dist/Quilvori-*-web.zip*
+          compression-level: 0
+          if-no-files-found: error
+
   package:
     name: Package and test ${{ matrix.platform }} ${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}

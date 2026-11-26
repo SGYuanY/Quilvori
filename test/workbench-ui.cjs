@@ -577,7 +577,9 @@ async function verifyRestart() {
   const pages=require('node:fs').readdirSync(root).filter(name=>name.endsWith('.html'));
   for(const page of pages) {
     await load(page);
-    assert.equal(await run(()=>['这一页没有画出来',TAUI.t('这一页没有画出来')].includes(document.querySelector('#stage > .paper.empty > h3')?.textContent)),false,page);
+    const issue=await run(()=>['这一页没有画出来',TAUI.t('这一页没有画出来')].includes(document.querySelector('#stage > .paper.empty > h3')?.textContent)
+      ?document.querySelector('#stage > .paper.empty > p')?.textContent || 'View unavailable':null);
+    assert.equal(issue,null,page+(issue?' — '+issue:''));
   }
   assert.deepEqual(errors,[]);
   log('all '+pages.length+' application pages render the demo in a fresh desktop process');

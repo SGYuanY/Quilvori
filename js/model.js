@@ -560,10 +560,11 @@
     };
   }
   async function complete(messages, options) {
-    if (codec) await flushCredentials();
+    if (unlocking) await ready;
     const config = load(),
       opts = options || {};
-    if (!configured()) throw new Error("先在设置里连接，并选一个模型。");
+    if (codec) await flushCredentials();
+    if (!apiRoot(config.baseUrl) || !config.model || !config.key) throw new Error("先在设置里连接，并选一个模型。");
     const base = apiRoot(config.baseUrl);
     if (!/^https?:\/\//i.test(base))
       throw new Error("接口地址需要以 http:// 或 https:// 开头。");
@@ -795,8 +796,9 @@
     }
   }
   async function listModels() {
+    if (unlocking) await ready;
+    const active=registry().active, profileId=active.id, config=configOf(active.config);
     if (codec) await flushCredentials();
-    const reg = registry(), config = reg.active.config;
     if (!config.baseUrl || !config.key)
       throw new Error("先填写接口地址和密钥。");
     const controller = new AbortController(),
@@ -809,7 +811,7 @@
       if (!response.ok) throw new Error(`模型列表返回 ${response.status}`);
       const payload = await response.json(), names = modelsFromPayload(payload);
       const current = registry();
-      if (current.active.id !== reg.active.id || current.active.config.baseUrl !== config.baseUrl || current.active.config.key !== config.key) throw new Error('配置已变化，请重新连接');
+      if (current.active.id !== profileId || current.active.config.baseUrl !== config.baseUrl || current.active.config.key !== config.key) throw new Error('配置已变化，请重新连接');
       const items = Array.isArray(payload) ? payload : (payload.data || payload.models || []);
       current.active.models = Array.isArray(items) ? items.map(metadata).filter(row=>row.id).slice(0,10000) : [];
       persist(current);
