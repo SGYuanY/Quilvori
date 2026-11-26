@@ -39,6 +39,8 @@ The collection, character editor and world-book trigger preview below use a fict
 
 ## Collection gallery and page colors
 
+Use the pin beside a cover’s title to keep a card or world book at the front of the shelf. Unpinning restores its usual position. Pins travel with library backups and stay local when you export to SillyTavern.
+
 The **Collection** home page displays large character portraits and decorative world-book covers, with search, type filters, original-text previews, and quiet **Write a character card** / **Write a world book** actions. Missing portraits use a title cover; the gallery does not generate replacement artwork or change the stored character image.
 
 Pages share typography and controls but use different muted palettes: mist purple for the collection, blue-violet for AI creation, rose gray for characters, sage for world books, champagne for writing tools, slate blue for structural tools, warm brown for reading, plum for narrative planning, smoky pink for assets and resources, and graphite for utilities. The collection adds bookplate scrollwork, corner ornaments, and a colophon seal.
@@ -211,6 +213,8 @@ The export preview lets you omit disabled entries, compact whitespace, remove re
 Appearance, language, writing preferences, and models live in Settings. The Chinese interface uses bundled Sarasa fonts. Six interface languages are available; changing the interface does not translate existing authored text.
 
 ## Import, export, and SillyTavern
+
+When a prompt preset contains several execution orders, choose the `character_id` you want to edit. Export keeps that scope’s native identifiers, order and switches. Definitions outside the selected order stay available in the editor and are inactive until enabled.
 
 | Material | Format and destination |
 | --- | --- |

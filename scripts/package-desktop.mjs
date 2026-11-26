@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import builder from 'electron-builder';
 import { resolveElectron } from './start.mjs';
 import { publicFiles, writeChecksum } from './package-files.mjs';
+import { withWindowsResourceRetry } from './windows-resource-retry.mjs';
 
 const { build, Platform } = builder;
 const project = await realpath(fileURLToPath(new URL('../', import.meta.url)));
@@ -49,7 +50,7 @@ try {
   await writeFile(stageFile('package.json'), JSON.stringify(manifest, null, 2)+'\n');
 
   const artifact = productName+'-'+version+'-'+(mac ? 'macOS-'+arch+'.dmg' : 'Windows-x64.exe');
-  await build({
+  const buildPackage = () => build({
     projectDir: staging, publish: 'never',
     targets: (mac ? Platform.MAC : Platform.WINDOWS).createTarget(mac ? 'dmg' : 'portable', builder.Arch[arch]),
     config: {
@@ -82,6 +83,8 @@ try {
     },
   });
 
+  if (mac) await buildPackage();
+  else await withWindowsResourceRetry(path.join(output,'win-unpacked',productName+'.exe'),buildPackage);
   await writeChecksum(path.join(output, artifact));
   console.log('Built '+path.join(output, artifact)+' from '+sources.size+' project files.');
 } finally {

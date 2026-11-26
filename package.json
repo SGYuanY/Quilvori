@@ -1,7 +1,7 @@
 {
   "name": "quilvori",
   "private": true,
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Quilvori, a local character-card and world-book workshop for SillyTavern.",
   "main": "electron/main.js",
   "scripts": {
@@ -11,7 +11,7 @@
     "build:web": "node scripts/package-web.mjs",
     "test:desktop": "node scripts/smoke-download.mjs",
     "test:web-download": "node scripts/smoke-download.mjs --web",
-    "test": "node test/models.mjs && node test/world-import.mjs && node test/entry-title.mjs && node test/roundtrip.mjs && node test/folder-import.mjs && node test/link-import.mjs && node test/organize.mjs && node test/ai-workflow.mjs && node test/model-transport.mjs && node test/review-report.mjs && node test/creation-session.mjs && node test/creative-dialogue.mjs && node test/creation-output.mjs && node test/authoring-tools.mjs && node test/journal.mjs && node test/branding.mjs && node test/i18n-locales.mjs && node test/room-theme.mjs && node test/theme-format.mjs && node test/theme-install.mjs && node test/resource-source.mjs && node test/wallpaper-import.mjs && node test/resource-catalog.mjs && node test/navigation.mjs && node test/expression-export.mjs && node test/startup.mjs && node test/library-preservation.mjs && node test/backup-merge.mjs && node test/context-tools.mjs && node test/search.mjs && node test/st-bundle.mjs && node test/library-integrity.mjs && node test/credentials-and-regex.mjs",
+    "test": "node test/models.mjs && node test/world-import.mjs && node test/entry-title.mjs && node test/roundtrip.mjs && node test/folder-import.mjs && node test/link-import.mjs && node test/organize.mjs && node test/ai-workflow.mjs && node test/model-transport.mjs && node test/review-report.mjs && node test/creation-session.mjs && node test/creative-dialogue.mjs && node test/creation-output.mjs && node test/authoring-tools.mjs && node test/journal.mjs && node test/branding.mjs && node test/i18n-locales.mjs && node test/room-theme.mjs && node test/theme-format.mjs && node test/theme-install.mjs && node test/resource-source.mjs && node test/wallpaper-import.mjs && node test/resource-catalog.mjs && node test/navigation.mjs && node test/expression-export.mjs && node test/startup.mjs && node test/library-preservation.mjs && node test/backup-merge.mjs && node test/context-tools.mjs && node test/search.mjs && node test/st-bundle.mjs && node test/library-integrity.mjs && node test/credentials-and-regex.mjs && node test/windows-resource-retry.mjs",
     "test:ui": "node scripts/test-ui.mjs",
     "check": "node scripts/check-syntax.mjs",
     "validate": "npm run check && npm test"

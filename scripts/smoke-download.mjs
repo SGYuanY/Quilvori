@@ -166,12 +166,22 @@ async function exercise(mode) {
       await click('#new-book');await edit('[data-book-field="name"]',fixtures.book);
       await click('#new-entry');await edit('#lore-editor [data-field="content"]',fixtures.entry);
       assert.equal(await read(()=>TAUI.flush()),true);
+      await click('[data-nav="home"]');await waitFor('[data-collection-pin]');
+      await read(name=>{
+        const title=[...document.querySelectorAll('.collection-caption h3')].find(el=>el.textContent===name);
+        title.closest('article').querySelector('[data-collection-pin]').click();
+      },fixtures.book);
+      assert.equal(await read(()=>TAUI.flush()),true);
     } else {
       const restored=await read(({card,book})=>({
         description:TAUI.state.lib.characters.find(item=>item.name===card)?.description,
         contents:TAUI.state.lib.worldBooks.find(item=>item.name===book)?.entries.map(item=>item.content),
       }),fixtures);
       assert.deepEqual(restored,{description:fixtures.text,contents:[fixtures.entry]});
+      assert.deepEqual(await read(()=>{
+        const first=document.querySelector('.collection-item');
+        return [first.querySelector('h3').textContent,first.querySelector('[data-collection-pin]').getAttribute('aria-pressed')];
+      }),[fixtures.book,'true']);
     }
     assert.deepEqual(page.exceptions,[]);
     await page.send('Browser.close').catch(()=>{});
