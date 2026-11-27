@@ -9,6 +9,14 @@
   const chatName = chat=>chat.name || chat.characterName || tr('未命名');
   const labelFor = kind=>tr(kind==='beat'?'情节':'消息注记');
   const pos = value=>Number.isSafeInteger(value) && value>=0;
+  const hasChatId = id=>id!=null && id!=='';
+  function linkedChat(lib,id) {
+    const chat=root.TAStore.byId(lib.chats,id);
+    // Older dropdowns saved numbers as strings. A stored number still identifies
+    // its original numeric chat, even after a library replacement.
+    if (typeof id==='number' && chat?.id!==id) return null;
+    return chat;
+  }
   function stamp(message) {
     // Fingerprint only message identity, without copying private dialogue into a note.
     const text=JSON.stringify([message.name || '',message.send_date || '',Boolean(message.is_user),Boolean(message.is_system),message.mes || '']);
@@ -17,12 +25,12 @@
     return text.length.toString(36)+'-'+(a>>>0).toString(36)+'-'+(b>>>0).toString(36);
   }
   function attachment(chat,floor) {
-    if (!chat?.id || !pos(floor) || !chat.messages?.[floor]) throw new Error(tr('原消息已变动，请重新关联。'));
+    if (!hasChatId(chat?.id) || !pos(floor) || !chat.messages?.[floor]) throw new Error(tr('原消息已变动，请重新关联。'));
     return {chatId:chat.id,floor,messageStamp:stamp(chat.messages[floor])};
   }
   function resolve(library,row) {
-    if (!row?.chatId) return {state:'unlinked'};
-    const chat=library.chats.find(item=>item.id===row.chatId);
+    if (!hasChatId(row?.chatId)) return {state:'unlinked'};
+    const chat=linkedChat(library,row.chatId);
     if (!chat) return {state:'missing'};
     if (row.floor===null || row.floor===undefined) return {state:'chat',chat};
     if (!pos(row.floor)) return {state:'changed',chat};
@@ -66,8 +74,8 @@
     return row;
   }
   function assistScope(lib,chatId,from,to) {
-    if (!chatId) return null;
-    const chat=lib.chats.find(item=>item.id===chatId);
+    if (!hasChatId(chatId)) return null;
+    const chat=linkedChat(lib,chatId);
     if (!chat) throw new Error(tr('关联的聊天已移除'));
     const first=Number(from), last=Number(to);
     if (!Number.isSafeInteger(first)||!Number.isSafeInteger(last)||first<1||last<first||last>chat.messages.length) throw new Error(tr('请选择聊天中有效的消息范围。'));
@@ -87,8 +95,7 @@
     const select=document.createElement('select');select.dataset.journalSource='';select.dataset.noTranslate='';
     select.append(new Option(tr('仅使用写下的要求'),''));
     for(const chat of lib.chats) if(chat.messages.length) select.append(new Option(chatName(chat),chat.id));
-    select.value=scope.chatId;
-    if (!select.value) scope.chatId='';
+    select.value=linkedChat(lib,scope.chatId)?.id ?? '';
     opt.append(cap,select);details.append(opt);
     const fields=document.createElement('div');fields.className='row';
     for(const [key,label] of [['from','从第几条'],['to','到第几条']]) {
@@ -100,11 +107,13 @@
     details.append(fields);const field=box.querySelector('[data-assist]')?.closest('label');
     if (field) field.before(details);else box.prepend(details);
     function sync() {
-      fields.hidden=!scope.chatId;
-      const total=lib.chats.find(c=>c.id===scope.chatId)?.messages?.length || 1;
+      const chat=root.TAStore.byId(lib.chats,select.value);
+      scope.chatId=chat?.id ?? '';
+      fields.hidden=!chat;
+      const total=chat?.messages.length || 1;
       for(const n of fields.querySelectorAll('input')) {n.max=String(total);n.value=String(scope[n.dataset.journalRange]);}
     }
-    select.onchange=()=>{scope.chatId=select.value;scope.from=1;scope.to=1;sync();};sync();
+    select.onchange=()=>{scope.from=1;scope.to=1;sync();};sync();
   }
   function context(box,note) {
     const id=box.querySelector('[data-journal-source]')?.value || '';
@@ -114,7 +123,7 @@
   }
   function proposalLink(lib,scope,floor) {
     if (!scope) return {floor:floor??null};
-    const chat=lib.chats.find(item=>item.id===scope.chatId);
+    const chat=linkedChat(lib,scope.chatId);
     if (!chat) throw new Error(tr('关联的聊天已移除'));
     if(floor===undefined) return {chatId:chat.id,floor:null};
     const original=scope.messages.find(m=>m.floor===floor);
@@ -130,7 +139,7 @@
     const items=allItems(lib)
       .filter(({row})=>ui().matchQuery([row.title,row.body,row.summary].filter(Boolean).join('\n')))
       .map(item=>({...item,location:resolve(lib,item.row)}))
-      .sort((a,b)=>String(a.row.chatId||'').localeCompare(String(b.row.chatId||'')) ||
+      .sort((a,b)=>String(a.row.chatId??'').localeCompare(String(b.row.chatId??'')) ||
         (a.location.floor??a.row.floor??Infinity)-(b.location.floor??b.row.floor??Infinity) || (a.row.order??0)-(b.row.order??0));
     stage.innerHTML='<div class="toolbar"><button type="button" class="btn btn-primary" id="add-note"></button><button type="button" class="btn" id="add-beat"></button><button type="button" class="btn" id="export-tl"></button></div><div class="work"><section class="paper stack"><h3></h3><div class="timeline" id="tl"></div></section><div id="tl-editor"></div></div>';
     const text=(sel,s)=>{stage.querySelector(sel).textContent=tr(s);};
@@ -155,7 +164,7 @@
     }
     function paintEditor(kind,row) {
       if(!row) {editor.replaceChildren();return;}
-      const location=resolve(lib,row),hasChat=!!row.chatId,chat=location.chat;
+      const location=resolve(lib,row),hasChat=location.state!=='unlinked',chat=location.chat;
       const options=lib.chats.map(c=>'<option value="'+esc(c.id)+'">'+esc(chatName(c))+'</option>').join('');
       const useFloor=location.state==='message'?location.floor:row.floor;
       editor.innerHTML='<div class="paper stack">'+
@@ -163,16 +172,24 @@
         (kind==='beat'?ui().field(tr('顺序'),'<input data-field="order" type="number" min="1" value="'+esc(row.order ?? 1)+'">'):'')+
         ui().field(tr(kind==='beat'?'摘要':'正文'),ui().area(kind==='beat'?'summary':'body',row.summary || row.body || '',6))+
         ui().field(tr('关联的聊天'),'<select data-note-chat data-no-translate><option value="">'+esc(tr('独立规划'))+'</option>'+options+
-          ((hasChat&&!chat)?'<option value="'+esc(row.chatId)+'">'+esc(tr('关联的聊天已移除'))+'</option>':'')+'</select>')+
+          ((hasChat&&!chat)?'<option disabled>'+esc(tr('关联的聊天已移除'))+'</option>':'')+'</select>')+
         ui().field(tr(hasChat?'关联的消息':'计划消息序号'),'<input type="number" data-note-floor min="1" step="1" '+(chat?'max="'+chat.messages.length+'"':'')+' '+(hasChat&&!chat?'disabled':'')+' value="'+(pos(useFloor)?(useFloor+1):'')+'">',tr(hasChat?'消息从 1 开始；留空关联整场聊天。':'从 1 开始，可留空。'))+
         '<p data-source-excerpt data-no-translate class="help"></p><div class="row"><button type="button" class="btn" data-open-source>'+esc(tr('打开聊天原文'))+'</button><button type="button" class="btn btn-danger" id="del-tl">'+esc(tr('删除'))+'</button></div></div>';
       const pick=editor.querySelector('[data-note-chat]'),floor=editor.querySelector('[data-note-floor]'),open=editor.querySelector('[data-open-source]');
-      pick.value=row.chatId || '';open.disabled=!['message','chat'].includes(location.state);
+      if (location.state==='missing') pick.selectedIndex=pick.options.length-1;
+      else pick.value=chat?.id ?? '';
+      open.disabled=!['message','chat'].includes(location.state);
       const excerpt=editor.querySelector('[data-source-excerpt]');
       excerpt.textContent=location.state==='message'?lineLabel(chat.messages[location.floor],location.floor):hasChat?sourceText(location,row):'';
       open.onclick=()=>goMessage(resolve(ui().state.lib,row));
       ui().bindFields(editor,row,()=>paintList(),['timeline']);ui().mountLengths(editor);
-      pick.onchange=()=>{if(pick.value)row.chatId=pick.value;else delete row.chatId;delete row.messageStamp;row.floor=null;ui().markDirty('timeline');ui().renderStage();};
+      pick.onchange=()=>{
+        const selected=root.TAStore.byId(lib.chats,pick.value);
+        if(selected)row.chatId=selected.id;
+        else if(!pick.value)delete row.chatId;
+        else return;
+        delete row.messageStamp;row.floor=null;ui().markDirty('timeline');ui().renderStage();
+      };
       floor.onchange=()=>{
         const n=floor.value===''?null:Number(floor.value)-1;
         if (n!==null && (!pos(n) || (chat && !chat.messages[n]))) {floor.reportValidity();return;}
@@ -194,7 +211,7 @@
   function markChat(log,chat) {
     const st=ui().state,refs=new Map();
     for(const item of allItems(st.lib)){
-      if(item.row.chatId!==chat.id)continue;
+      if(String(item.row.chatId)!==String(chat.id))continue;
       const link=resolve(st.lib,item.row);
       if(link.state!=='message')continue;
       if(!refs.has(link.floor))refs.set(link.floor,[]);

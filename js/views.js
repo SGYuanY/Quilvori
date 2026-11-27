@@ -417,10 +417,18 @@
     let marks = [];
     const renderLog = () => {
       const needle = (UI.state.passageQuery || '').trim();
+      const pattern = needle ? new RegExp(needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi') : null;
       log.innerHTML = current.messages.map((message, index) => {
-        const safe = UI.esc(message.mes);
-        const html = needle ? safe.replace(new RegExp(needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), (hit) => `<mark>${hit}</mark>`) : safe;
-        return `<article class="msg ${message.is_user ? 'user' : ''}" data-index="${index}"><header><span class="who">${UI.esc(message.name)}</span><span>${UI.esc(message.send_date || '')}</span></header><div class="body">${html.replace(/\n/g, '<br>')}</div></article>`;
+        const text = String(message.mes ?? '');
+        let html = '', start = 0;
+        if (pattern) {
+          for (const hit of text.matchAll(pattern)) {
+            html += UI.esc(text.slice(start, hit.index)) + `<mark>${UI.esc(hit[0])}</mark>`;
+            start = hit.index + hit[0].length;
+          }
+        }
+        html += UI.esc(text.slice(start));
+        return `<article class="msg ${message.is_user ? 'user' : ''}" data-index="${index}"><header><span class="who">${UI.esc(message.name)}</span><span>${UI.esc(message.send_date || '')}</span></header><div class="body">${html}</div></article>`;
       }).join('');
       root.TAJournal.markChat(log,current);
       marks = [...log.querySelectorAll('mark')];

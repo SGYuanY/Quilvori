@@ -17,33 +17,97 @@
     cfg.idleMinutes = Number.isFinite(minutes) && minutes >= 1 && minutes <= 60 ? Math.round(minutes) : DEFAULT_IDLE_MINUTES;
     return cfg;
   }
-  function parseRegistry(raw) {
-    const profiles = (Array.isArray(raw.profiles) ? raw.profiles : []).filter(row=>typeof row?.id==='string' && typeof row.name==='string' && row.config && typeof row.config==='object');
-    if (!profiles.length) profiles.push({id:'default',name:'Default',config:configOf(raw),models:[]});
-    return {profiles,active:profiles.find(row=>row.id===raw.active) || profiles[0]};
+  function defaultRegistry(raw={}) {
+    const active={id:'default',name:'Default',config:configOf(raw),models:[]};
+    return {profiles:[active],active};
   }
   const codec = root.TAModelKeyCodec;
   const credentialError = '密钥存储不可用。请解锁系统凭据或检查浏览器存储后重试。';
   const credentialConflict = '另一窗口已修改模型配置。请重新打开工作台再编辑。';
-  let secured, persisted, transient, unlocking = false, credentialDirty = false, credentialIssue = '', saveQueue = Promise.resolve();
+  const damagedConfig = '模型连接配置已损坏。你可以保留本机原配置并重新建立连接。';
+  const unknownFormat = '模型配置格式暂不受支持。请使用兼容版本打开。';
+  const recoveryMarker = KEY+'.recovery.1';
+  const object = value => value!==null && typeof value==='object' && !Array.isArray(value);
+  function diskRegistry() {
+    // Rebuilt registries live in IndexedDB. Only their first commit's witness (later
+    // refreshed as a notification) is needed to distinguish loss from a fresh profile.
+    const marker=localStorage.getItem(recoveryMarker);
+    return marker===null ? {index:0,raw:localStorage.getItem(KEY)} : {index:1,raw:marker};
+  }
+  function assertCurrent(expected) {
+    const current=diskRegistry();
+    if(current.index!==expected.index || current.raw!==expected.raw)throw new Error(credentialConflict);
+  }
+  const readSource=()=>{
+    if(!codec?.registryState || !codec.publishRegistry)throw new Error(credentialError);
+    return codec.registryState(diskRegistry);
+  };
+  function checkConfig(raw) {
+    if(!object(raw))throw new Error(damagedConfig);
+    for(const [key,value] of Object.entries(defaults)){
+      if(raw[key]==null)continue;
+      if(typeof raw[key]!==typeof value && !(typeof value==='number' && typeof raw[key]==='string'))throw new Error(damagedConfig);
+    }
+  }
+  function readConnections(original) {
+    if(original===null)return {raw:{},reg:defaultRegistry()};
+    let raw;
+    try{raw=JSON.parse(original);}catch(_){throw new Error(damagedConfig);}
+    if(!object(raw))throw new Error(damagedConfig);
+    if(raw.format!=null && raw.format!==2){
+      const version=raw.format;
+      const recognizable=Number.isSafeInteger(version) && version>0 ||
+        typeof version==='string' && /^v?[1-9]\d*(?:\.\d+)*$/i.test(version);
+      throw new Error(recognizable?unknownFormat:damagedConfig);
+    }
+    checkConfig(raw);
+    if(!Object.hasOwn(raw,'profiles')){
+      if(raw.format===2 || (Object.keys(raw).some(k=>k!=='format') && !Object.keys(defaults).some(k=>Object.hasOwn(raw,k))))throw new Error(damagedConfig);
+      return {raw,reg:defaultRegistry(raw)};
+    }
+    if(!Array.isArray(raw.profiles) || !raw.profiles.length)throw new Error(damagedConfig);
+    const ids=new Set();
+    const profiles=raw.profiles.map(row=>{
+      if(!object(row) || typeof row.id!=='string' || !row.id.trim() || ids.has(row.id) || typeof row.name!=='string')throw new Error(damagedConfig);
+      ids.add(row.id);
+      checkConfig(row.config);
+      if(row.key && row.key!==row.config.key)throw new Error(damagedConfig);
+      if(Object.hasOwn(row,'sealedKey') && (typeof row.sealedKey!=='string' || !row.sealedKey || codec?.malformedEnvelope?.(row.sealedKey)))throw new Error(damagedConfig);
+      if(row.models!=null && !Array.isArray(row.models))throw new Error(damagedConfig);
+      const models=(row.models || []).map(value=>{
+        if(typeof value==='string')return metadata(value);
+        if(!object(value) || typeof value.id!=='string' ||
+          (value.efforts!=null && (!Array.isArray(value.efforts) || !value.efforts.every(e=>typeof e==='string'))) ||
+          (value.context!=null && !['number','string'].includes(typeof value.context)) ||
+          (value.recommended!=null && typeof value.recommended!=='string'))throw new Error(damagedConfig);
+        return {...value,efforts:value.efforts || []};
+      });
+      return {...row,config:configOf(row.config),models};
+    });
+    const active=profiles.find(row=>row.id===raw.active);
+    if((raw.format===2 || raw.active!=null) && !active)throw new Error(damagedConfig);
+    return {raw,reg:{profiles,active:active || profiles[0]}};
+  }
+  let secured=defaultRegistry(),persisted,transient,damage=null,generation=0;
+  let unlocking = false, credentialDirty = false, credentialIssue = '', saveQueue = Promise.resolve();
   let envelopes = new Map();
   function registry() {
-    if (codec) {
-      if (!secured) throw new Error(credentialIssue || credentialError);
-      return secured;
-    }
+    if (codec) return secured;
     if (transient) return transient;
-    let raw = {};
-    try { raw = JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch (_) {}
-    return parseRegistry(raw);
+    try{
+      const src=diskRegistry(),{raw,reg}=readConnections(src.raw);
+      if(!src.index && raw.format!==2)return reg;
+    }catch(_){}
+    // A consumer loaded without the codec cannot safely update a protected or damaged registry.
+    return {...defaultRegistry(),locked:true};
   }
-  async function encodeRegistry(reg, original, cancel = () => false) {
+  async function encodeRegistry(reg, expected, {cancel, newSlot=false, priorKeys=envelopes}={}) {
     const saved = [], next = new Map();
     for (const row of reg.profiles) {
       const {key,...config} = row.config;
       let sealed;
       if (key) {
-        const prior = envelopes.get(row.id);
+        const prior = priorKeys.get(row.id);
         if (prior?.key === key) sealed = prior.sealed;
         else {
           sealed = await codec.seal(row.id,key);
@@ -53,47 +117,84 @@
       }
       saved.push({id:row.id,name:row.name,config,models:row.models || [],...(sealed ? {sealedKey:sealed} : {})});
     }
+    const index=expected.index+(newSlot ? 1 : 0);
+    const revision=root.crypto.randomUUID();
     const {key:privateKey,...settings}=reg.active.config;
-    const data = JSON.stringify({...settings,format:2,active:reg.active.id,profiles:saved});
-    const publish = () => {
-      if (cancel()) return;
-      if (localStorage.getItem(KEY) !== original) throw new Error(credentialConflict);
-      localStorage.setItem(KEY,data);
-      persisted = data;
+    const data = JSON.stringify({...settings,format:2,storageRevision:revision,active:reg.active.id,profiles:saved});
+    const publish = async () => {
+      if (cancel?.()) return;
+      const validateLegacy=()=>{
+        assertCurrent(expected);
+        if(newSlot){
+          // Reserve a secret-free witness before the first append. A full localStorage
+          // therefore cannot make a recovered database indistinguishable from a fresh one.
+          localStorage.setItem(recoveryMarker,revision);
+        }
+      };
+      const rollbackLegacy=()=>{
+        if(newSlot){
+          if(localStorage.getItem(recoveryMarker)===revision)localStorage.removeItem(recoveryMarker);
+        }else if(localStorage.getItem(KEY)===data){
+          if(expected.raw===null)localStorage.removeItem(KEY);else localStorage.setItem(KEY,expected.raw);
+        }
+      };
+      try{
+        const saved=await codec.publishRegistry(expected,index,data,revision,validateLegacy,
+          value=>localStorage.setItem(KEY,value),rollbackLegacy,cancel);
+        if(!saved)return;
+      }catch(error){
+        if(error.message==='credential-stale')throw new Error(credentialConflict);
+        throw error;
+      }
+      if(index){
+        // This notification carries no connection settings. It also detects lost IndexedDB data.
+        try{localStorage.setItem(recoveryMarker,revision);}catch(_){}
+      }
+      persisted = {index,raw:data,revision};
       envelopes = next;
     };
     if (root.navigator?.locks) await root.navigator.locks.request('quilvori-model-settings',publish);
-    else publish();
+    else await publish();
   }
   async function initializeCredentials() {
     if (!codec) return;
     unlocking = true;
+    let source;
+    generation++;damage=null;
     try {
-      const original = localStorage.getItem(KEY);
-      const raw = JSON.parse(original || '{}') || {}, reg = parseRegistry(raw);
-      if (typeof raw!=='object' || Array.isArray(raw) || (raw.format!=null && raw.format!==2)) throw new Error(credentialError);
-      secured = reg;
-      if (new Set(reg.profiles.map(row=>row.id)).size !== reg.profiles.length) throw new Error(credentialError);
-      if (Array.isArray(raw.profiles) && raw.profiles.length && reg.profiles.length!==raw.profiles.length) throw new Error(credentialError);
+      source=await readSource();
+      let parsed;
+      try{parsed=readConnections(source.raw);}
+      catch(error){if(error.message===damagedConfig)damage={source,token:generation};throw error;}
+      const {raw,reg}=parsed,opened=new Map();
+      if(!source.index && raw.storageRevision && raw.storageRevision!==source.revision)throw new Error(credentialConflict);
       for (const row of reg.profiles) {
         if (!row.sealedKey) continue;
         const key = await codec.open(row.id,row.sealedKey);
-        envelopes.set(row.id,{key,sealed:row.sealedKey});
+        if(row.config.key && row.config.key!==key){damage={source,token:generation};throw new Error(damagedConfig);}
+        opened.set(row.id,{key,sealed:row.sealedKey});
         row.config = {...row.config,key};
       }
-      if (original !== null && (raw.format !== 2 || Object.hasOwn(raw,'key') ||
+      if(raw.key && !reg.profiles.some(row=>row.config.key===raw.key)){
+        if(reg.active.config.key){damage={source,token:generation};throw new Error(damagedConfig);}
+        reg.active.config.key=raw.key;
+      }
+      if (source.raw !== null && (raw.format !== 2 || Object.hasOwn(raw,'key') ||
           (raw.profiles || []).some(row=>row.config && Object.hasOwn(row.config,'key')))) {
-        await encodeRegistry(reg,original);
-      } else persisted = original;
+        await encodeRegistry(reg,source,{priorKeys:opened});
+      } else {
+        const latest=await readSource();
+        if(latest.index!==source.index || latest.raw!==source.raw || latest.revision!==source.revision)throw new Error(credentialConflict);
+        persisted=source;envelopes=opened;
+      }
       secured = reg;
       credentialDirty = false;
       credentialIssue = '';
     } catch (error) {
-      credentialIssue = error.message===credentialConflict ? credentialConflict : credentialError;
-      // Retain the exact on-disk migration source and allow the authoring UI to open.
-      secured ||= parseRegistry({});
-      secured.locked = true;
-    } finally { unlocking=false; }
+      credentialIssue = damage ? damagedConfig : [credentialConflict,unknownFormat].includes(error.message) ? error.message : credentialError;
+      // A partly unlocked registry would expose a mix of old and unreadable profiles.
+      secured = {...defaultRegistry(),locked:true};envelopes=new Map();
+    } finally { unlocking=false;root.dispatchEvent?.(new Event('quilvori-credential-status')); }
   }
   let writeRevision = 0;
   function persist(reg) {
@@ -107,7 +208,7 @@
         // belong to the next queued write and do not inherit the previous key.
         try {
           const snapshot = structuredClone(reg);
-          await encodeRegistry(snapshot,persisted,() => revision !== writeRevision);
+          await encodeRegistry(snapshot,persisted,{cancel:() => revision !== writeRevision});
           if (revision === writeRevision) { credentialDirty = false; credentialIssue = ''; }
         } catch (error) {
           credentialIssue = error.message === credentialConflict ? credentialConflict : credentialError;
@@ -119,7 +220,8 @@
     }
     // Standalone consumers may load this module without the desktop/web codec.
     // Keep their existing key material intact and store new keys in memory only.
-    const old=parseRegistry(JSON.parse(localStorage.getItem(KEY) || '{}') || {});
+    const src=diskRegistry(),{raw,reg:old}=readConnections(src.raw);
+    if(src.index || raw.format===2)throw new Error(credentialError);
     const profiles=reg.profiles.map(row=>{
       const {key,...config}=row.config, prior=old.profiles.find(p=>p.id===row.id);
       if(prior?.config.key)config.key=prior.config.key;
@@ -137,8 +239,9 @@
   }
   let ready=initializeCredentials();
   root.addEventListener?.('storage',event=>{
-    if (codec && (event.key===KEY || event.key===null) && !credentialDirty && !unlocking) {
-      ready=initializeCredentials().then(()=>root.dispatchEvent?.(new Event('quilvori-credential-status')));
+    if (codec && (event.key===KEY || event.key===null || event.key===recoveryMarker) && !credentialDirty && !unlocking) {
+      ready=initializeCredentials();
+      root.dispatchEvent?.(new Event('quilvori-credential-status'));
     }
   });
   async function retryCredentials() {
@@ -149,6 +252,25 @@
     }
     await ready;
     await flushCredentials();
+  }
+  function rebuildCredentials(token) {
+    if(!codec || unlocking || !damage || damage.token!==token)return Promise.reject(new Error(credentialConflict));
+    const source=damage.source,reg=defaultRegistry();
+    unlocking=true;
+    const job=(async()=>{
+      try{
+        await encodeRegistry(reg,source,{newSlot:true});
+        secured=reg;damage=null;credentialIssue='';credentialDirty=false;generation++;
+      }catch(error){
+        credentialIssue=error.message===credentialConflict?credentialConflict:credentialError;
+        if(credentialIssue===credentialConflict)damage=null;
+        throw new Error(credentialIssue);
+      }finally{
+        unlocking=false;root.dispatchEvent?.(new Event('quilvori-credential-status'));
+      }
+    })();
+    ready=job.catch(()=>{});
+    return job;
   }
   function load() { return configOf(registry().active.config); }
   function save(next) {
@@ -856,8 +978,9 @@
   }
   root.NIJANModel = {
     get ready() { return ready; },
-    credentialStatus: () => ({pending:credentialDirty,opening:unlocking,issue:credentialIssue,locked:!!secured?.locked}),
-    flushCredentials, retryCredentials,
+    credentialStatus: () => ({pending:credentialDirty,opening:unlocking,issue:credentialIssue,locked:!!secured?.locked,
+      generation,recoverable:!!damage && !unlocking,recoveryToken:damage?.token ?? null}),
+    flushCredentials, retryCredentials, rebuildCredentials,
     load,
     save,
     configured,

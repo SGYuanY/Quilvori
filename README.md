@@ -308,6 +308,8 @@ Restart the desktop app or refresh the web page. Web-only users do not need `npm
 
 **Connection or generation fails.** Check the base URL, key, model, and protocol. Choose Chat Completions for services that require it. Browser cross-origin access depends on the provider. If output is truncated or context is too large, reduce the selected scope and work in batches.
 
+**Settings reports damaged model connections.** In Settings, choose **Rebuild model connections** and confirm. Quilvori keeps the original settings on this device and opens a fresh connection for a new endpoint and API key. If the key store is locked, unlock it and choose **Retry** to use the existing connections.
+
 **Reasoning effort is rejected.** Use the model default or a supported level; models do not all accept the same parameters.
 
 **Storage is full.** Export a backup before reducing large images. Do not clear browser data unless you have verified that your backup can restore the library.

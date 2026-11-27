@@ -182,6 +182,31 @@ async function exercise(mode) {
         const first=document.querySelector('.collection-item');
         return [first.querySelector('h3').textContent,first.querySelector('[data-collection-pin]').getAttribute('aria-pressed')];
       }),[fixtures.book,'true']);
+      const damaged='{"profiles":';
+      await read(async raw=>{
+        localStorage.setItem('nijan-model',raw);
+        window.dispatchEvent(new StorageEvent('storage',{key:'nijan-model'}));
+        await NIJANModel.ready;
+      },damaged);
+      await click('[data-shell="settings"]');
+      await click('#model-key-rebuild');
+      await click('#model-key-rebuild-confirm');
+      await until(()=>read(()=>document.querySelector('#set-key')?.disabled===false && !NIJANModel.credentialStatus().locked),'the rebuilt connection');
+      const replacementKey=fixtures.key+'-recovered';
+      await edit('#model-id','recovered-package-model');
+      await edit('#set-key',replacementKey);
+      await click('#set-close');
+      await until(()=>read(()=>!document.querySelector('#modal-root').classList.contains('show')),'saved connection settings');
+      const rebuilt=await read(async(raw,key,prefix)=>{
+        await NIJANModel.flushCredentials();
+        const settings=NIJANModel.load();
+        const stored=await TAModelKeyCodec.registryState(()=>({index:0,raw:localStorage.getItem('nijan-model')}));
+        const registry=JSON.parse(stored.raw),active=registry.profiles.find(row=>row.id===registry.active);
+        return stored.index>0 && active?.sealedKey?.startsWith(prefix) && !stored.raw.includes(key)
+          && localStorage.getItem('nijan-model')===raw && settings.key===key && settings.model==='recovered-package-model'
+          && !Object.values(localStorage).some(value=>value.includes(key));
+      },damaged,replacementKey,web?'web1.':'os1.');
+      assert.ok(rebuilt,'rebuilding preserves the damaged source and saves a usable protected connection');
     }
     assert.deepEqual(page.exceptions,[]);
     await page.send('Browser.close').catch(()=>{});
@@ -247,7 +272,7 @@ try {
   }
   await exercise('edit');
   await exercise('reopen');
-  console.log('Passed '+(web?'web ZIP':'desktop package')+' startup, character and world editing, encrypted model credentials, clean quit and persisted restart on '+process.platform+'/'+process.arch+'.');
+  console.log('Passed '+(web?'web ZIP':'desktop package')+' startup, character and world editing, encrypted model credentials, clean quit, persisted restart and connection recovery on '+process.platform+'/'+process.arch+'.');
   if(nativeMacKeychain)console.log('Used a dedicated, unlocked system Keychain on the hosted macOS runner.');
 } finally {
   if(webServer?.listening){webServer.closeAllConnections();await new Promise(resolve=>webServer.close(resolve));}

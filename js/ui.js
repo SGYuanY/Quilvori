@@ -919,7 +919,8 @@
       <label class="field"><span class="field-label">地址</span><input id="set-base" type="text" placeholder="https://api.openai.com/v1" autocomplete="off"></label>
       <label class="field"><span class="field-label">接口协议</span><select id="set-protocol"><option value="auto">自动（优先 Responses）</option><option value="responses">Responses</option><option value="chat">Chat Completions</option></select></label>
       <label class="field"><span class="field-label">密钥</span><input id="set-key" type="password" autocomplete="off"></label>
-      <div class="row"><small class="help" id="model-key-status" role="status" data-no-translate></small><button type="button" class="btn btn-small" id="model-key-retry" hidden>${tr('重试')}</button></div>
+      <div class="row"><small class="help" id="model-key-status" role="status" data-no-translate></small><button type="button" class="btn btn-small" id="model-key-retry" hidden>${tr('重试')}</button><button type="button" class="btn btn-small" id="model-key-rebuild" aria-controls="model-key-rebuild-review" aria-expanded="false" hidden>${tr('重建模型连接')}</button></div>
+      <div id="model-key-rebuild-review" hidden><p class="help">${tr('原配置将留在此设备。请重新填写模型地址和密钥。')}</p><div class="row"><button type="button" class="btn btn-primary" id="model-key-rebuild-confirm">${tr('确认')}</button><button type="button" class="btn" id="model-key-rebuild-cancel">${tr('取消')}</button></div></div>
       <div class="row"><button type="button" class="btn btn-primary" id="set-connect">连接</button></div>
       <p class="help">点连接后，从接口列出的模型里选一个。不用手填名称。</p>
       <label class="field"><span class="field-label">手动输入模型 ID</span><input id="model-id" autocomplete="off"></label>
@@ -963,25 +964,47 @@
     host.querySelector('#set-key').value = model.key || '';
     const api = root.NIJANModel, choices = host.querySelector('#connection-profiles'), modelId = host.querySelector('#model-id');
     const keyInput=host.querySelector('#set-key'), keyNote=host.querySelector('#model-key-status'), keyRetry=host.querySelector('#model-key-retry');
+    const keyRebuild=host.querySelector('#model-key-rebuild'),review=host.querySelector('#model-key-rebuild-review');
+    const confirmRebuild=host.querySelector('#model-key-rebuild-confirm'),cancelRebuild=host.querySelector('#model-key-rebuild-cancel');
+    const modelGeneration=api.credentialStatus().generation;
+    let reviewedToken=null;
     function paintKeyStatus(){
       const status=api.credentialStatus();
       keyNote.textContent=tr(status.issue || (status.opening?'正在解锁保存的密钥…':status.pending?'正在保护模型密钥…':
         root.nijanDesktop?'模型密钥由操作系统保护。':'模型密钥使用此浏览器的本地加密密钥保护。'));
       keyRetry.hidden=!status.issue;
+      keyRetry.disabled=status.opening;
+      keyRebuild.hidden=!status.recoverable;
+      if(reviewedToken!==status.recoveryToken || !status.recoverable)reviewedToken=null;
+      review.hidden=reviewedToken==null;
+      keyRebuild.setAttribute('aria-expanded',String(!review.hidden));
       const locked=status.opening || status.locked;
       for(const el of host.querySelectorAll('#settings-model-panel input,#settings-model-panel select,#settings-model-panel button')){
-        if(el===keyRetry)continue;
+        if([keyRetry,keyRebuild,confirmRebuild,cancelRebuild].includes(el))continue;
         if(locked)el.disabled=true;
       }
     }
     function keyEvent(){
       if(!keyNote.isConnected){root.removeEventListener('quilvori-credential-status',keyEvent);return;}
+      const status=api.credentialStatus();
+      if(!status.opening && status.generation!==modelGeneration){queueMicrotask(()=>{if(keyNote.isConnected)openSettings();});return;}
       paintKeyStatus();
     }
     if(host.keyStatusListener)root.removeEventListener('quilvori-credential-status',host.keyStatusListener);
     host.keyStatusListener=keyEvent;
     root.addEventListener('quilvori-credential-status',keyEvent);
     keyRetry.onclick=async()=>{try{await api.retryCredentials();}catch(_){}if(keyNote.isConnected)openSettings();};
+    keyRebuild.onclick=()=>{
+      reviewedToken=api.credentialStatus().recoveryToken;paintKeyStatus();
+      if(!review.hidden)cancelRebuild.focus();
+    };
+    cancelRebuild.onclick=()=>{reviewedToken=null;paintKeyStatus();keyRebuild.focus();};
+    confirmRebuild.onclick=async()=>{
+      const token=reviewedToken;reviewedToken=null;
+      const job=api.rebuildCredentials(token);paintKeyStatus();
+      try{await job;if(host.classList.contains('show'))host.querySelector('#set-base')?.focus();}
+      catch(error){if(keyNote.isConnected){paintKeyStatus();keyRetry.focus();toast(tr(error.message),{kind:'error'});}}
+    };
     choices.innerHTML = api.profiles().map(row=>`<option value="${esc(row.id)}" ${row.active?'selected':''}>${esc(row.name)}</option>`).join('');
     const changeProfile = fn => { try { fn(); openSettings(); renderStage(); } catch(error) { toast(tr(error.message)); } };
     choices.onchange = () => changeProfile(()=>api.selectProfile(choices.value));

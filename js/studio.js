@@ -1219,6 +1219,36 @@
       );
     } else readable.replaceChildren();
   }
+  function paintConnection() {
+    const select = document.getElementById("studio-profile");
+    if (!select) return;
+    const api = root.NIJANModel, status = api.credentialStatus();
+    const available = !status.opening && !status.locked;
+    const profiles = available ? api.profiles() : [];
+    if (profiles.length !== select.options.length || profiles.some((row, i) =>
+      row.id !== select.options[i].value || row.name !== select.options[i].text)) {
+      select.replaceChildren();
+      for (const row of profiles) select.add(new Option(row.name, row.id));
+    }
+    const active = profiles.find(row => row.active);
+    if (active) select.value = active.id;
+    select.disabled = !available || data().busy;
+
+    const model = available && api.load().model;
+    document.getElementById("ai-connection").textContent =
+      model || UI().t(status.opening ? "正在解锁保存的密钥…" : "连接模型");
+    const details = document.getElementById("ai-model-details");
+    if (model) {
+      const limits = api.capabilities();
+      details.textContent = [
+        UI().t("上下文窗口") + " · " + (limits.manual || limits.context || UI().t("接口未提供")),
+        UI().t("推荐推理强度") + " · " + (limits.recommended || UI().t("自动（由接口决定）")),
+      ].join("　|　");
+    } else {
+      details.textContent = status.locked && status.issue ? UI().t(status.issue) : "";
+    }
+    details.hidden = !details.textContent;
+  }
   function render(stage) {
     const logWasOpen=stage.querySelector('.ai-task-log')?.open || false;
     const s = data(),
@@ -1235,9 +1265,6 @@
             comment: UI().t(label),
           }));
     const checked = s.kind === "world" ? s.entries : s.cardFields;
-    const config = root.NIJANModel.load();
-    const limits = root.NIJANModel.capabilities();
-    const modelDetails = config.model ? [UI().t("上下文窗口") + " · " + (limits.manual || limits.context || UI().t("接口未提供")), UI().t("推荐推理强度") + " · " + (limits.recommended || UI().t("自动（由接口决定）"))].join("　|　") : "";
     const selectedTargets = list.filter((item) => checked.includes(item.id));
     const contextChips = `<div class="ws-context"><small>${UI().t('这次只改')}</small>${selectedTargets.slice(0, 6).map((item) => `<button type="button" class="ws-context-chip" data-context-remove="${esc(item.id)}" aria-label="${esc(UI().t('移出本次范围'))}: ${esc(item.comment)}"><span data-no-translate>${esc(item.comment)}</span>${root.TAWorkspace.icon('close')}</button>`).join('')}${selectedTargets.length > 6 ? `<span class="ws-context-empty">+${selectedTargets.length - 6}</span>` : ''}${!selectedTargets.length ? `<span class="ws-context-empty">${UI().t('先在左侧选择修改范围')}</span>` : ''}</div>`;
     stage.innerHTML = `<div class="ai-workbench mode-${s.mode}" data-busy="${s.busy}"><header class="ws-studio-heading"><div><h2>${UI().t(s.mode === 'create' ? '先写个大概 💭' : s.mode === 'review' ? '查查有没有矛盾 🔎' : '想改哪儿？')}</h2><p>${UI().t(s.mode === 'create' ? '人物、背景，或者一段还没成形的想法，都可以。' : s.mode === 'review' ? '对照你选的卡和世界书，把说不通的地方找出来。' : '左边选内容，右边说要求。改完先看稿，再决定用不用。')}</p></div></header>
@@ -1252,8 +1279,8 @@
         )
         .join(
           "",
-        )}</div><button type="button" class="btn btn-small" id="ai-connection">${esc(config.model || "连接模型")}</button><label>${UI().t("模型配置")} <select id="studio-profile" data-no-translate ${s.busy ? "disabled" : ""}>${root.NIJANModel.profiles().map(row=>`<option value="${esc(row.id)}" ${row.active?"selected":""}>${esc(row.name)}</option>`).join("")}</select></label></div>
-      ${modelDetails ? `<p class="help" data-no-translate>${esc(modelDetails)}</p>` : ""}
+        )}</div><button type="button" class="btn btn-small" id="ai-connection" data-no-translate></button><label>${UI().t("模型配置")} <select id="studio-profile" data-no-translate></select></label></div>
+      <p id="ai-model-details" class="help" data-no-translate hidden></p>
       <div class="ai-reference-grid">${choice("ai-card-pick", s.mode === "edit" && s.kind === "character" ? "正在修改的角色卡" : "参考角色卡", lib().characters, s.cardId)}${choice("ai-book-pick", s.mode === "edit" && s.kind === "world" ? "正在修改的世界书" : "参考世界书", lib().worldBooks, s.bookId)}<div class="ai-import-actions"><button type="button" class="btn btn-small" id="ai-import-card">导入角色卡文件</button><button type="button" class="btn btn-small" id="ai-import-world">导入世界书文件</button></div></div>
       ${book() && book().entries.length > 50 ? '<p class="help">大书按相关性提供参考，选中原文会完整发送；本次参考范围可在任务记录中查看。</p>' : ""}
       <p class="ai-task-status" role="status" id="ai-status">${esc(s.status)}</p>${s.sourceLocation ? `<div class="review-location-notice"><span>原文地址：${esc(s.sourceLocation.label)}</span>${s.sourceReport ? '<button type="button" class="btn btn-small" id="ai-return-review">返回检查报告</button>' : ""}</div>` : ""}
@@ -1338,6 +1365,7 @@
           changeScope();
         }),
     );
+    paintConnection();
     bind("#studio-profile", "change", event => { syncCreationInputs(); root.NIJANModel.selectProfile(event.target.value); refresh(); });
     bind("#ai-connection", "click", () =>
       document.querySelector('[data-shell="settings"]').click(),
@@ -1631,6 +1659,7 @@
   if (root.addEventListener) {
     root.addEventListener("pagehide", persist);
     root.addEventListener("nijan-task", () => paintRecord());
+    root.addEventListener("quilvori-credential-status", paintConnection);
   }
   async function recoverWork(kind,result,sourceKey,record) {
     if(controller)throw new Error('已有任务正在运行，可先打开其他栏目。');

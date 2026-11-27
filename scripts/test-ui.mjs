@@ -10,6 +10,14 @@ try {
   const env = {...process.env, QUILVORI_TEST_PROFILE:sandbox};
   delete env.ELECTRON_RUN_AS_NODE;
   const phases={
+    'chat-passage':'chat-passage-ui.cjs',
+    'journal-links':'journal-links-ui.cjs',
+    'journal-links-restart':'journal-links-ui.cjs',
+    'model-recovery':'model-recovery-ui.cjs',
+    'model-recovery-restart':'model-recovery-ui.cjs',
+    'model-recovery-concurrency':'model-recovery-concurrency-ui.cjs',
+    'studio-model-prepare':'studio-model-ready-ui.cjs',
+    'studio-model-restart':'studio-model-ready-ui.cjs',
     'world-directory-scroll':'world-directory-scroll-ui.cjs',
     'card-world-editors':'card-world-editors-ui.cjs',
     'editor-selection':'editor-selection-ui.cjs', 'shelf-pins':'shelf-pins-ui.cjs',

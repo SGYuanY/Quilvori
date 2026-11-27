@@ -1139,7 +1139,7 @@
             : same(dest[op.field], op.before)),
         "原稿在预览后发生了变化，请重新生成建议。",
       );
-      if (op.kind === "add" && op.path[0] === "timeline" && op.value.chatId) {
+      if (op.kind === "add" && op.path[0] === "timeline" && op.value.chatId != null && op.value.chatId !== "") {
         const loc = root.TAJournal.resolve(lib,op.value);
         need(loc.state === "message" || loc.state === "chat", "原消息已变动，请重新关联。");
       }

@@ -42,6 +42,31 @@ test('a journal anchor follows a unique moved message only within its own conver
   assert.equal(J.resolve(lib,anchor).state,'changed');
   lib.chats.shift();assert.equal(J.resolve(lib,anchor).state,'missing');
 });
+test('journal links keep integer IDs, and old dropdown strings resolve by their exact spelling',()=>{
+  const lib=library();
+  lib.chats[0].id=0;
+  lib.chats[1].id=7;
+  lib.chats.push({...lib.chats[1],id:'007',name:'Separate conversation'});
+  const anchor=J.attachment(lib.chats[0],0);
+  assert.equal(anchor.chatId,0);
+  assert.equal(J.resolve(lib,anchor).state,'message');
+  const oldLink={chatId:'7',floor:1};
+  assert.equal(J.resolve(lib,oldLink).chat.id,7);
+  assert.equal(oldLink.chatId,'7','reading an older note leaves the saved value intact');
+  assert.equal(J.resolve(lib,{chatId:'007',floor:1}).chat.id,'007');
+  assert.equal(J.resolve(lib,{chatId:'07',floor:1}).state,'missing');
+  env.TAUI={state:{lib}};
+  for(const [selection,id] of [['0',0],['7',7],['007','007']]){
+    const source=Assist.context('timeline',box(selection,2,2),'outline').journalSource;
+    assert.equal(source.chatId,id);
+    assert.equal(J.proposalLink(lib,source,1).chatId,id);
+  }
+  const numericLink=J.attachment(lib.chats[1],1);
+  const pendingScope=J.assistScope(lib,7,2,2);
+  lib.chats[1].id='7';
+  assert.equal(J.resolve(lib,numericLink).state,'missing','a stored number belongs to its original chat');
+  assert.throws(()=>J.proposalLink(lib,pendingScope,1));
+});
 test('the page AI request defaults to instructions only and sends exactly the explicit range',()=>{
   const lib=library();env.TAUI={state:{lib,sel:{chat:'B'}}};
   assert.deepEqual(object(Assist.context('timeline',box(),'outline')),{brief:'outline'});
@@ -71,6 +96,17 @@ test('a delayed AI apply refuses a removed or replaced source without partially 
   lib.chats[0].messages[1]=line('Keeper','A different record');
   assert.throws(()=>A.commit(lib,plan));assert.equal(lib.timeline.notes.length,0);
   lib.chats.shift();assert.throws(()=>A.proposal(lib,'create:timeline',result,{journalSource:scope}));
+});
+test('a changed message in chat zero also prevents a pending AI journal addition',()=>{
+  const lib=library();
+  lib.chats[0].id=0;
+  const scope=J.assistScope(lib,0,2,2);
+  const result={timeline:{notes:[{title:'Map',body:'Read it.',floor:1}]}};
+  const plan=A.proposal(lib,'create:timeline',result,{journalSource:scope});
+  assert.equal(plan.operations[0].value.chatId,0);
+  lib.chats[0].messages[1].mes='Revised dialogue';
+  assert.throws(()=>A.commit(lib,plan));
+  assert.deepEqual(object(lib.timeline.notes),[]);
 });
 test('full backup, restore, merge and journal export preserve stable IDs and links without dialogue transcripts',()=>{
   const lib=library();
