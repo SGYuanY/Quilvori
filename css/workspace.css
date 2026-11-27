@@ -654,7 +654,31 @@ html[data-density="compact"] .nav-btn { padding: 7px 11px; min-height: 34px; }
 .folder-import-report { margin-bottom: 18px; }
 .folder-import-report summary { color: var(--brass); font-size: calc(13px * var(--ui-scale, 1)); }
 .folder-import-report p { font-size: calc(12px * var(--ui-scale, 1)); line-height: 1.85; overflow-wrap: anywhere; }
-#check-char, #check-book { min-width: 170px; }
+.consistency-toolbar { align-items: flex-end; gap: .75rem 1rem; padding: .9rem; border: 1px solid var(--line); border-radius: var(--radius); }
+.consistency-fields { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); flex: 1 1 25rem; gap: .75rem; min-width: 0; }
+.consistency-fields label { display: grid; grid-template-rows: 1fr auto; gap: .35rem; min-width: 0; }
+.consistency-fields label span { color: var(--muted); font-size: calc(12px * var(--ui-scale,1)); line-height: 1.4; }
+.consistency-fields select { box-sizing: border-box; width: 100%; min-width: 0; max-width: none; min-height: 2.5rem; margin: 0; }
+.consistency-actions { display: flex; align-items: end; flex-wrap: wrap; gap: .45rem; max-width: 100%; }
+.consistency-actions .btn { min-height: 2.5rem; padding-inline: .8rem; white-space: normal; }
+.check-tabs { display: flex; flex-wrap: wrap; gap: .35rem; margin: 0 0 .65rem; border-bottom: 1px solid var(--line); }
+.check-tabs button { background: transparent; color: var(--muted); border: 0; border-bottom: 2px solid transparent; padding: .5rem .8rem; font: inherit; }
+.check-tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--brass); font-weight: 600; }
+.check-panel { min-width: 0; overflow-wrap: anywhere; }
+.check-summary { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: .5rem 1rem; margin-bottom: .7rem; padding: .85rem 1rem; }
+.check-summary > div { min-width: 0; }
+.check-summary p { margin: 0; }
+#check-local-scope,.check-summary time { color: var(--muted); font-size: calc(12px * var(--ui-scale,1)); }
+#check-local-status { margin-top: .23rem; color: var(--ink); font-weight: 600; }
+#check-local-items [role="alert"] { color: var(--danger); }
+#check-lesson { margin-block: .85rem; }
+#check-progress:empty { display: none; }
+@container workspace (max-width: 32rem) {
+  .consistency-fields { flex-basis: 100%; }
+}
+@container workspace (max-width: 25rem) {
+  .consistency-fields { grid-template-columns: minmax(0,1fr); }
+}
 .modal-root.link-import-open { z-index: 1110; }
 .link-import-modal { width: min(860px,100%); overscroll-behavior: contain; }
 .link-intro { color: #b8c0ac; line-height: 1.8; }

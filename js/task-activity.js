@@ -67,15 +67,14 @@
     if (job.phase==='stopped')return tr('已停止请求，原稿保持原样。');
     return tr(labels[job.phase] || '');
   }
-  function bindReview(host,{button,progress,output,source,after}) {
-    const key=()=>{const {card,book}=source();return JSON.stringify(['review',card?.id ?? '',book?.id ?? '']);};
+  function bindReview(host,{button,progress,output,source,selection=source,after}) {
+    const key=()=>{const {card,book}=selection();return JSON.stringify(['review',card?.id ?? '',book?.id ?? '']);};
     const stop=stopButton(button);
     stop.onclick=()=>cancel(state(key()));
     const paint=job=>{
-      const pending=job.phase==='running';stop.hidden=!pending;button.disabled=pending || (!source().card && !source().book);
+      const {card,book}=selection(),pending=job.phase==='running';stop.hidden=!pending;button.disabled=pending || (!card && !book);
       progress.textContent=phaseText(job,{running:'正在对照原文检查…',ready:'检查写完了'});
       if (after){after();return;}
-      const {card,book}=source();
       const report=(ui().state.lib.settings.aiReviews || []).findLast(row=>(row.cardId ?? null)===(card?.id ?? null) && (row.bookId ?? null)===(book?.id ?? null));
       if (report)root.NIJANReview.mount(output,report,ui().state.lib);
       else output.replaceChildren();

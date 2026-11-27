@@ -974,72 +974,6 @@
     paintSide();
   }
 
-  function check(stage) {
-    const lib = UI.state.lib;
-    const character = UI.selected(lib.characters, UI.state.sel.checkChar ?? 'ch_draft');
-    const bookId = UI.state.sel.checkBook === undefined ? (lib.worldBooks[0]?.id ?? '') : UI.state.sel.checkBook;
-    if (character) UI.state.sel.checkChar = character.id;
-    stage.innerHTML = `<div class="toolbar">
-      <label class="dark-muted">角色<select id="check-char" ${lib.characters.length ? '' : 'disabled'}>${lib.characters.length ? '' : '<option value="">还没有角色卡</option>'}${lib.characters.map((item) => `<option value="${UI.esc(item.id)}"${character && item.id === character.id ? ' selected' : ''}>${UI.esc(item.name)}</option>`).join('')}</select></label>
-      <label class="dark-muted">对照世界书<select id="check-book"><option value="">不对照</option>${lib.worldBooks.map((item) => `<option value="${UI.esc(item.id)}"${item.id === bookId ? ' selected' : ''}>${UI.esc(item.name)}</option>`).join('')}</select></label>
-      <button type="button" class="btn" id="run-check" ${character ? '' : 'disabled'}>本地规则检查</button>
-      <button type="button" class="btn btn-primary" id="semantic-check" ${character ? '' : 'disabled'}>AI 逻辑与人设检查</button>
-      <button type="button" class="btn" id="export-check">导出报告</button>
-      ${hint('本地规则检查与 AI 审查分开展示。AI 意见须有原文证据，所有检查都只生成报告。')}
-    </div><p class="model-progress" id="check-progress" role="status"></p><div id="check-lesson"></div><div id="model-check"></div><div id="findings"></div>`;
-    const source = () => ({
-      card: root.NIJANStudio.cardContent(UI.charById(stage.querySelector('#check-char').value)),
-      book: root.NIJANStudio.bookContent(Store.byId(lib.worldBooks,stage.querySelector('#check-book').value)),
-    });
-    const paint = () => {
-      const context = source();
-      const host = stage.querySelector('#findings');
-      const reportHost = stage.querySelector('#model-check');
-      if (!context.card) {
-        host.innerHTML = `<div class="paper empty"><h3>还没有角色卡可检查</h3><p>${root.nijanDesktop ? '从设置好的文件夹读取，或导入一张 JSON、PNG 角色卡。' : '这里显示当前浏览器已导入的角色卡。先导入一张，或回到原来保存资料的入口。'}</p><div class="row"><button type="button" class="btn btn-primary" data-check-import>导入角色卡</button>${root.nijanDesktop ? '<button type="button" class="btn" data-check-folder>读取角色卡文件夹</button>' : ''}</div></div>`;
-        host.querySelector('[data-check-import]').onclick = () => document.querySelector('[data-shell="import-card"]').click();
-        host.querySelector('[data-check-folder]')?.addEventListener('click', () => UI.readFolders());
-        reportHost.innerHTML = '';
-        UI.state.lastFindings = null;
-        return;
-      }
-      const scopedLibrary = context.book ? lib : Object.assign({}, lib, {worldBooks: []});
-      const findings = F.checkConsistency(scopedLibrary, context.card.id, context.book?.id);
-      const report = (lib.settings.aiReviews || []).findLast((item) => item.cardId === context.card.id && (item.bookId ?? null) === (context.book?.id ?? null));
-      const stale = !!report && report.source !== JSON.stringify({card:context.card,book:root.NIJANAI.reviewBook(context.book,report.entryIds)});
-      UI.state.lastFindings = {character: context.card.name, book: context.book?.name || null, localFindings: findings, aiReview: report ? {...root.NIJANReview.gradedReport(report, lib), stale} : null};
-      reportHost.innerHTML = report ? `<section class="paper ai-review"><h3>AI 检查报告</h3><p class="help">${report.entryIds ? `仅检查选中的 ${report.entryIds.length} 条世界书条目，不能代表整本书。` : "检查范围为所选角色卡与整本对照世界书。"}</p><p class="help">${UI.esc(new Date(report.createdAt).toLocaleString())}</p>${stale ? '<p class="banner">报告基于之前的稿件，原文已变化，请重新检查。</p>' : ''}${root.NIJANReview.html(report,lib)}</section>` : '<p class="help">当前选择还没有 AI 检查报告。</p>';
-      root.NIJANReview.bind(reportHost,report);
-      UI.fillLesson(stage.querySelector('#check-lesson'), [
-        `本地规则检查：${context.card.name}${context.book ? `，对照「${context.book.name}」` : '，不对照世界书'}。可选留白只作提示。`,
-        UI.t('check.names'), UI.t('check.colors'), UI.t('check.rules'),
-      ]);
-      host.innerHTML = `<h3>本地规则检查</h3>${findings.map((item) => `<article class="paper finding"><div class="sev ${item.severity}">${UI.esc(UI.t(item.severity === 'error' ? '冲突' : item.severity === 'warn' ? '存疑' : '备注'))}</div><h3>${UI.esc(UI.t(item.title))}</h3><p>${UI.esc(UI.t(item.detail))}</p>${item.snippet ? `<p class="snippet">${highlight(item.snippet, item.highlight)}</p>` : ''}</article>`).join('') || '<div class="paper empty"><p>本地规则未发现问题；这不代表已经通过 AI 审查。</p></div>'}`;
-    };
-    const syncTask = root.TATaskActivity.bindReview(stage.querySelector('#check-progress'), {
-      button:stage.querySelector('#semantic-check'), progress:stage.querySelector('#check-progress'),
-      source, after:paint
-    });
-    stage.querySelector('#run-check').onclick = paint;
-    stage.querySelector('#check-char').onchange = (event) => { UI.state.sel.checkChar = UI.charById(event.target.value)?.id; syncTask(); };
-    stage.querySelector('#check-book').onchange = (event) => { UI.state.sel.checkBook = Store.byId(lib.worldBooks,event.target.value)?.id ?? ''; syncTask(); };
-    stage.querySelector('#export-check').onclick = () => {
-      paint();
-      if (!UI.state.lastFindings) { UI.toast('先选择要检查的角色。'); return; }
-      const filename = `一致性-${UI.safeName(UI.state.lastFindings.character)}.json`;
-      UI.downloadJson(filename, UI.state.lastFindings);
-      UI.showExport(filename, '一致性报告，包含当前选择的本地检查和最近一次 AI 报告。');
-    };
-    paint();
-  }
-
-
-  function highlight(snippet, token) {
-    const safe = UI.esc(snippet);
-    if (!token) return safe;
-    return safe.replace(new RegExp(UI.esc(token).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), (hit) => `<mark>${hit}</mark>`);
-  }
-
   function script(stage) {
     const lib = UI.state.lib;
     const scripts = lib.scripts.filter((item) => UI.matchQuery(item.name + item.beats.map((beat) => beat.line).join('\n')));
@@ -1415,6 +1349,6 @@
   }
 
   root.TALibraryDB.start({
-    home, resources: stage => root.TAResourcePanel.render(stage), themes:stage=>root.TAThemeWorkshop.render(stage), studio, characters:root.TACharacterEditor.render, lore:root.TAWorldEditor.render, prompts, groups, chat, assets, regex, quick, timeline, graph, check, script, backup, sections, memory, tutorial,
+    home, resources: stage => root.TAResourcePanel.render(stage), themes:stage=>root.TAThemeWorkshop.render(stage), studio, characters:root.TACharacterEditor.render, lore:root.TAWorldEditor.render, prompts, groups, chat, assets, regex, quick, timeline, graph, check:root.TAConsistencyPanel.render, script, backup, sections, memory, tutorial,
   });
 })(typeof globalThis !== 'undefined' ? globalThis : window);
