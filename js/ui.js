@@ -391,11 +391,12 @@
       const scopes=options.scopes && !dirtyWholeLibrary && (prior==='saved' || dirtyScopes.size) ?
         [...dirtyScopes.values(),...options.scopes] : undefined;
       const transfer=options.transfer;
-      if(transfer && !root.TALibraryDB?.database())throw new Error('完整工作状态需要 IndexedDB');
+      if((transfer || options.importSnapshots?.length) && !root.TALibraryDB?.database())throw new Error('完整工作状态需要 IndexedDB');
       if(transfer && (root.NIJANStudio?.running() || root.TATaskActivity?.pending() || root.NIJANOrganizePanel?.running())) {
         throw new Error('请先结束正在运行的任务，再恢复工作状态。');
       }
-      const warning = clearVersions ? await TAStore.erase(candidate,guard) : await TAStore.save(candidate,guard,snapshots,draft,scopes,options.restore,transfer);
+      const imports=options.importSnapshots?.length ? root.TAHistory.importedRows(candidate,options.importSnapshots) : undefined;
+      const warning = clearVersions ? await TAStore.erase(candidate,guard) : await TAStore.save(candidate,guard,snapshots,draft,scopes,options.restore,transfer,imports);
       if (version !== editVersion) throw new Error('资料库已变化，请重新打开。');
       state.lib = candidate; state.save = 'saved';
       resetDirty();

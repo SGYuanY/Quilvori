@@ -4,6 +4,23 @@
   const store=()=>root.TAStore, clone=value=>structuredClone(value);
   const object=value=>value!==null && typeof value==='object' && !Array.isArray(value);
   const own=(value,key)=>Object.hasOwn(value,key);
+  const workOrigins=['creationSource','creationRecordKeys'];
+  function isWorkOrigin(key){
+    if(typeof key!=='string')return false;
+    try{
+      const pair=JSON.parse(key);
+      return Array.isArray(pair) && pair.length===2 && pair.every(value=>typeof value==='string' && value.length>0) && JSON.stringify(pair)===key;
+    }catch(_){return false;}
+  }
+  function copyOrigins(target,owner,related){
+    for(const field of workOrigins){
+      if(own(owner,field))target[field]=clone(owner[field]);else delete target[field];
+    }
+    const local=target.creationRecordKeys, incoming=related?.creationRecordKeys;
+    if(Array.isArray(local) && Array.isArray(incoming) && incoming.some(key=>local.includes(key) && isWorkOrigin(key))){
+      target.creationRecordKeys=[...new Set([...local,...incoming.filter(isWorkOrigin)])];
+    }
+  }
   function equal(a,b) {
     if(a===b) return true;
     if(!a || !b || typeof a!=='object' || typeof b!=='object' || Array.isArray(a)!==Array.isArray(b)) return false;
@@ -45,6 +62,15 @@
   function plan(local,incoming) {
     const current=store().verify(structuredClone(local)), source=clone(incoming), divergent=new Set();
     const proposed=store().merge(current,source,{divergedChats:divergent}),conflicts=[];
+    // An ID collision does not make a handwritten work the destination of another device's request.
+    for(const kind of ['characters','worldBooks']){
+      const localById=new Map(current[kind].map(row=>[row.id,row]));
+      const incomingById=new Map((source[kind] || []).map(row=>[row.id,row]));
+      for(const row of proposed[kind]){
+        const original=localById.get(row.id);
+        if(original)copyOrigins(row,original,incomingById.get(row.id));
+      }
+    }
     // Save timestamps describe writes on this device and are never choices in a content merge.
     proposed.meta.updatedAt=current.meta.updatedAt;
     function add(path,names,owner,before,after,kind='value',by=null) {
@@ -76,6 +102,7 @@
         if(branched) add(path,[...names,'消息与书签'],owner,{messages:a.messages,bookmarks:a.bookmarks},{messages:b.messages,bookmarks:b.bookmarks},'chat');
         for(const key of Object.keys(a)) {
           if(!own(b,key) || (branched && ['messages','bookmarks'].includes(key)))continue;
+          if(owner?.path.length===path.length && ['characters','worldBooks'].includes(owner.collection) && workOrigins.includes(key))continue;
           const next=[...path,key],type=schema(next);
           walk(a[key],b[key],next,[...names,own(typeNames,type)?typeNames[type]:key],owner);
         }
@@ -190,6 +217,7 @@
       // A full backup copy keeps its own nested membership and order. For a partial
       // legacy record, retain fields the incoming work did not supply at all.
       const duplicate=clone({...merged,...source});
+      if(['characters','worldBooks'].includes(work.collection))copyOrigins(duplicate,source);
       let newId;do {newId=store().uid('copy');}while(rows.some(row=>String(row.id)===newId));
       duplicate.id=newId;duplicate.backupCopyOf=work.id;
       duplicate.backupCopyIndex=1+rows.reduce((max,row)=>String(row.backupCopyOf)===String(work.id)

@@ -6,6 +6,12 @@
   const text = value => typeof value === 'string' && !!value.trim();
   const tr = name => root.TAI18n?.t(name) || name;
   function fail(message) { throw new Error(tr(message)); }
+  function validationMessage(error){
+    const fields={...root.NIJANAI.CARD_FIELDS,...root.NIJANAI.ENTRY_FIELDS};
+    const label=Object.values(fields).find(value=>error.message===value+'的格式不正确。');
+    if(label && root.TAI18n)return root.TAI18n.t('work.invalidField',{field:tr(label)});
+    return tr(error.message);
+  }
 
   const wrappers = {
     character: ['character','character_card','characterCard','char_card','角色卡','角色','人物卡','人物','card'],
@@ -202,7 +208,7 @@
         if(parsed.status==='error'||parsed.error){
           const err=new Error(typeof parsed.error==='string'?parsed.error:parsed.error?.message||tr('模型未完成任务。'));err.code='model-error';throw err;
         }
-        root.NIJANAI.validate('create:character',parsed,context);
+        const err=new Error(text(parsed.question)?parsed.question:tr('模型需要你补充信息。'));err.code='needs-input';throw err;
       }
       locate(parsed);
     }catch(error){
@@ -221,7 +227,7 @@
         if(list.length!==1)fail(kind==='character'?'回复包含多张角色卡，请指定一张。':'回复包含多本世界书，请指定一本。');
         const draft=kind==='character'?card(list[0]):world(list[0],fallbackName);
         results[kind]=root.NIJANAI.validate('create:'+kind,{[kind]:draft},context);
-      }catch(error){errors[kind]=error.message;}
+      }catch(error){errors[kind]=validationMessage(error);}
     }
     return report();
   }

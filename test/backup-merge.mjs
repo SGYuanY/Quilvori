@@ -124,3 +124,23 @@ const legacyKeys=store.merge(base,{worldBooks:[{id:'w',entries:[{id:'one',second
 assert.deepEqual(Array.from(legacyKeys.secondaryKeys),['new key']);
 
 console.log('Backup merge preserves nested drafts, author metadata, chat history, bookmarks, expression files and local HTML notes.');
+
+for (const file of ['creation-records','work-backup']) {
+  vm.runInContext(fs.readFileSync(new URL(`../js/${file}.js`,import.meta.url),'utf8'),ctx);
+}
+const response={id:'ok',task:'create:character',startedAt:'2026-01-01T00:00:00Z',status:'validated',output:'A short draft.'};
+const empty={...response,id:'empty',status:'error',output:'',emptyReason:'reasoning',errorCode:'empty-output'};
+const state=ctx.TAWorkBackup.normalize({drafts:[],versions:[],limits:[],records:[empty,response,{...empty,id:'other'}]});
+const packet=ctx.TAFormats.backupOf(base,state);
+assert.deepEqual(Array.from(packet.workState.records,row=>row.id),['ok'],'older v2 readers receive responses with text');
+assert.deepEqual(Array.from(packet.workState.requestsWithoutOutput,row=>row.index),[0,2]);
+assert.deepEqual(Array.from(ctx.TAFormats.readBackup(packet).workState.records,row=>row.id),['empty','ok','other']);
+const legacyPacket=structuredClone(packet);
+delete legacyPacket.workState.requestsWithoutOutput;
+assert.deepEqual(Array.from(ctx.TAFormats.readBackup(legacyPacket).workState.records,row=>row.id),['ok']);
+for (const badIndex of [-1,0,3,'2']) {
+  const invalid=structuredClone(packet);
+  invalid.workState.requestsWithoutOutput[1].index=badIndex;
+  assert.throws(()=>ctx.TAFormats.readBackup(invalid),/requestsWithoutOutput/);
+}
+console.log('Backups keep legacy v2 response rows readable and restore terminal notices in order.');

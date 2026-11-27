@@ -859,12 +859,23 @@ function createCardWorldFormats(resourceSource) {
     return copy;
   }
   function backupOf(library,workState) {
+    let portableState=workState;
+    if(Array.isArray(workState?.records)){
+      // v2 readers through 0.4.2 require every model response to contain text.
+      // Keep terminal notices in an optional field those readers can skip.
+      const requestsWithoutOutput=[],records=[];
+      workState.records.forEach((record,index)=>{
+        if(record.output==='')requestsWithoutOutput.push({index,record});
+        else records.push(record);
+      });
+      if(requestsWithoutOutput.length)portableState={...workState,records,requestsWithoutOutput};
+    }
     return {
       atelier: 'tavern-atelier',
       libraryVersion: 1,
       exportedAt: new Date().toISOString(),
       library:portableLibrary(library,workState!==undefined),
-      ...(workState ? {backupVersion:2,workState} : {}),
+      ...(workState ? {backupVersion:2,workState:portableState} : {}),
     };
   }
 
@@ -880,7 +891,24 @@ function createCardWorldFormats(resourceSource) {
       return {library:json,workState:null};
     }
     const library=backupLibrary(json);
-    if (json.backupVersion===2) return {library:portableLibrary(library,true),workState:root.TAWorkBackup.normalize(json.workState)};
+    if (json.backupVersion===2) {
+      let state=json.workState;
+      if(state && Object.hasOwn(state,'requestsWithoutOutput')){
+        const notices=state.requestsWithoutOutput;
+        const invalid=()=>new Error(t('工作状态备份内容无效')+' (requestsWithoutOutput)');
+        if(!Array.isArray(notices) || !Array.isArray(state.records))throw invalid();
+        const total=notices.length+state.records.length, byIndex=new Map();
+        for(const item of notices){
+          if(!Number.isSafeInteger(item?.index) || item.index<0 || item.index>=total || byIndex.has(item.index) ||
+              item.record?.output!=='')throw invalid();
+          byIndex.set(item.index,item.record);
+        }
+        let next=0;
+        const records=Array.from({length:total},(_,index)=>byIndex.has(index) ? byIndex.get(index) : state.records[next++]);
+        state={...state,records};
+      }
+      return {library:portableLibrary(library,true),workState:root.TAWorkBackup.normalize(state)};
+    }
     if ((json.backupVersion!==undefined && json.backupVersion!==1) || Object.hasOwn(json,'workState')) {
       throw new Error('工作状态备份格式不受支持');
     }

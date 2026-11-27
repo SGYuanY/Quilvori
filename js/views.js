@@ -1150,6 +1150,7 @@
     stage.innerHTML = `<div class="toolbar">
       <button type="button" class="btn btn-primary" id="save-backup">导出整库</button>
       <button type="button" class="btn" id="load-backup">从备份恢复</button>
+      <button type="button" class="btn" id="restore-work">恢复单件作品</button>
       ${Store.hasMigrationBackup ? '<button type="button" class="btn" id="migration-backup">'+UI.esc(UI.t('下载迁移前存档'))+'</button>' : ''}
       <button type="button" class="btn" id="backup-demo">载入示例</button>
       <button type="button" class="btn btn-danger" id="backup-clear">清空库</button>
@@ -1166,12 +1167,13 @@
     mountPageAssist(stage, 'backup');
     root.TAIntegrityPanel.alternatives(stage,lib);
     root.TAHistoryPanel.mountOverview(stage);
-    async function restoreFile(file) {
+    async function restoreFile(file,single=false) {
       if (!file) return;
       try {
         const data = await parseJsonFile(file);
         const {library:incoming,workState}=F.readBackup(data);
         const normalized = Store.verify(incoming);
+        if(single){await root.TAWorkRestorePanel.open(normalized,workState,file.name);return;}
         const atConfirmation = structuredClone(backupContent(UI.state.lib));
         let baseline,plan,review,mergeError='';
         if(workState){
@@ -1216,10 +1218,12 @@
           content,
           actions: [
             ...(review?[{ id: 'merge', label: '合并进来', kind: 'btn-primary' }]:[]),
+            ...((normalized.characters.length || normalized.worldBooks.length)?[{id:'one-work',label:'恢复单件作品'}]:[]),
             { id: 'replace', label: '替换当前库', kind: 'btn-danger' },
             { id: 'no', label: '取消' },
           ],
         });
+        if(answer==='one-work'){await root.TAWorkRestorePanel.open(normalized,workState,file.name);return;}
         if (answer !== 'replace' && answer !== 'merge') return;
         const live = UI.state.lib;
         const copies=new Map();
@@ -1283,6 +1287,7 @@
       }catch(error){UI.toast(UI.t(error.message),{kind:'error'});}finally{button.disabled=false;}
     };
     stage.querySelector('#load-backup').onclick = async () => restoreFile(await UI.pickFile('.json,application/json'));
+    stage.querySelector('#restore-work').onclick = async () => restoreFile(await UI.pickFile('.json,application/json'),true);
     stage.querySelector('#backup-demo').onclick = UI.confirmLoadDemo;
     stage.querySelector('#backup-clear').onclick = UI.confirmClear;
     stage.ondragover = (event) => event.preventDefault();

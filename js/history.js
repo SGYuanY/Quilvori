@@ -4,6 +4,8 @@
   const collections = new Set(['characters','worldBooks']);
   const idFor = (kind,id) => JSON.stringify([kind,id]);
   const same = (a,b) => JSON.stringify(a) === JSON.stringify(b);
+  // Restored snapshots can be written long after they were taken.
+  const newestFirst = (a,b) => b.time-a.time || b.seq-a.seq;
   function database() {
     const db = root.TALibraryDB?.database();
     if (!db) throw new Error('版本库存储不可用');
@@ -37,8 +39,8 @@
       const policy=tx.objectStore('versionLimits').get(entity);
       policy.onsuccess=()=>{
         if (!policy.result) return;
-        const all=versions.index('entity').getAllKeys(entity);
-        all.onsuccess=()=>remove(tx,all.result.slice(0,Math.max(0,all.result.length-policy.result)));
+        const all=info.index('entity').getAll(entity);
+        all.onsuccess=()=>remove(tx,all.result.sort(newestFirst).slice(policy.result).map(row=>row.seq));
       };
     }
   }
@@ -57,22 +59,59 @@
       tx.onabort=()=>reject(failure || tx.error || new Error('版本库存储不可用'));
     });
   }
+  function importedRows(library, rows) {
+    const targets=new Set();
+    return rows.map(row=>{
+      const valid=root.TAWorkBackup.readSnapshot(row),entity=idFor(valid.kind,valid.id);
+      if(!targets.has(entity)){
+        if(!library[valid.kind].some(item=>item.id===valid.id))throw conflict();
+        targets.add(entity);
+      }
+      return {...valid,entity};
+    });
+  }
+
+  function appendImported(tx, imported, checkpoints, abort) {
+    const groups=new Map(),ordinary=[];
+    for(const row of imported){
+      if(!groups.has(row.entity))groups.set(row.entity,{incoming:[],checkpoints:[]});
+      groups.get(row.entity).incoming.push(row);
+    }
+    for(const row of checkpoints)(groups.get(row.entity)?.checkpoints ?? ordinary).push(row);
+    if(ordinary.length)append(tx,ordinary);
+    for(const [entity,group] of groups){
+      const policies=tx.objectStore('versionLimits');
+      const prior=tx.objectStore('versions').index('entity').getAll(entity),policy=policies.get(entity);
+      policy.onsuccess=()=>{
+        try{
+          const added=root.TAWorkBackup.missingVersions(prior.result,group.incoming).sort((a,b)=>a.time-b.time);
+          const rows=added.concat(group.checkpoints);
+          if(!rows.length)return;
+          // Keep previously visible history and the immediately preceding manuscript.
+          // Only this work's finite limit needs to grow to fit the approved import.
+          const count=prior.result.length+rows.length;
+          if(policy.result && policy.result<count)policies.put(count,entity);
+          append(tx,rows,false);
+        } catch(error){abort(error);}
+      };
+    }
+  }
   async function inventory(kind,id) {
     const entity=idFor(kind,id);
     const tx=database().transaction(['versionInfo','versionLimits']);
     const [rows,limit]=await Promise.all([read(tx.objectStore('versionInfo').index('entity').getAll(entity)),
       read(tx.objectStore('versionLimits').get(entity))]);
-    rows.reverse();
+    rows.sort(newestFirst);
     return {entity,rows,limit:limit ?? null,bytes:rows.reduce((total,row)=>total+row.bytes,0)};
   }
   async function overview() {
     const rows=await read(database().transaction('versionInfo').objectStore('versionInfo').getAll());
     const works=new Map();
     let bytes=0;
-    for (const row of rows) {
+    for (const row of rows.sort(newestFirst)) {
       if (!works.has(row.entity)) works.set(row.entity,{entity:row.entity,kind:row.kind,id:row.id,count:0,bytes:0,name:''});
       const work=works.get(row.entity);
-      work.count++;work.bytes+=row.bytes;work.name=row.name || work.name;bytes+=row.bytes;
+      work.count++;work.bytes+=row.bytes;work.name ||= row.name || '';bytes+=row.bytes;
     }
     return {works:[...works.values()].sort((a,b)=>b.bytes-a.bytes),count:rows.length,bytes};
   }
@@ -85,9 +124,9 @@
   function clean(plan) {
     return guardedWrite((tx,abort)=>{
       const policies=tx.objectStore('versionLimits');
-      const prior=policies.get(plan.entity),ids=tx.objectStore('versions').index('entity').getAllKeys(plan.entity);
-      ids.onsuccess=()=>{
-        const current=ids.result.reverse();
+      const prior=policies.get(plan.entity),info=tx.objectStore('versionInfo').index('entity').getAll(plan.entity);
+      info.onsuccess=()=>{
+        const current=info.result.sort(newestFirst).map(row=>row.seq);
         const keys=new Set(current);
         // A preview belongs to one work and the exact snapshot list the user reviewed.
         if (!same(current,plan.expected) || (prior.result ?? null)!==plan.previousLimit ||
@@ -106,7 +145,7 @@
     const db = await database();
     return new Promise((resolve,reject) => {
       const request = db.transaction('versions').objectStore('versions').index('entity').getAll(idFor(kind,id));
-      request.onsuccess = () => resolve(request.result.reverse());
+      request.onsuccess = () => resolve(request.result.sort(newestFirst));
       request.onerror = () => reject(request.error);
     });
   }
@@ -182,7 +221,7 @@
     await commitWorks(next,[[row.kind,expected]],{reason:'回滚前',historyRequired:true,
       scopes:[[row.kind,row.id]],restore:{seq:row.seq,entity:row.entity}});
   }
-  root.TAHistory = {tables,summary,append,list,inventory,overview,cleanupPlan,clean,diff,apply,restore,commitWorks,
+  root.TAHistory = {tables,summary,append,importedRows,appendImported,list,inventory,overview,cleanupPlan,clean,diff,apply,restore,commitWorks,
     get:seq=>read(database().transaction('versions').objectStore('versions').get(seq)),
     save:(kind,item,label)=>{
       const snapshot=version(kind,item,'手动快照',label);

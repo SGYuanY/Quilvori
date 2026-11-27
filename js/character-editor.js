@@ -132,6 +132,8 @@
     const duplicateCharacter = (source) => {
       const copy = structuredClone(source);
       delete copy.shelfPinned;
+      delete copy.creationSource;
+      delete copy.creationRecordKeys;
       copy.id = Store.uid('ch');
       copy.name = `${source.name} 的副本`;
       copy.createdAt = stamp();

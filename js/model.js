@@ -705,7 +705,7 @@
       reasoningEffort: REASONING_EFFORTS.includes(config.reasoningEffort) ? config.reasoningEffort : 'auto',
       reasoning: "",
       output: "",
-      scope: opts.scopeSummary || "连接测试，没有发送角色卡或世界书。",
+      scope: opts.scopeSummary || tr("连接测试，没有发送角色卡或世界书。"),
       startedAt: new Date().toISOString(),
     };
     records.push(record);
@@ -824,6 +824,39 @@
       return root.NIJANCreativeDialogue.decode(task, raw);
     return parseJson(raw);
   }
+  function taskLabel(task,label){
+    const title=typeof label==='string' && label.trim() ? label : '';
+    const module=task?.startsWith('create:') && root.NIJANAI.MODULES[task.slice(7)];
+    if(module && (!title || title==='创作'+module))return tr(module);
+    const taskNames={
+      edit:['定向改稿','样稿定向调整'], review:['逻辑与人设检查','人设与设定检查'],
+      discuss:['创作沟通'], questions:['创作追问'], ideas:['创作灵感'], utility:['辅助任务'],
+      'organize:character':['角色卡整理分栏'], 'organize:world':['世界书条目整理'], test:['连接测试','接口测试'],
+    };
+    const labels=Object.hasOwn(taskNames,task) ? taskNames[task] : [];
+    return !title || labels.includes(title) ? tr(title || labels[0] || '模型请求') : title;
+  }
+  function describeScope(task,label,input){
+    const ai=root.NIJANAI, lines=[taskLabel(task,label)];
+    const add=(name,value)=>lines.push(tr(name)+' · '+value);
+    if(task.startsWith('create:') && Array.isArray(input.modules) && input.modules.length)
+      lines.push(input.modules.map(key=>ai.MODULES[key]).filter(Boolean).map(tr).join(' / '));
+    if(input.ideas?.length)add('已采用灵感',input.ideas.map((idea,index)=>(index+1)+'. '+idea).join('\n'));
+    if(input.instruction)add('本轮补充',input.instruction);
+    for(const target of input.targets || []){
+      const fields=target.fields.map(key=>tr(ai.CARD_FIELDS[key] || ai.ENTRY_FIELDS[key] || key));
+      add('可修改栏位',(target.name ?? target.id)+' · '+fields.join(', '));
+    }
+    add('参考角色卡',(input.card || input.reference?.card)?.name || tr('未选用'));
+    const book=input.book || input.reference?.book;
+    if(book){
+      const included=book.entries.length, total=book.scope?.totalEntries ?? included;
+      const scope=book.scope?.mode==='reference' ? '参考条目（选中原文另外完整发送）' : book.scope?.mode==='selected_entries' ? '选中条目' : '条目';
+      add('世界书',book.name+' · '+included+' / '+total+' · '+tr(scope));
+      add('提供的条目',book.entries.map(entry=>entry.comment || entry.id).join(', ') || tr('无'));
+    }else add('世界书',tr('未选用'));
+    return lines.join('\n');
+  }
   async function runTask(task, context, options) {
     const input = context || {};
     if (
@@ -854,31 +887,11 @@
       Object.assign({}, options, {
         task,
         creative: task.startsWith("create:"),
-        workRecord: ['create:character','create:world'].includes(task) ? {workKinds:options?.workKinds || [task.slice(7)],workBatch:options?.workBatch || '',workBrief:input.brief || ''} : null,
-        scopeSummary: [
-          `任务：${options?.label || task}`,
-          ...(task.startsWith('create:') && Array.isArray(input.modules) ? [input.modules.map(key=>root.TAI18n?.t(root.NIJANAI.MODULES[key]) || root.NIJANAI.MODULES[key]).filter(Boolean).join(' / ')] : []),
-          ...(input.ideas?.length
-            ? [
-                `已采用灵感：${input.ideas.map((idea, index) => `${index + 1}. ${idea}`).join("\n")}`,
-              ]
-            : []),
-          ...(input.instruction ? [`本轮补充：${input.instruction}`] : []),
-          ...(input.targets || []).map(
-            (target) =>
-              `可修改：${target.name || target.id} · ${target.fields.map((field) => root.NIJANAI.CARD_FIELDS[field] || root.NIJANAI.ENTRY_FIELDS[field] || field).join("、")}`,
-          ),
-          `参考角色卡：${(input.card || input.reference?.card)?.name || "未选用"}`,
-          ...(input.book || input.reference?.book
-            ? (() => {
-                const book = input.book || input.reference.book;
-                return [
-                  `世界书：${book.name}，实际提供 ${book.entries.length} / ${book.scope?.totalEntries ?? book.entries.length} 条${book.scope?.mode === "reference" ? "参考条目（选中原文另外完整发送）" : book.scope?.mode === "selected_entries" ? "选中条目" : "条目"}`,
-                  `提供的条目：${book.entries.map((entry) => entry.comment || entry.id).join("、") || "无"}`,
-                ];
-              })()
-            : ["世界书：未选用"]),
-        ].join("\n"),
+        workRecord: ['create:character','create:world'].includes(task) ? {
+          workKinds:options?.workKinds || [task.slice(7)],workBatch:options?.workBatch || '',workBrief:input.brief || '',
+          ...(options?.workRun ? {workRun:options.workRun,workSelection:options.workSelection} : {}),
+        } : null,
+        scopeSummary:describeScope(task,options?.label,input),
       }),
     );
     try {
@@ -990,7 +1003,7 @@
     writingGuide,
     modelsFromPayload,
     listModels,
-    runTask,
+    runTask, taskLabel,
     parseJson,
     askJson,
     testMessage,

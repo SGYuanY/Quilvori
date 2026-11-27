@@ -192,6 +192,10 @@
   const phrases = Object.fromEntries(
     rows.map(([zh, en, ja]) => [zh, { en, ja }]),
   );
+  phrases["次关键词（可留白）"] = {
+    en:"Secondary keywords (optional)", ja:"副キーワード（任意）", ru:"Дополнительные ключевые слова (необязательно)",
+    ko:"보조 키워드 (선택 사항)", th:"คำสำคัญรอง (ไม่บังคับ)",
+  };
   phrases["查看新版角色卡"] = {
     en:"Open updated card", ja:"更新されたカードを開く", ru:"Открыть обновлённую карточку",
     ko:"업데이트된 카드 열기", th:"เปิดการ์ดฉบับที่อัปเดต",

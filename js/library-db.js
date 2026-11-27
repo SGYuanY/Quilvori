@@ -179,10 +179,10 @@
     tx.objectStore('library').put(transfer.epoch,'creationEpoch');
   }
   function commit(db,expected,batch,options={}) {
-    const {guard,snapshots=[],draft,clear,archive,epoch,transfer}=options;
+    const {guard,snapshots=[],importSnapshots=[],draft,clear,archive,epoch,transfer}=options;
     const history=root.TAHistory;
     const tables=['library',records];
-    if (clear || transfer || snapshots.length || options.restore) tables.push(...history.tables);
+    if (clear || transfer || snapshots.length || importSnapshots.length || options.restore) tables.push(...history.tables);
     if (clear || transfer || draft) tables.push('drafts');
     if (clear || transfer) tables.push('creationRecords');
     return new Promise((resolve,reject) => {
@@ -224,8 +224,9 @@
               control.put(epoch,'creationEpoch'); control.delete(archiveKey);
               for (const name of [...history.tables,'drafts','creationRecords']) tx.objectStore(name).clear();
             }
-            if (snapshots.length) history.append(tx,snapshots);
-            if (clear || transfer || draft || snapshots.length) touchWork(tx);
+            if (importSnapshots.length) history.appendImported(tx,importSnapshots,snapshots,abort);
+            else if (snapshots.length) history.append(tx,snapshots);
+            if (clear || transfer || draft || snapshots.length || importSnapshots.length) touchWork(tx);
           } catch (error) { abort(error); }
         }
         if (batch.full) {
@@ -341,7 +342,7 @@
       }
     };
     store.backend='indexedDB';
-    store.save=(library,guard,snapshots,draft,scopes,restore,transfer)=>{
+    store.save=(library,guard,snapshots,draft,scopes,restore,transfer,importSnapshots)=>{
       if (locked) throw new Error('请先恢复资料库。');
       let batch;
       if (scopes?.length && scopes.every(([field,,mode])=>!payloadFields.has(field) || mode==='metadata')) batch=changes(library,scopes);
@@ -351,7 +352,7 @@
         batch=pack(data);
       }
       return enqueue(async()=>{
-        await persist(batch,{guard,undo:'keep',snapshots,draft,restore,transfer});
+        await persist(batch,{guard,undo:'keep',snapshots,draft,restore,transfer,importSnapshots});
         if(transfer)clearEpoch=transfer.epoch;
       });
     };

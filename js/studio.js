@@ -293,6 +293,7 @@
               "expressionAssetIds",
               "workSource",
               "creationSource",
+              "creationRecordKeys",
               "messageStamp",
               "x",
               "y",
@@ -541,6 +542,7 @@
     const snapshot = {brief:s.brief,modules:[...s.modules],answers:AI().copy(s.answers),ideas:AI().copy(s.ideas),creationHistory:AI().copy(s.creationHistory)},
       inputs = {brief:snapshot.brief,modules:snapshot.modules,questions:AI().copy(s.questions),answers:snapshot.answers,ideas:snapshot.ideas,cardId:s.cardId,bookId:s.bookId};
     const batchId = s.creationBatchId || root.TAStore.uid("batch");
+    const workRun = root.TAStore.uid('generation');
     s.creationBatchId = batchId;
     if (instruction) {
       rememberCreation("user", instruction);
@@ -599,16 +601,24 @@
           status(UI().t("creation.generating",{module:UI().t(AI().MODULES[module])}));
           return root.NIJANModel.runTask('create:'+module,context,{
             signal,label:'创作'+AI().MODULES[module],workKinds:offered,workBatch:batchId,
+            workRun,workSelection:modules.filter(root.TACreativeBatch.isWork),
             collectWorks:root.TACreativeBatch.isWork(module),
           });
         },
-        async deliver(module,result,context,sourceKey){
+        async deliver(module,result,context,sourceKey,recordId){
           const previous=previousFor(module);
-          const plan=root.TACreativeBatch.plan(virtual,module,result,context,{previous,batchId,inputs,sourceKey});
+          const plan=root.TACreativeBatch.plan(virtual,module,result,context,{previous,batchId,inputs,sourceKey,recordId});
           created[module]=plan.result[module];
           if(previous)s.plans=s.plans.filter(row=>row.id!==previous.id);
           rememberPlan(plan,plan.result,'create:'+batchId+':'+module);
           await protectDraft(plan);
+          if(plan.draftSaveError && recordId){
+            const record=root.NIJANModel.history().find(row=>row.id===recordId);
+            if(record){
+              record.failedDraftKinds=[...new Set([...(record.failedDraftKinds || []),module])];
+              await root.TACreationRecords.save(record);
+            }
+          }
         },
       });
       if(!active())return;
@@ -1163,7 +1173,7 @@
       records.find((record) => record.id === taskRecordId) ||
       records[records.length - 1];
     if (!selected) {
-      if(!host.firstChild)host.innerHTML='<p class="help">'+esc(UI().t('本次打开还没有模型请求。'))+'</p>';
+      if(host.querySelector('select') || !host.firstChild)host.innerHTML='<p class="help">'+esc(UI().t('本次打开还没有模型请求。'))+'</p>';
       return;
     }
     const statuses = {
@@ -1177,28 +1187,47 @@
       error: "未完成",
     };
     const select = host.querySelector("select");
-    const recordKeys = records.map((record) => record.id).join(",");
+    const language=root.TAI18n?.prefs.lang;
+    const recordKeys=JSON.stringify([language,records.map(record=>[record.id,record.label,record.task,record.startedAt])]);
     if (!select || host.dataset.recordKeys !== recordKeys) {
       host.dataset.recordKeys = recordKeys;
-      host.innerHTML = `<label class="field"><span class="field-label">查看哪一次任务</span><select id="ai-task-select">${records.map((record) => `<option value="${esc(record.id)}">${esc(record.label)} · ${esc(new Date(record.startedAt).toLocaleTimeString())}</option>`).join("")}</select></label><p data-task-status class="help"></p><div data-task-readable></div><details><summary>本次输入范围</summary><pre class="ai-model-thought" data-task-scope></pre></details><details><summary>模型返回的思考</summary><pre class="ai-model-thought" data-task-thought data-no-translate></pre></details><details><summary>原始结果（排查用）</summary><pre class="ai-model-thought" data-task-output data-no-translate></pre></details>`;
-      const recovery=document.createElement('div');recovery.dataset.taskRecovery='';host.append(recovery);
+      const translated=key=>esc(UI().t(key));
+      const options=records.map(record=>{
+        const started=new Date(record.startedAt);
+        const when=Number.isFinite(started.getTime()) ? ' · '+started.toLocaleTimeString(language) : '';
+        return `<option value="${esc(record.id)}">${esc(root.NIJANModel.taskLabel(record.task,record.label)+when)}</option>`;
+      });
+      host.innerHTML=`<label class="field"><span class="field-label">${translated('查看哪一次任务')}</span><select id="ai-task-select" data-no-translate>${options.join('')}</select></label>
+        <p data-task-status data-no-translate class="help"></p><div data-task-recovery></div><div data-task-readable></div>
+        <details><summary>${translated('本次输入范围')}</summary><pre class="ai-model-thought" data-task-scope data-no-translate></pre></details>
+        <details><summary>${translated('模型返回的思考')}</summary><pre class="ai-model-thought" data-task-thought data-no-translate></pre></details>
+        <details><summary>${translated('原始结果（排查用）')}</summary><pre class="ai-model-thought" data-task-output data-no-translate></pre></details>`;
       host.querySelector("select").onchange = (event) => {
         taskRecordId = event.target.value;
         paintRecord();
       };
     }
     host.querySelector("select").value = selected.id;
-    const received = selected.bytesReceived ? ' · '+UI().t('已接收')+' '+(selected.bytesReceived < 1024 ? selected.bytesReceived+' B' : (selected.bytesReceived/1024).toFixed(1)+' KiB') : '';
-    host.querySelector("[data-task-status]").textContent =
-      `${UI().t(statuses[selected.status] || selected.status)} · ${selected.model}${received}${selected.reasoningEffort && selected.reasoningEffort !== 'auto' ? ` · ${UI().t('推理强度')} ${selected.reasoningEffort}` : ''}${selected.transportNote ? ` · ${UI().t(selected.transportNote)}` : ""}${selected.error ? ` · ${UI().t(selected.error)}` : ""}`;
+    const statusKey=Object.hasOwn(statuses,selected.status) ? statuses[selected.status] : selected.status || (selected.output ? '已接收正文' : '未完成');
+    const statusParts=[UI().t(statusKey)];
+    if(typeof selected.model==='string' && selected.model.trim())statusParts.push(selected.model);
+    if(selected.bytesReceived)statusParts.push(UI().t('已接收')+' '+(selected.bytesReceived<1024 ? selected.bytesReceived+' B' : (selected.bytesReceived/1024).toFixed(1)+' KiB'));
+    if(selected.reasoningEffort && selected.reasoningEffort!=='auto')statusParts.push(UI().t('推理强度')+' '+selected.reasoningEffort);
+    if(selected.transportNote)statusParts.push(UI().t(selected.transportNote));
+    if(selected.error)statusParts.push(root.TACreativeRecovery.recordError(selected));
+    if(selected.archiveWarning)statusParts.push(UI().t(selected.archiveWarning));
+    host.querySelector("[data-task-status]").textContent=statusParts.filter(Boolean).join(' · ');
     host.querySelector("[data-task-thought]").textContent =
-      selected.reasoning || UI().t(selected.reasoning===undefined ? '本机返回记录保存了当时收到的正文。' : '这个模型没有返回可显示的思考。');
+      selected.reasoning || UI().t(selected.emptyReason==='reasoning' ? '接口只返回了推理，没有写作正文。' :
+        selected.reasoning===undefined && selected.output ? '本机返回记录保存了当时收到的正文。' : '这个模型没有返回可显示的思考。');
     host.querySelector("[data-task-output]").textContent =
       selected.output || UI().t("尚未返回结果。");
     host.querySelector("[data-task-scope]").textContent =
       selected.scope || UI().t("旧记录没有保存输入范围。");
-    if(selected.archiveWarning)host.querySelector('[data-task-status]').append(' · '+UI().t(selected.archiveWarning));
-    root.TACreativeRecovery.mountRecord(host.querySelector('[data-task-recovery]'),selected);
+    root.TACreativeRecovery.mountRecord(host.querySelector('[data-task-recovery]'),selected,records,()=>{
+      const state=data(),receipt=state.receipt;
+      return receipt?.draft ? [...state.plans,{...receipt.draft,operations:receipt.operations}] : state.plans;
+    });
     const readable = host.querySelector("[data-task-readable]");
     if (
       selected.task === "review" &&
@@ -1659,17 +1688,24 @@
   if (root.addEventListener) {
     root.addEventListener("pagehide", persist);
     root.addEventListener("nijan-task", () => paintRecord());
+    root.addEventListener("quilvori-drafts", paintRecord);
     root.addEventListener("quilvori-credential-status", paintConnection);
   }
   async function recoverWork(kind,result,sourceKey,record) {
     if(controller)throw new Error('已有任务正在运行，可先打开其他栏目。');
-    // The same batch can contain different responses after two devices edited offline.
-    const shelf=root.TAStudioDrafts,peer=shelf.pending().find(({plan})=>plan.sourceKey===sourceKey);
-    const preferred=peer?.plan.batchId || record?.workBatch || 'recovered_'+sourceKey;
-    const batchId=shelf.findSaved(preferred,kind) ? root.TAStore.uid('recovery') : preferred;
+    const shelf=root.TAStudioDrafts,origin=record && root.TAWorkOutcomes.recordKey({...record,sourceKey});
+    const fallback='recovered_'+(origin || sourceKey);
+    const peer=origin && shelf.pending().find(({plan})=>plan.operations.some(op=>
+      Array.isArray(op.value?.creationRecordKeys) && op.value.creationRecordKeys.includes(origin)));
+    const preferred=peer?.plan.batchId || record?.workBatch || fallback;
+    const batchId=shelf.findSaved(preferred,kind) ? fallback : preferred;
+    if(shelf.findSaved(batchId,kind))throw new Error('草稿已在另一窗口更新，请重新打开。');
     const inputs={brief:record?.workBrief || '',modules:record?.workKinds || [kind]};
-    const plan=root.TACreativeBatch.plan(structuredClone(lib()),kind,result,{brief:inputs.brief},{batchId,inputs,sourceKey});
-    await root.TAStudioDrafts.keep(plan);
+    const recordId=record?.workOrigin || record?.id;
+    const plan=root.TACreativeBatch.plan(structuredClone(lib()),kind,result,{brief:inputs.brief},{batchId,inputs,sourceKey,recordId});
+    await root.TAStudioDrafts.keep(plan,true);
+    if(origin)data().plans=data().plans.filter(old=>!(old.task===plan.task && old.draftSaveError && old.operations.some(op=>
+      Array.isArray(op.value?.creationRecordKeys) && op.value.creationRecordKeys.includes(origin))));
     rememberPlan(plan,plan.result,'create:'+batchId+':'+kind);
     return plan;
   }

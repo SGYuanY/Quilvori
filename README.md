@@ -147,7 +147,9 @@ The creation conversation uses the current draft and your selected ideas. You ca
 
 New character cards and world books are saved locally as drafts. Find **AI drafts awaiting review** in the Collection or the corresponding editor, review the draft, and apply it. **Open in collection** takes you to the saved work. Apply a generated character before applying a group, script or relationship graph that references it.
 
-When a provider returns a character and a world book together, Quilvori checks the selected works separately. A valid work appears in the draft shelf even if the other needs attention. By default, this device keeps the last 24 card and world-book responses with output. Open **AI studio → Task log and model output** to recover drafts from a response, or paste a response copied from an older version. Recovery runs locally. Discussion accepts ordinary text, and you can revise the draft directly from the latest reply.
+Open **AI studio → Task history and model output → Generated works** to see a separate row for each requested card or world book. Each row opens the matching draft or adopted work. If one work needs attention, you can still adopt the other. After restarting, you can recover a draft from a usable saved response without sending another model request.
+
+By default, this device keeps the latest 24 card and world-book request records, including a status notice for failed requests with no final text. The same panel also accepts a response copied from an older version. In a discussion, you can reply in ordinary text and revise the draft using the latest exchange.
 
 ### Review logic and characterization
 
@@ -277,6 +279,8 @@ The full-library JSON (`backupVersion: 2`) includes your works, pending card and
 
 In **Version history → Manage snapshots for this work**, review the number of snapshots and their estimated content size. Preview the dated revisions selected for removal before confirming a retention limit or clearing the work’s history. A blank limit keeps all snapshots. A saved limit also applies to future manual and automatic snapshots. Size estimates use UTF-8 JSON bytes and exclude IndexedDB overhead. **Full-library backup → Library snapshot storage** shows totals and lets you review snapshots left by removed works.
 
+Choose **Restore one work** on the Backup page to search a backup for a single character or world book. Compare the backup with the current work and choose which linked book, images, and available snapshots to bring back. The default creates a separately labeled copy with its own history. Older library-only backups can supply works and assets. A confirmed replacement takes a snapshot of the current manuscript in the same transaction.
+
 The storage phase of `npm run test:ui` compares five single-field saves with synthetic 64 KiB and 16 MiB image/chat payloads. It reports median input handling and save times, and measures snapshot growth after five 8 KiB additions to one work. Results depend on the device and describe these test libraries.
 
 Importing an individual chat reading copy restores its messages, bookmarks and original SillyTavern header. When deleting a character, review its references and choose whether to unlink them, replace the character or keep the speaker’s name on script lines. Character cards, world books, image assets, chats, groups, regex scripts and quick-reply sets offer **Undo deletion** in the confirmation toast after removal.
@@ -322,7 +326,7 @@ Restart the desktop app or refresh the web page. Web-only users do not need `npm
 npm run validate
 ```
 
-`npm run validate` checks JavaScript syntax, types for card, world-book and prompt preset conversion, the generated browser code and the behavior tests. After editing the format sources, run `npm run build:formats`. CI uses Node.js 22 and 24 on Ubuntu and Windows.
+`npm run validate` checks JavaScript syntax, typed formats, restore and work-tracking logic, generated browser scripts, and the behavior tests. After editing the TypeScript sources, run `npm run build:formats`. CI uses Node.js 22 and 24 on Ubuntu and Windows.
 
 Tests use sample data and mock interfaces rather than paid model calls. They cover format round trips, folder deduplication, lossless moves, metadata organization, editable scope, optional blanks, stale previews, apply/undo, evidence, transport protocols, reasoning parameters, locales, page palettes, attribution sanitization, resource catalogs, and bounded wallpaper imports.
 

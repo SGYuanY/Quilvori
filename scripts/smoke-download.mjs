@@ -12,6 +12,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { unzipSync } from 'fflate';
+import { generateAndRestore, verifyWorkDestinations } from './smoke-work-recovery.mjs';
 
 const run = promisify(execFile);
 const project = fileURLToPath(new URL('../', import.meta.url));
@@ -172,6 +173,7 @@ async function exercise(mode) {
         title.closest('article').querySelector('[data-collection-pin]').click();
       },fixtures.book);
       assert.equal(await read(()=>TAUI.flush()),true);
+      await generateAndRestore({read,click,edit,waitFor,until});
     } else {
       const restored=await read(({card,book})=>({
         description:TAUI.state.lib.characters.find(item=>item.name===card)?.description,
@@ -182,6 +184,7 @@ async function exercise(mode) {
         const first=document.querySelector('.collection-item');
         return [first.querySelector('h3').textContent,first.querySelector('[data-collection-pin]').getAttribute('aria-pressed')];
       }),[fixtures.book,'true']);
+      await verifyWorkDestinations({read,click,waitFor,until});
       const damaged='{"profiles":';
       await read(async raw=>{
         localStorage.setItem('nijan-model',raw);
@@ -272,7 +275,7 @@ try {
   }
   await exercise('edit');
   await exercise('reopen');
-  console.log('Passed '+(web?'web ZIP':'desktop package')+' startup, character and world editing, encrypted model credentials, clean quit, persisted restart and connection recovery on '+process.platform+'/'+process.arch+'.');
+  console.log('Passed '+(web?'web ZIP':'desktop package')+' startup, editing, protected model settings, single-work restore, partial generation, and opening the correct saved work after restart on '+process.platform+'/'+process.arch+'.');
   if(nativeMacKeychain)console.log('Used a dedicated, unlocked system Keychain on the hosted macOS runner.');
 } finally {
   if(webServer?.listening){webServer.closeAllConnections();await new Promise(resolve=>webServer.close(resolve));}

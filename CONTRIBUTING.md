@@ -48,6 +48,7 @@ Use a separate browser profile or port for manual tests with sample data. Each b
 | `js/ui.js`, `js/views.js`, `js/workspace.js` | Shell, page registration, settings, navigation, and interaction. |
 | `js/character-editor.js`, `js/world-editor.js`, `js/work-editor-tools.js` | Character and world-book pages, including their shared JSON, media and AI controls. |
 | `src/formats/card-world.ts`, `src/formats/workshop.js` | Typed card and world-book conversion, and the remaining workshop format implementations. |
+| `src/restore/work-restore.ts`, `src/creation/work-outcomes.ts` | Planning a single-work restore and locating the works from a generation in the current draft shelf or library. |
 | `js/store.js`, `js/history.js`, `js/png.js` | Library storage, work edits and revision history, and card PNG data. |
 | `js/model.js`, `js/ai-tasks.js`, `js/studio.js`, `js/creation.js` | Model transport, typed tasks, editing proposals, and creation sessions. |
 | `js/organize*.js`, `js/review.js` | Lossless organization and readable review reports. |
@@ -80,7 +81,7 @@ npm test
 
 Edit card and world-book conversions in `src/formats/card-world.ts`. Incoming files enter as `unknown`. Library records and native exports have separate types, including fields for third-party metadata. Prompt preset conversion uses checked JSDoc in `js/prompt-presets.js`.
 
-Run `npm run build:formats` after editing either source under `src/formats/` and commit the resulting `js/formats.js` alongside the source. The browser, desktop and Node consumers use that same entry point. Both packaging commands regenerate it. Validation catches an outdated artifact and type errors.
+Run `npm run build:formats` after editing sources under `src/`. Commit the affected generated scripts alongside the sources. The web and desktop editions load `js/formats.js`, `js/work-restore.js`, and `js/work-outcomes.js` directly. Both packaging commands regenerate them. Validation checks their contents and strict TypeScript diagnostics.
 
 Use `TAHistory.commitWorks` for a discrete replacement of an existing card or book. Pass the expected work and snapshot reason so the edit and its prior version are saved in one transaction. Ordinary field typing uses the existing debounced, per-work save.
 

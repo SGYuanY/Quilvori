@@ -9,3 +9,9 @@
 .draft-delivery strong,.draft-shelf-list strong {font-weight:600;}
 .studio-draft-shelf {margin-block:12px;}.draft-shelf-list .row {justify-content:space-between;padding-block:4px;}
 .regex-examples .snippet {white-space:pre-wrap;overflow-wrap:anywhere;max-height:12rem;overflow:auto;}
+.work-outcomes {display:grid;gap:.55rem;list-style:none;margin:.5rem 0 .8rem;padding:0;}
+.work-outcomes li {display:flex;align-items:center;flex-wrap:wrap;gap:.4rem .8rem;padding:.65rem .85rem;background:var(--paper-2);border-radius:8px;}
+.work-outcomes strong {overflow-wrap:anywhere;}
+.work-outcomes .work-outcome-status {color:var(--ink-soft);font-size:.88em;}
+.work-outcomes li > .btn {margin-inline-start:auto;}
+.work-outcomes li > .help {width:100%;margin:0;overflow-wrap:anywhere;}

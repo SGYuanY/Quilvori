@@ -14,6 +14,20 @@
   const stable=x=>Array.isArray(x)?x.map(stable):object(x)?Object.fromEntries(Object.keys(x).sort().map(key=>[key,stable(x[key])])):x;
   const signature=x=>JSON.stringify(stable(x));
   const equal=(a,b)=>signature(a)===signature(b);
+  // A backup may contain two deliberately identical snapshots. Match their counts,
+  // ignoring the database sequence and entity index that belong to this device.
+  function missingVersions(existing,incoming) {
+    const key=row=>signature([row.kind,row.id,row.time,row.reason,row.label??'',row.value]);
+    const counts=new Map();
+    for(const row of existing){
+      const id=key(row);counts.set(id,(counts.get(id)||0)+1);
+    }
+    return incoming.filter(row=>{
+      const id=key(row),left=counts.get(id)||0;
+      if(!left)return true;
+      counts.set(id,left-1);return false;
+    });
+  }
   const all=['drafts','versions','limits','records'];
   function unique(list,key,path) {
     const keys=new Set();
@@ -64,12 +78,15 @@
     return {kind:row.kind,id:row.id,keep:row.keep};
   }
   function record(raw) {
-    if(!object(raw)||!own(collections,raw.task)||!text(raw.id)||!raw.id||!text(raw.output)||!raw.output||!text(raw.startedAt))fail('records');
+    if(!object(raw)||!own(collections,raw.task)||!text(raw.id)||!raw.id||!text(raw.output)||!text(raw.startedAt))fail('records');
+    if(!raw.output && (!['error','cancelled'].includes(raw.status)||!['empty','reasoning'].includes(raw.emptyReason)))fail('record.output');
     const row=root.TACreationRecords.portable(raw);
-    for(const k of ['label','model','finishedAt','status','error','errorCode','sourceKey','workBatch','workBrief','reasoningEffort']){
+    for(const k of ['label','model','finishedAt','status','error','errorCode','sourceKey','workOrigin','workBatch','workRun','workBrief','reasoningEffort']){
       if(row[k]!=null&&!text(row[k]))fail('record.'+k);
     }
-    if(row.workKinds!=null&&(!Array.isArray(row.workKinds)||!row.workKinds.every(kind=>kind==='character'||kind==='world')))fail('record.workKinds');
+    for(const key of ['workKinds','workSelection','failedDraftKinds']){
+      if(row[key]!=null&&(!Array.isArray(row[key])||!row[key].every(kind=>kind==='character'||kind==='world')))fail('record.'+key);
+    }
     if(row.bytesReceived!=null&&(!Number.isSafeInteger(row.bytesReceived)||row.bytesReceived<0))fail('record.bytesReceived');
     return row;
   }
@@ -163,27 +180,28 @@
     for(const source of incoming.records) {
       const row=structuredClone(source);
       if(batchMap.has(row.workBatch))row.workBatch=batchMap.get(row.workBatch);
-      const sameAt=(id)=>{const known=byRecord.get(id);return known && equal(known,{...row,id});};
+      const asId=id=>id===row.id ? row : {...row,id,workOrigin:row.workOrigin || row.id};
+      const sameAt=id=>{
+        const known=byRecord.get(id);
+        return known && (equal(known,asId(id)) || (!known.workOrigin && !row.workOrigin && equal(known,{...row,id})));
+      };
       if(sameAt(row.id) || [...byRecord.keys()].some(id=>id.startsWith(row.id+'~backup') && sameAt(id)))continue;
       const name=available(row.id,new Set(byRecord.keys()));
       if(name!==row.id)copies.push(row.label || row.id);
-      row.id=name;out.records.push(row);byRecord.set(name,row);
+      const added=asId(name);out.records.push(added);byRecord.set(name,added);
     }
 
-    const counts=new Map();
-    for(const v of out.versions){const k=signature(v);counts.set(k,(counts.get(k)||0)+1);}
     const target=(kind,id)=>maps.get(kind)?.get(String(id))??id;
-    for(const source of incoming.versions){
+    const incomingVersions=incoming.versions.map(source=>{
       const row=structuredClone(source);row.id=target(row.kind,row.id);row.value.id=row.id;
       remapWork(row.value,row.kind,maps);
-      const key=signature(row),left=counts.get(key)||0;
-      if(left)counts.set(key,left-1);else out.versions.push(row);
-    }
+      return row;
+    });
+    for(const row of missingVersions(out.versions,incomingVersions))out.versions.push(row);
     out.versions.sort((a,b)=>a.time-b.time);
     const sourceEntities=(versions,limits)=>new Set([...versions,...limits].map(v=>entity(v.kind,v.id)));
     const localEntities=sourceEntities(local.versions,local.limits);
     const left=new Map(local.limits.map(v=>[entity(v.kind,v.id),v.keep]));
-    const incomingVersions=incoming.versions.map(v=>({kind:v.kind,id:target(v.kind,v.id)}));
     const incomingLimits=incoming.limits.map(v=>({...v,id:target(v.kind,v.id)}));
     const incomingEntities=sourceEntities(incomingVersions,incomingLimits);
     const right=new Map(incomingLimits.map(v=>[entity(v.kind,v.id),v.keep]));
@@ -209,5 +227,5 @@
   function transfer(baseline,state,mode){
     return {expected:baseline.token,data:materialize(state),epoch:root.TAStore.uid('restore'),mode};
   }
-  root.TAWorkBackup={normalize,merge,transfer};
+  root.TAWorkBackup={normalize,merge,transfer,readSnapshot:snapshot,missingVersions};
 })(globalThis);

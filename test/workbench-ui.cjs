@@ -209,6 +209,7 @@ async function exercise() {
   await input('#model-id','quick-fixture');await click('#set-close');
   assert.equal(await run(()=>NIJANModel.load().model),'quick-fixture');
   await change('#studio-profile','default');
+  await run(()=>NIJANModel.flushCredentials());
   assert.equal(await run(()=>NIJANModel.load().model),'fixture');
   assert.ok(!await run(()=>JSON.stringify(TAFormats.backupOf(TAUI.state.lib)).includes('fixture-only')));
   log('named configurations switch from the studio and stay outside library backups');

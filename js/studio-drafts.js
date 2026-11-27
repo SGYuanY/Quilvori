@@ -64,15 +64,19 @@
     else rows.delete(change.id);
     changed();
   }
-  async function write(change){
+  async function write(change,guardLibrary=false){
     const db=root.TALibraryDB.database();
     if(!db)throw new Error('草稿存储不可用');
     await new Promise((resolve,reject)=>{
       const tx=db.transaction(['drafts','library'],'readwrite'),expected=generation;
       let failure;
-      const epoch=tx.objectStore('library').get('creationEpoch');
+      const control=tx.objectStore('library');
+      const head=guardLibrary?control.get('current'):null,expectedHead=guardLibrary?root.TALibraryDB.revision():null;
+      const epoch=control.get('creationEpoch');
       epoch.onsuccess=()=>{
-        if((epoch.result??0)!==expected){failure=new Error('草稿已在另一窗口更新，请重新打开。');tx.abort();return;}
+        if((epoch.result??0)!==expected || (head && (head.result?.seq??0)!==expectedHead)){
+          failure=new Error('草稿已在另一窗口更新，请重新打开。');tx.abort();return;
+        }
         root.TALibraryDB.touchWork(tx);
         writeTo(tx.objectStore('drafts'),change,error=>{failure=error;tx.abort();});
       };
@@ -81,10 +85,10 @@
     });
     committed(change);
   }
-  async function keep(plan){
+  async function keep(plan,guardLibrary=false){
     if(!isWork(plan) || !itemOperation(plan) || itemOperation(plan).applied)return;
     const change=updateFor(plan);
-    await write(change);
+    await write(change,guardLibrary);
     plan.draftRevision=change.row.revision;
     delete plan.draftSaveError;
   }

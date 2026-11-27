@@ -71,11 +71,11 @@
       lines.slice(start,lines.length-end).join('\n'),lines.slice(lines.length-end,lines.length-end+1).join('\n')];
     return [parts(left),parts(right)];
   }
-  function difference(left,right) {
+  function difference(left,right,labels=['保留当前','采用备份']) {
     const columns=element('div',undefined,'integrity-diff');
     const pictures=imageValue(left)||imageValue(right);
     const pair=pictures?null:changedLines(printable(left),printable(right));
-    for(const [i,name] of ['保留当前','采用备份'].entries()) {
+    for(const [i,name] of labels.entries()) {
       const col=element('section'),value=i===0?left:right;col.append(element('b',tr(name)));
       if(imageValue(value)) {
         const image=element('img');image.alt=tr(name);image.src=value;col.append(image);
@@ -147,5 +147,5 @@
     const name=row.name || row.scriptName || tr('未命名');
     return row.backupCopyOf==null ? name : name+' · '+tr('备份副本')+(row.backupCopyIndex>1?' '+row.backupCopyIndex:'');
   }
-  root.TAIntegrityPanel={remove,review,alternatives,resetUndo,displayName};
+  root.TAIntegrityPanel={remove,review,alternatives,resetUndo,displayName,difference};
 })(globalThis);

@@ -10,6 +10,11 @@ try {
   const env = {...process.env, QUILVORI_TEST_PROFILE:sandbox};
   delete env.ELECTRON_RUN_AS_NODE;
   const phases={
+    'work-restore':'work-restore-ui.cjs',
+    'work-restore-restart':'work-restore-ui.cjs',
+    'selective-history':'selective-history-ui.cjs',
+    'work-outcomes':'work-outcomes-ui.cjs',
+    'work-outcomes-restart':'work-outcomes-ui.cjs',
     'chat-passage':'chat-passage-ui.cjs',
     'journal-links':'journal-links-ui.cjs',
     'journal-links-restart':'journal-links-ui.cjs',

@@ -30,13 +30,13 @@
         remaining.delete(item);
         const result=response.results[item];
         if(!result){issue(item,response.errors[item]);continue;}
-        await deliver(item,result,item===kind?context:contextFor(item),response.sourceKey);
+        await deliver(item,result,item===kind?context:contextFor(item),response.sourceKey,response.recordId);
         delivered.push(item);
       }
     }
     return {delivered,issues};
   }
-  function plan(virtual,kind,result,context,{previous,batchId,inputs,sourceKey}){
+  function plan(virtual,kind,result,context,{previous,batchId,inputs,sourceKey,recordId}){
     const merged=root.NIJANCreation.mergeResult(previous?.result,result);
     root.NIJANCreation.withdraw(virtual,previous);
     const proposal=root.NIJANAI.proposal(virtual,'create:'+kind,merged,context);
@@ -49,7 +49,8 @@
       proposal.sourceKey=sourceKey;
       const collection=kind==='character'?'characters':'worldBooks';
       const value=proposal.operations.find(op=>op.kind==='add' && op.path[0]===collection)?.value;
-      if(value)value.creationSource=sourceKey;
+      const earlier=previous?.operations.find(op=>op.kind==='add' && op.path[0]===collection)?.value;
+      if(value)root.TAWorkOutcomes.stamp(value,earlier,recordId,sourceKey);
     }
     if(proposal.operations.length)root.NIJANAI.commit(virtual,structuredClone(proposal));
     return proposal;

@@ -8,8 +8,18 @@
   const time=row=>typeof row.startedAt==='string' ? row.startedAt : '';
   function portable(record){
     const row={};
-    for(const key of ['id','task','label','model','startedAt','finishedAt','status','error','errorCode','output','sourceKey','workBatch','workKinds','workBrief','reasoningEffort','bytesReceived']){
+    const fields=['id','task','label','model','startedAt','finishedAt','status','output','workOrigin','workBatch','workRun','workKinds','workSelection'];
+    if(record.output?.trim())fields.push('error','errorCode','sourceKey','workBrief','reasoningEffort','bytesReceived','failedDraftKinds');
+    else {
+      row.emptyReason=record.emptyReason || (record.reasoning?.trim() ? 'reasoning' : 'empty');
+      row.errorCode=['empty-output','first-byte-timeout','idle-timeout','cancelled'].includes(record.errorCode) ? record.errorCode : 'request-failed';
+    }
+    for(const key of fields){
       if(record[key]!==undefined)row[key]=record[key];
+    }
+    if(row.emptyReason){
+      row.output='';
+      if(!['error','cancelled'].includes(row.status))row.status='error';
     }
     if(row.status==='received')row.status='received_raw';
     return row;
@@ -35,11 +45,16 @@
       .then(buffer=>Array.from(new Uint8Array(buffer),byte=>byte.toString(16).padStart(2,'0')).join(''));
   }
   async function save(record){
-    if(!isWork(record) || !record.output || record.epoch!==generation)return;
+    if(!isWork(record) || record.epoch!==generation ||
+      (!record.output?.trim() && !['error','cancelled'].includes(record.status)))return;
     const db=root.TALibraryDB?.database();
     try{
-      if(!hashes.has(record))hashes.set(record,sourceKey(record.output));
-      record.sourceKey=await hashes.get(record);
+      if(record.output?.trim()){
+        if(!hashes.has(record))hashes.set(record,sourceKey(record.output));
+        record.sourceKey=await hashes.get(record);
+      } else {
+        record.emptyReason=record.reasoning?.trim() ? 'reasoning' : 'empty';
+      }
       if(record.epoch!==generation)return;
       if(!db)throw new Error('存储不可用');
       // Persist the response and its recovery metadata, omitting credentials and reference material.
@@ -73,7 +88,7 @@
         for(const id of saved.keys())if(!currentIds.has(id))saved.delete(id);
         delete record.archiveWarning;
       }
-    }catch(_){record.archiveWarning='原始正文只保留在当前窗口，请复制后再关闭。';}
+    }catch(_){record.archiveWarning=record.output?.trim()?'原始正文只保留在当前窗口，请复制后再关闭。':'任务状态只保留在当前窗口。';}
   }
   function reset(epoch){generation=epoch ?? generation+1;saved.clear();}
   root.TACreationRecords={load,save,history,reset,replace,portable,sourceKey,isWork,epoch:()=>generation};
