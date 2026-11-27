@@ -24,7 +24,7 @@
 .ctx-length, .ctx-chip-size, .ctx-entry-size { font-variant-numeric: tabular-nums; }
 .ctx-length { justify-content: flex-end; }
 .ctx-entry-size { grid-column: 1 / -1; display: block; }
-.ctx-directory-rows { width: 100%; display: grid; gap: .5rem; }
-.ctx-directory-pager:not([hidden]) { position: sticky; top: 2rem; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: .35rem; width: 100%; padding: .2rem 0; background: var(--bg); }
+.ctx-directory-rows { display: grid; grid-template-columns: minmax(0,1fr); align-content: start; gap: .5rem; min-height: 0; min-width: 0; overflow-y: auto; scrollbar-gutter: stable; }
+.ctx-directory-pager:not([hidden]) { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .35rem; width: 100%; padding: .2rem 0; }
 .ctx-directory-pager output { font-size: .76rem; font-variant-numeric: tabular-nums; }
 .ctx-body summary, .ctx-result button, .ctx-edge button { overflow-wrap: anywhere; }

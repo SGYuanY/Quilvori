@@ -239,10 +239,11 @@ select option, select optgroup { background: #282c25; color: #e0e4d4; }
 .ws-assist-details .ai-toolbar { border: 0; border-top: 1px solid var(--line); margin-bottom: 0; border-radius: 0 0 10px 10px; background: rgba(255, 255, 255, .012); }
 .ws-assist-details .lore-try { border: 0; margin: 0; padding: 16px; }
 .board-layout { display: grid; grid-template-columns: clamp(230px, var(--directory-width, 290px), 38%) minmax(0, 1fr); gap: 18px; align-items: stretch; }
-.board { display: flex; flex-direction: column; gap: 10px; padding: 15px; background: rgba(255, 255, 255, .012); border: 1px solid var(--line); border-radius: 8px; max-height: min(75vh, 940px); overflow-x: visible; overflow-y: auto; position: relative; min-width: 0; }
+.board { display: flex; flex-direction: column; align-items: stretch; gap: 10px; padding: 15px; background: rgba(255, 255, 255, .012); border: 1px solid var(--line); border-radius: 8px; max-height: min(75vh, 940px); overflow: clip; min-width: 0; min-height: 0; }
+.board > :not(.ctx-directory-rows) { flex: none; }
 .ws-list-header { display: flex; justify-content: space-between; gap: 8px; width: 100%; color: #c8cabb; font-size: calc(13px * var(--ui-scale, 1)); padding: 0 1px; }
 .ws-list-header small { font-size: calc(11px * var(--ui-scale, 1)); color: var(--muted); }
-.ws-directory-search { display: flex; width: 100%; position: sticky; top: -1px; z-index: 1; background: var(--bg); border-radius: 8px; }
+.ws-directory-search { display: flex; width: 100%; position: relative; background: var(--bg); border-radius: 8px; }
 .ws-directory-search > .ws-icon { position: absolute; width: 14px; height: 14px; top: 11px; left: 10px; color: #7d8398; }
 .ws-directory-search input { background: rgba(255, 255, 255, .025); color: #d4cfe1; border: 1px solid var(--line); padding: 8px 10px 8px 31px; border-radius: 8px; width: 100%; min-width: 0; font-size: calc(12px * var(--ui-scale, 1)); }
 .column { width: 100%; flex: 0 0 auto; min-width: 0; }

@@ -98,16 +98,15 @@
       page=result.page;
       counts.textContent=(result.count===book.entries.length ? result.count : result.count+' / '+book.entries.length)+' '+tr('条');
       rows.innerHTML=result.groups.map(group=>`<section class="column"><h3><span>${esc(tr(group.label))}</span><small>${group.count}</small></h3>${group.entries.map(row).join('')}</section>`).join('');
-      empty.hidden=!!result.count; pager.hidden=result.pages<=1;
+      rows.hidden=!result.count; empty.hidden=!!result.count; pager.hidden=result.pages<=1;
       previous.disabled=!page; next.disabled=page+1>=result.pages;
       pager.querySelector('output').textContent=(result.count ? result.start+1 : 0)+'–'+result.end+' / '+result.count;
-      if (reveal!=null) requestAnimationFrame(()=>{
-        const selected=rows.querySelector('.entry.on');
-        if (!selected || !board.isConnected) return;
-        const box=board.getBoundingClientRect(), item=selected.getBoundingClientRect();
-        const top=box.top+search.offsetHeight+(pager.hidden?0:pager.offsetHeight);
-        if (item.top<top) board.scrollTop+=item.top-top-6;
-        else if(item.bottom>box.bottom) board.scrollTop+=item.bottom-box.bottom+6;
+      const selected=reveal!=null && rows.querySelector('.entry.on');
+      if (selected) requestAnimationFrame(()=>{
+        if (!selected.isConnected || !selected.classList.contains('on')) return;
+        const box=rows.getBoundingClientRect(), item=selected.getBoundingClientRect();
+        if (item.top<box.top || item.height>rows.clientHeight) rows.scrollTop+=item.top-box.top;
+        else if (item.bottom>box.bottom) rows.scrollTop+=item.bottom-box.bottom;
       });
     }
     function reveal(id) {
@@ -138,9 +137,13 @@
     rows.onkeydown=event=>{
       if (event.target.matches('.entry') && ['Enter',' '].includes(event.key)) {event.preventDefault();event.target.click();}
     };
-    previous.onclick=()=>{draw(page-1);board.scrollTop=0;};
-    next.onclick=()=>{draw(page+1);board.scrollTop=0;};
-    search.oninput=()=>{ui().state.loreFilter=search.value; draw(0); board.scrollTop=0;};
+    function turnPage(step,button,other) {
+      draw(page+step); rows.scrollTop=0;
+      if (button.disabled) other.focus({preventScroll:true});
+    }
+    previous.onclick=()=>turnPage(-1,previous,next);
+    next.onclick=()=>turnPage(1,next,previous);
+    search.oninput=()=>{ui().state.loreFilter=search.value; draw(0); rows.scrollTop=0;};
     draw(0,ui().state.sel.entry);
     return {reveal,edit,setHits(ids) {
       active=new Set(Array.from(ids,String));
