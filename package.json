@@ -1,13 +1,16 @@
 {
   "name": "quilvori",
   "private": true,
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Quilvori, a local character-card and world-book workshop for SillyTavern.",
   "main": "electron/main.js",
   "scripts": {
     "postinstall": "node scripts/install-runtime.mjs",
     "start": "node scripts/start.mjs",
+    "build:formats": "node scripts/build-formats.mjs",
+    "prebuild:desktop": "npm run build:formats",
     "build:desktop": "node scripts/package-desktop.mjs",
+    "prebuild:web": "npm run build:formats",
     "build:web": "node scripts/package-web.mjs",
     "test:desktop": "node scripts/smoke-download.mjs",
     "test:web-download": "node scripts/smoke-download.mjs --web",
@@ -15,7 +18,7 @@
     "test:ui": "node scripts/test-ui.mjs",
     "check": "node scripts/check-syntax.mjs",
     "typecheck": "tsc --project tsconfig.json",
-    "validate": "npm run check && npm run typecheck && npm test"
+    "validate": "npm run check && node scripts/build-formats.mjs --check && npm test"
   },
   "devDependencies": {
     "electron": "45.5.0",

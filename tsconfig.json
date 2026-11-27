@@ -9,5 +9,5 @@
     "lib": ["ES2022"],
     "types": []
   },
-  "files": ["js/prompt-presets.js"]
+  "files": ["js/prompt-presets.js", "src/formats/card-world.ts"]
 }

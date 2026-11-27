@@ -1,4 +1,5 @@
 import fs from 'fs';
+import assert from 'node:assert/strict';
 import vm from 'vm';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -43,6 +44,17 @@ check('blob body', blob[0].content === '雨多过晴。' && !blob[0].content.inc
 
 const bodyKey = F.worldInfoToEntries({ 条目名: '白衡', 触发关键词: ['白衡'], body: '剑寄在一楼。' });
 check('body key', bodyKey[0].comment === '白衡' && bodyKey[0].content === '剑寄在一楼。' && bodyKey[0].keys[0] === '白衡');
+
+const legacySwitches=F.worldInfoToEntries({entries:[{content:'Lamp',constant:'false',disable:0,depth:'0',order:'37'}]})[0];
+assert.equal(legacySwitches.constant,false);
+assert.equal(legacySwitches.enabled,true);
+assert.equal(legacySwitches.depth,0);
+assert.equal(legacySwitches.order,37);
+for (const row of [{depth:'later'}, {constant:'sometimes'}, {selectiveLogic:{}}, {order:'Infinity'}]) {
+  assert.throws(()=>F.worldInfoToEntries({entries:[{content:'Good'},{content:'Malformed',...row}]}),e=>e.code==='invalid-entries');
+}
+assert.throws(()=>F.cardToCharacter({data:{name:'Broken',alternate_greetings:'Unexpected string'}}));
+assert.equal(F.characterToCard(F.cardToCharacter({data:{name:'Legacy',character_version:0}})).data.character_version,0);
 
 if (failures.length) {
   console.error('FAILED\n' + failures.join('\n'));
