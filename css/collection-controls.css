@@ -109,6 +109,8 @@ body.room-theme .toolbar.qc-book-toolbar {
   padding:12px 14px 14px;background:var(--paper);border-radius:var(--radius);
 }
 .qc-book-selectors,.qc-book-actions {min-width:0;display:flex;align-items:end;gap:8px;}
+.qc-book-toolbar > .work-export-guide {grid-column:1 / -1;}
+.toolbar > .work-export-guide {margin:0;line-height:1.55;overflow-wrap:anywhere;}
 .qc-book-selectors label {display:flex;flex:1 1 44%;flex-direction:column;align-items:stretch;gap:4px;min-width:0;}
 .qc-book-selectors label:first-child {flex-basis:56%;}
 .qc-book-selectors label > span {display:block;min-width:0;color:var(--muted);font-size:calc(12px * var(--ui-scale,1));line-height:1.35;}

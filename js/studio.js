@@ -790,7 +790,7 @@
           })
         : null;
   }
-  async function apply(plan, keys, reason) {
+  async function apply(plan, keys, reason, propagateError=false) {
     try {
       const selectedKeys = keys || plan.operations.filter((op) => !op.applied && !op.rejected).map((op) => op.key);
       const receipt=await root.TAHistory.apply(plan, selectedKeys, reason);
@@ -824,6 +824,7 @@
       } } });
       return data().receipt;
     } catch (error) {
+      if(propagateError)throw error;
       UI().toast(error.message);
       return null;
     }
@@ -1278,8 +1279,22 @@
     }
     details.hidden = !details.textContent;
   }
+  function targetRows(list,checked,query) {
+    const inspect=esc(UI().t("查看")),filter=query.toLowerCase();
+    return list.map(item=>{
+      const title=esc(item.comment || UI().t("未命名")),id=esc(item.id);
+      const searchable=((item.comment || "")+" "+(item.content || "")).toLowerCase();
+      return `<div class="ai-target-row" ${searchable.includes(filter) ? "" : "hidden"} data-search="${esc(searchable)}">
+        <label class="check"><input type="checkbox" data-target="${id}" ${checked.includes(item.id) ? "checked" : ""}><span data-no-translate>${title}</span></label>
+        <button type="button" class="ai-inspect" data-focus="${id}" data-no-translate aria-label="${inspect} · ${title}">${inspect}</button>
+      </div>`;
+    }).join("") || `<p class="help">${esc(UI().t("先选择或导入一份内容。"))}</p>`;
+  }
   function render(stage) {
     const logWasOpen=stage.querySelector('.ai-task-log')?.open || false;
+    const oldTargets=stage.querySelector('.ai-target-list');
+    const targetScroll=oldTargets?.scrollTop || 0;
+    const targetControl=oldTargets?.contains(document.activeElement) ? document.activeElement : null;
     const s = data(),
       currentItem = current(),
       allFields = s.kind === "character" ? AI().CARD_FIELDS : AI().ENTRY_FIELDS;
@@ -1317,7 +1332,7 @@
       ${
         s.mode === "edit"
           ? `<div class="ai-editor-grid">
-        <aside class="paper ai-target-panel"><div class="row"><button type="button" class="btn btn-small ${s.kind === "world" ? "btn-primary" : ""}" data-kind="world">世界书条目</button><button type="button" class="btn btn-small ${s.kind === "character" ? "btn-primary" : ""}" data-kind="character">角色卡栏位</button></div><label class="field"><span class="field-label">查找${s.kind === "world" ? "条目" : "栏位"}</span><input id="ai-target-search" type="search" value="${esc(s.targetQuery)}" placeholder="按名称或正文查找"></label><p class="help">已选 ${checked.length} ${s.kind === "world" ? "条" : "栏"}，可多选。</p><div class="ai-target-list">${list.map((item) => `<div class="ai-target-row" ${`${item.comment || ""} ${item.content || ""}`.toLowerCase().includes(s.targetQuery.toLowerCase()) ? "" : "hidden"} data-search="${esc(`${item.comment || ""} ${item.content || ""}`.toLowerCase())}"><label class="check"><input type="checkbox" data-target="${esc(item.id)}" ${checked.includes(item.id) ? "checked" : ""}><span>${esc(item.comment || "未命名")}</span></label><button type="button" class="ai-inspect" data-focus="${esc(item.id)}" aria-label="查看${esc(item.comment || "条目")}">查看</button></div>`).join("") || '<p class="help">先选择或导入一份内容。</p>'}</div></aside>
+        <aside class="paper ai-target-panel"><div class="row"><button type="button" class="btn btn-small ${s.kind === "world" ? "btn-primary" : ""}" data-kind="world">世界书条目</button><button type="button" class="btn btn-small ${s.kind === "character" ? "btn-primary" : ""}" data-kind="character">角色卡栏位</button></div><label class="field"><span class="field-label">查找${s.kind === "world" ? "条目" : "栏位"}</span><input id="ai-target-search" type="search" value="${esc(s.targetQuery)}" placeholder="按名称或正文查找"></label><p class="help">已选 ${checked.length} ${s.kind === "world" ? "条" : "栏"}，可多选。</p><div class="ai-target-list" data-scope="${esc(JSON.stringify([s.kind,s.kind==='world'?s.bookId:s.cardId]))}">${targetRows(list,checked,s.targetQuery)}</div></aside>
         <section class="paper ai-source-panel"><div class="ai-panel-heading"><h3>${esc(currentItem ? currentItem.item.name || currentItem.item.comment : "原文")}</h3><span class="tag">${s.kind === "world" ? "世界书" : "角色卡"}</span></div><label class="field"><span class="field-label">查看栏位</span><select id="ai-field-pick">${Object.entries(
           allFields,
         )
@@ -1647,6 +1662,15 @@
         refineDraft(plan);
     });
     if (root.TAWorkspace) root.TAWorkspace.enhance(stage);
+    const newTargets=stage.querySelector('.ai-target-list');
+    if(oldTargets && newTargets && oldTargets.dataset.scope===newTargets.dataset.scope){
+      newTargets.scrollTop=targetScroll;
+      if(targetControl){
+        const attr=targetControl.hasAttribute('data-focus') ? 'data-focus' : 'data-target';
+        const id=targetControl.getAttribute(attr);
+        if(id!==null)newTargets.querySelector(`[${attr}="${CSS.escape(id)}"]`)?.focus({preventScroll:true});
+      }
+    }
     if (s.sourceLocation?.pending) {
       s.sourceLocation.pending = false;
       const area = stage.querySelector("#ai-original"),
@@ -1745,10 +1769,14 @@
     editContext,
     formatValue: display,
     applyExternal: async (plan) => {
-      data().plans.push(plan);
-      const receipt = await apply(plan);
-      if (!receipt) throw new Error("未应用，原稿发生了变化。");
-      return receipt;
+      const first=!data().plans.some(row=>row.id===plan.id);
+      if(first)data().plans.push(plan);
+      try{
+        return await apply(plan,undefined,undefined,true);
+      }catch(error){
+        if(first)data().plans=data().plans.filter(row=>row!==plan);
+        throw error;
+      }
     },
   };
 })(typeof globalThis !== "undefined" ? globalThis : window);

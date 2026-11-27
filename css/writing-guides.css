@@ -1,0 +1,38 @@
+.section-workshop { max-width: 58rem; }
+.section-intro { margin: 0; max-width: 66ch; color: var(--ink-soft); line-height: 1.55; }
+.section-workshop, .section-workshop > *, .regex-guide, .regex-guide > * { min-width: 0; }
+.section-group { gap: .7rem; padding: clamp(.9rem, 2.2vw, 1.45rem); }
+.section-group-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: .4rem 1rem; }
+.section-group-head h3, .section-group .help, .regex-guide > p { margin: 0; }
+.section-group-head h3 .check { font-size: 1.04rem; font-weight: 600; }
+.section-toggle-state, .section-output-missing, .section-off-note { color: var(--muted); font-size: .8rem; }
+.section-group:has([data-sec]:checked) .section-toggle-state { color: var(--brass); }
+.section-off-note { margin: 0; }
+.section-transfer, .section-custom { border-inline-start: 2px solid var(--line); padding-inline-start: .75rem; }
+.section-transfer summary, .section-custom summary { color: var(--ink-soft); }
+.section-transfer ul { padding-inline-start: 1.3rem; }
+.section-transfer li + li { margin-block-start: .35rem; }
+.section-custom[open] textarea { margin-top: .4rem; }
+.section-outputs { display: flex; flex-wrap: wrap; align-items: center; gap: .45rem .8rem; border-block-start: 1px solid var(--line); padding-top: .65rem; }
+.section-outputs > strong { font-size: .78rem; color: var(--muted); }
+.section-output-link { white-space: normal; overflow-wrap: anywhere; text-align: start; }
+.section-outputs .row { max-width: 100%; }
+.section-outputs > button[hidden], .regex-guide [hidden] { display: none; }
+.regex-guide { display: block; margin-bottom: 1rem; border: 1px solid var(--accent-line); padding: .9rem clamp(.8rem, 2vw, 1.3rem); }
+.regex-guide[open] > * + * { margin-block-start: .65rem; }
+.regex-guide > summary { color: var(--ink); font-size: 1rem; }
+.regex-samples { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: .55rem; }
+.regex-guide .field { min-width: 0; }
+.regex-guide .field-label { overflow-wrap: anywhere; }
+.regex-template-result { border-inline-start: 3px solid var(--brass); padding: .4rem .7rem; background: var(--paper); border-radius: 5px; }
+.regex-template-result > span { font-size: .78rem; color: var(--ink-soft); }
+.regex-template-result > .snippet { margin: .25rem 0; min-height: 0; padding: 0; background: transparent; border: 0; color: var(--ink); }
+.regex-template-result > code { color: var(--muted); font-size: .78rem; overflow-wrap: anywhere; }
+.regex-export-help { margin: 0 0 .7rem; }
+@media(max-width:700px) {
+  .regex-samples { grid-template-columns: 1fr; }
+  .section-workshop .row, .regex-guide .row { gap: .4rem; }
+}
+@media(max-width:460px) {
+  .regex-guide .regex-template-grid { grid-template-columns: minmax(0,1fr); }
+}

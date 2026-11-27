@@ -367,9 +367,9 @@
     return {
       mode: prefs.replyLength || "medium",
       count,
-      style: String(
-        group.custom || group.text || styles[group.preset] || styles.short,
-      ),
+      style: group.on === true
+        ? String(group.custom || '').trim() || String(group.text || '').trim() || styles[group.preset] || styles.short
+        : '',
     };
   }
   function systemPrompt(task, mode) {
@@ -386,8 +386,10 @@
     text += `\n默认用${language}填写新正文、沟通答复和检查报告；用户明确指定语言时以用户要求为准。引用原文保持原样，JSON 字段名保持任务规定的格式。`;
     if (mode && mode.startsWith("create:")) {
       const guide = writingGuide();
-      if (!["create:regex", "create:backup", "create:graph"].includes(mode))
-        text += `\n创作正文参考文风：${guide.style}。单段正文目标约 ${guide.count} 字，按该栏用途调整。可选栏位不必填满。`;
+      if (!["create:regex", "create:backup", "create:graph"].includes(mode)) {
+        if (guide.style) text += `\n创作正文参考文风：${guide.style}`;
+        text += `\n单段正文目标约 ${guide.count} 字，按该栏用途调整。可选栏位不必填满。`;
+      }
       const prefs = (root.TAI18n && root.TAI18n.prefs) || {};
       if (!allowsAdult() || !prefs.adult)
         text += "\n不生成色情或露骨的性内容。";

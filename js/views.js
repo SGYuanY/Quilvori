@@ -568,38 +568,44 @@
 
   function regex(stage) {
     const lib = UI.state.lib;
+    const importHelp = UI.t('保存到本机后，可导出当前脚本的 JSON，再到 SillyTavern「扩展 → Regex → 导入」选择该文件。');
     const list = lib.regexScripts.filter((script) => UI.matchQuery(script.scriptName + script.findRegex));
     const script = list.find((item) => item.id === UI.state.sel.regex) || list[0] || null;
     if (script) UI.state.sel.regex = script.id;
     stage.innerHTML = `<div class="toolbar">
       <button type="button" class="btn btn-primary" id="new-rx">新建脚本</button>
       <button type="button" class="btn" id="import-rx">导入 JSON</button>
-      <button type="button" class="btn btn-primary" id="export-rx">导出全部</button>
+      <button type="button" class="btn" id="export-current-rx" ${script ? '' : 'disabled'}>导出当前脚本</button>
+      <button type="button" class="btn" id="export-rx" ${lib.regexScripts.length ? '' : 'disabled'}>导出全部</button>
       <button type="button" class="btn btn-danger" id="del-rx" ${script ? '' : 'disabled'}>删除</button>
-      ${hint('新建或导入酒馆的正则 JSON。导出的仍是原来的数组。右侧按顺序讲每一截；试一句会标出匹配、分组、替换和没吃到的字。')}
-    </div>${UI.picker(list, script && script.id, (item) => (item.disabled ? '停用' : '启用'))}<div id="rx-body"></div>`;
+    </div><p class="help regex-export-help">${UI.esc(importHelp)}</p>${UI.picker(list, script && script.id, (item) => (item.disabled ? '停用' : '启用'))}<div id="rx-body"></div>`;
     mountPageAssist(stage, 'regex');
     UI.bindPicker(stage, (id) => { UI.state.sel.regex = id; UI.renderStage(); });
     stage.querySelector('#new-rx').onclick = () => {
       const created = { id: Store.uid('rx'), scriptName: '新脚本', findRegex: '', replaceString: '', trimStrings: [], placement: [2], disabled: false, markdownOnly: false, promptOnly: false, runOnEdit: false, substituteRegex: 0, minDepth: null, maxDepth: null };
       lib.regexScripts.unshift(created);
-      UI.state.sel.regex = created.id;
       UI.markDirty();
-      UI.renderStage();
+      root.TASearch.open({kind:'regex',id:created.id,field:'findRegex'});
+    };
+    if (script) stage.querySelector('#export-current-rx').onclick = () => {
+      const filename=UI.safeName(script.scriptName)+'.json';
+      UI.downloadJson(filename,F.regexToExport([script])[0]);
+      UI.showExport(filename,importHelp);
     };
     stage.querySelector('#export-rx').onclick = () => {
       UI.downloadJson('regex-scripts.json', F.regexToExport(lib.regexScripts));
       UI.toast('已导出正则数组');
-      UI.showExport('regex-scripts.json', '正则数组。在酒馆的正则扩展里导入。');
+      UI.showExport('regex-scripts.json',importHelp);
     };
     stage.querySelector('#import-rx').onclick = async () => {
       try {
         const file = await UI.pickFile('.json,application/json');
         if (!file) return;
         const scripts = F.regexFromImport(await parseJsonFile(file));
+        if (!scripts.length) throw new Error('请选择包含正则脚本的 SillyTavern JSON 文件。');
         scripts.forEach(item => { item.id = Store.uid('rx'); });
         await commitCurrentLibrary(candidate => { candidate.regexScripts = candidate.regexScripts.concat(scripts); });
-        UI.renderStage();
+        if(stage.querySelector('#rx-body'))root.TASearch.open({kind:'regex',id:scripts[0].id,field:'findRegex'});
       } catch (error) { UI.toast(UI.t(error.message),{kind:'error'}); }
     };
     if (!script) { stage.querySelector('#rx-body').appendChild(UI.empty('还没有脚本', '新建一条，或导入酒馆的正则 JSON。', '', null)); return; }
@@ -707,21 +713,21 @@
     const set = sets.find((item) => item.id === UI.state.sel.qr) || sets[0] || null;
     if (set) UI.state.sel.qr = set.id;
     stage.innerHTML = `<div class="toolbar">
-      <button type="button" class="btn btn-primary" id="new-qr">新建一套</button>
+      <button type="button" class="btn btn-primary" id="new-qr">手动新建回复集</button>
       <button type="button" class="btn" id="import-qr">导入 JSON</button>
       <button type="button" class="btn btn-primary" id="export-qr" ${set ? '' : 'disabled'}>导出这套</button>
       <button type="button" class="btn btn-danger" id="del-qr" ${set ? '' : 'disabled'}>删除</button>
-      ${hint('一套里有多条短句。导出为 Quick Reply v2；每条颜色记在 atelierColor。点「复制内容」只复制句子。')}
+      <span class="help authoring-export-help" data-export-guide>${UI.esc(UI.t(root.TACreationAssist.guide('quick').destination))}</span>
     </div>${UI.picker(sets, set && set.id, (item) => `${item.replies.length} 条`)}<div id="qr-body"></div>`;
     mountPageAssist(stage, 'quick');
     root.TACreationAssist.selectedReply(stage,set);
     UI.bindPicker(stage, (id) => { UI.state.sel.qr = id; UI.renderStage(); });
     stage.querySelector('#new-qr').onclick = () => {
-      const created = { id: Store.uid('qrset'), name: '新的快捷回复', replies: [] };
+      const created = { id: Store.uid('qrset'), name: UI.t('新的快捷回复'), replies: [] };
       lib.quickReplySets.unshift(created);
       UI.state.sel.qr = created.id;
       UI.markDirty();
-      UI.renderStage();
+      UI.go('quick');stage.querySelector('#qr-body [data-field=name]')?.focus();
     };
     const importReplies = stage.querySelector('#import-qr');
     importReplies.onclick = async () => {
@@ -740,8 +746,8 @@
     stage.querySelector('#export-qr').onclick = () => {
       const filename = `${UI.safeName(set.name)}.json`;
       UI.downloadJson(filename, F.qrToExport(set));
-      UI.toast('已导出快捷回复集');
-      UI.showExport(filename, 'Quick Reply v2。在酒馆快捷回复扩展里导入。');
+      UI.toast(UI.t('已导出快捷回复集'),{kind:'success'});
+      UI.showExport(filename, UI.t(root.TACreationAssist.guide('quick').destination));
     };
     stage.querySelector('#del-qr').onclick = () => deleteWork('quickReplySets',set);
     const body = stage.querySelector('#qr-body');
@@ -750,7 +756,7 @@
         <div class="row"><input data-k="label" value="${UI.esc(reply.label)}" placeholder="按钮文字"><input data-k="color" type="color" value="${UI.esc(reply.color || '#c6a15a')}"><button type="button" class="btn btn-small" data-copy>复制内容</button><button type="button" class="btn btn-small btn-danger" data-del>删除</button></div>
         <textarea data-k="message" rows="3">${UI.esc(reply.message)}</textarea>
       </div>`).join('')}</div>
-      <button type="button" class="btn" id="add-qr">添加一条</button><div id="qr-lesson"></div></div>`;
+      <button type="button" class="btn" id="add-qr">添加一条</button><div id="qr-lesson" data-no-translate></div></div>`;
     UI.bindFields(body, set, null,['quickReplySets',set.id]);
     UI.mountLengths(body);
     const paintQrLesson = () => {
@@ -773,9 +779,10 @@
       row.querySelector('[data-del]').onclick = () => { set.replies = set.replies.filter((item) => item.id !== reply.id); UI.markDirty('quickReplySets',set.id); UI.renderStage(); };
     });
     body.querySelector('#add-qr').onclick = () => {
-      set.replies.push({ id: Store.uid('qr'), label: '新回复', message: '', color: '#c6a15a', title: '' });
+      set.replies.push({ id: Store.uid('qr'), label: UI.t('新回复'), message: '', color: '#c6a15a', title: '' });
       UI.markDirty('quickReplySets',set.id);
       UI.renderStage();
+      stage.querySelector('#qr-list > :last-child [data-k=label]')?.focus();
     };
   }
 
@@ -1039,26 +1046,26 @@
     const current = scripts.find((item) => item.id === UI.state.sel.script) || scripts[0] || null;
     if (current) UI.state.sel.script = current.id;
     stage.innerHTML = `<div class="toolbar">
-      <button type="button" class="btn btn-primary" id="new-script">新建剧本</button>
+      <button type="button" class="btn btn-primary" id="new-script">手动新建剧本</button>
       <button type="button" class="btn btn-primary" id="export-script" ${current ? '' : 'disabled'}>导出 JSON</button>
       <button type="button" class="btn btn-danger" id="del-script" ${current ? '' : 'disabled'}>删除</button>
-      ${hint('选说话的人再写句子。触发词可留空。上移、下移改顺序，右侧是预览。')}
+      <span class="help authoring-export-help" data-export-guide>${UI.esc(UI.t(root.TACreationAssist.guide('script').destination))}</span>
     </div>${UI.picker(scripts, current && current.id, (item) => `${item.beats.length} 拍`)}<div id="script-body"></div>`;
     mountPageAssist(stage, 'script');
     UI.bindPicker(stage, (id) => { UI.state.sel.script = id; UI.renderStage(); });
     stage.querySelector('#new-script').onclick = () => {
-      const created = { id: Store.uid('script'), name: '新剧本', beats: [{ id: Store.uid('sb'), speaker: 'narrator', line: '', trigger: '' }] };
+      const created = { id: Store.uid('script'), name: UI.t('新剧本'), beats: [{ id: Store.uid('sb'), speaker: 'narrator', line: '', trigger: '' }] };
       lib.scripts.unshift(created);
       UI.state.sel.script = created.id;
       UI.markDirty();
-      UI.renderStage();
+      UI.go('script');stage.querySelector('#script-body [data-field=name]')?.focus();
     };
     if (!current) { stage.querySelector('#script-body').appendChild(UI.empty('还没有剧本', '按顺序写旁白和角色的句子。', '', null)); return; }
     stage.querySelector('#export-script').onclick = () => {
       const filename = `${UI.safeName(current.name)}.json`;
       UI.downloadJson(filename, F.scriptToExport(current, lib));
-      UI.toast('已导出剧本');
-      UI.showExport(filename, '剧本草稿 JSON。酒馆没有对应的导入。');
+      UI.toast(UI.t('已导出剧本'),{kind:'success'});
+      UI.showExport(filename, UI.t(root.TACreationAssist.guide('script').destination));
     };
     stage.querySelector('#del-script').onclick = () => deleteWork('scripts',current);
     const speakers = [['narrator', UI.t('旁白')], ...lib.characters.map((character) => [character.id, character.name])];
@@ -1066,17 +1073,17 @@
     const paint = () => {
       body.innerHTML = `<div class="work"><div class="stack" id="beats">${UI.field('', '') && ''}<div class="paper" style="margin-bottom:10px">${UI.field('剧本名', UI.text('name', current.name))}</div>
         ${current.beats.map((beat, index) => `<article class="paper stack" data-i="${index}" style="margin-bottom:8px">
-          <div class="row"><select data-k="speaker">${!speakers.some(([value])=>String(value)===String(beat.speaker))?`<option value="" selected>${UI.esc(beat.speakerName || UI.t('未指定发言人'))}</option>`:''}${speakers.map(([value,label])=>`<option value="${UI.esc(value)}"${String(beat.speaker)===String(value)?' selected':''}>${UI.esc(label)}</option>`).join('')}</select><button type="button" class="btn btn-small" data-up>上移</button><button type="button" class="btn btn-small" data-down>下移</button><button type="button" class="btn btn-small btn-danger" data-del>删除</button></div>
+          <div class="row"><select data-k="speaker" data-no-translate>${!speakers.some(([value])=>String(value)===String(beat.speaker))?`<option value="" selected>${UI.esc(beat.speakerName || UI.t('未指定发言人'))}</option>`:''}${speakers.map(([value,label])=>`<option value="${UI.esc(value)}"${String(beat.speaker)===String(value)?' selected':''}>${UI.esc(label)}</option>`).join('')}</select><button type="button" class="btn btn-small" data-up>上移</button><button type="button" class="btn btn-small" data-down>下移</button><button type="button" class="btn btn-small btn-danger" data-del>删除</button></div>
           <textarea data-k="line" rows="3">${UI.esc(beat.line)}</textarea>
           <input data-k="trigger" type="text" value="${UI.esc(beat.trigger || '')}" placeholder="可选触发词">
         </article>`).join('')}
         <button type="button" class="btn" id="add-beat">加一拍</button></div>
-        <aside class="paper script-page" id="script-preview"></aside></div>`;
+        <aside class="paper script-page" id="script-preview" data-no-translate></aside></div>`;
       const preview = () => {
         const exported = F.scriptToExport(current, lib);
-        body.querySelector('#script-preview').innerHTML = `<p class="eyebrow">SCRIPT</p><h2>${UI.esc(current.name)}</h2>${current.beats.map((beat) => {
+        body.querySelector('#script-preview').innerHTML = `<h2>${UI.esc(current.name)}</h2>${current.beats.map((beat) => {
           const who = beat.speaker === 'narrator' ? UI.t('旁白') : F.scriptSpeaker(beat,lib);
-          return `<div class="script-line"><div class="who">${UI.esc(who)}</div>${beat.trigger ? `<div class="trigger">${UI.t('script.trigger', { word: beat.trigger })}</div>` : ''}<p>${UI.esc(beat.line || '……')}</p></div>`;
+          return `<div class="script-line"><div class="who">${UI.esc(who)}</div>${beat.trigger ? `<div class="trigger">${UI.esc(UI.t('script.trigger', { word: beat.trigger }))}</div>` : ''}<p>${UI.esc(beat.line || '……')}</p></div>`;
         }).join('')}<div id="script-lesson"></div>`;
         UI.fillLesson(body.querySelector('#script-lesson'), [
           UI.t('script.lead', { name: exported.name, count: exported.beats.length }),
@@ -1095,7 +1102,13 @@
         const beat = current.beats[index];
         row.querySelectorAll('[data-k]').forEach((node) => {
           const eventName = node.tagName === 'SELECT' ? 'change' : 'input';
-          node.addEventListener(eventName, () => { beat[node.dataset.k] = node.value; if(node.dataset.k==='speaker')delete beat.speakerName; preview(); UI.markDirty('scripts',current.id); });
+          node.addEventListener(eventName, () => {
+            if(node.dataset.k==='speaker'){
+              beat.speaker=node.value;
+              delete beat.speakerName;
+            }else beat[node.dataset.k]=node.value;
+            preview();UI.markDirty('scripts',current.id);
+          });
         });
         row.querySelector('[data-del]').onclick = () => { current.beats.splice(index, 1); UI.markDirty('scripts',current.id); paint(); };
         row.querySelector('[data-up]').onclick = () => { if (index === 0) return; const [item] = current.beats.splice(index, 1); current.beats.splice(index - 1, 0, item); UI.markDirty('scripts',current.id); paint(); };
@@ -1390,8 +1403,10 @@
     if (!stage || stage.querySelector('.ai-assist')) return;
     const box = document.createElement('section');
     box.className = 'paper stack ai-assist';
-    box.innerHTML = `<h3>${UI.esc(root.NIJANAI.MODULES[kind] || 'AI 辅助')}</h3><label class="field"><span class="field-label">写下要求</span><textarea rows="3" data-assist></textarea></label><button type="button" class="btn" data-assist-go>生成并预览</button><p class="model-progress" role="status"></p>`;
-    stage.prepend(box);
+    const guide=root.TACreationAssist.guide(kind);
+    box.innerHTML = `<h3>${UI.esc(UI.t(guide?.title || root.NIJANAI.MODULES[kind] || 'AI 辅助'))}</h3><label class="field"><span class="field-label">写下要求</span><textarea rows="3" data-assist></textarea></label><button type="button" class="btn" data-assist-go>${UI.esc(UI.t(guide?.generate || '生成并预览'))}</button><p class="model-progress" role="status"></p>`;
+    const toolbar=guide && stage.querySelector('.toolbar');
+    if(toolbar)toolbar.after(box);else stage.prepend(box);
     root.TATaskActivity.bindAssist(box,kind);
   }
 

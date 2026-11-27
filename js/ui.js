@@ -260,7 +260,7 @@
   function showExport(file, summary) {
     const host = document.getElementById('export-slip');
     if (!host) return;
-    host.innerHTML = `<div class="export-slip" role="status"><b>${esc(file)}</b><span>${esc(summary)}</span><button type="button" class="btn btn-small" data-close>知道了</button></div>`;
+    host.innerHTML = `<div class="export-slip" role="status"><b data-no-translate>${esc(file)}</b><span>${esc(summary)}</span><button type="button" class="btn btn-small" data-close>${esc(root.TAUI.t('知道了'))}</button></div>`;
     host.querySelector('[data-close]').onclick = () => { host.innerHTML = ''; };
   }
 
@@ -329,9 +329,9 @@
     const pill = document.getElementById('save-pill');
     if (!pill) return;
     const tr = (text) => (root.TAI18n ? root.TAI18n.t(text) : text);
-    const map = { saved: tr('已保存'), dirty: tr('待写入'), saving: tr('正在写入…'), error: tr('未能写入') };
-    pill.className = `pill${state.save === 'error' ? ' err' : state.save === 'saved' ? '' : ' dirty'}`;
-    pill.innerHTML = `<i></i>${map[state.save] || tr('已保存')}`;
+    const map = { saved: tr(state.persistent ? '已保存到本机' : '仅本次打开可用'), dirty: tr('待写入'), saving: tr('正在写入…'), error: tr('未能写入') };
+    pill.className = `pill${state.save === 'error' ? ' err' : state.save === 'saved' && state.persistent ? '' : ' dirty'}`;
+    pill.innerHTML = `<i></i>${esc(map[state.save] || map.saved)}`;
   }
 
   let editVersion = 0, replacing = false, pendingSave = null;
@@ -528,14 +528,12 @@
     const demoButton = document.querySelector('[data-shell="demo"]');
     const clearButton = document.querySelector('[data-shell="clear"]');
     const footNote = document.querySelector('.nav-foot .note');
-    const saveNote = document.querySelector('.save-wrap .note');
     if (importCard) importCard.textContent = tr('导入角色卡');
     if (importBook) importBook.textContent = tr('导入世界书');
     if (settingsButton) settingsButton.textContent = tr('设置');
     if (demoButton) demoButton.textContent = tr('载入示例');
     if (clearButton) clearButton.textContent = tr('清空库');
     if (footNote) footNote.textContent = tr('示例会替换当前库。清空只删这台浏览器里的稿。');
-    if (saveNote) saveNote.textContent = tr('改动自动写入这台浏览器。');
     paintFolders();
     if (root.TAI18n) root.TAI18n.apply();
   }
@@ -901,8 +899,10 @@
     renderStage();
   }
 
-  function openSettings() {
+  function openSettings(options = {}) {
     const previousFocus = document.activeElement;
+    const returnFocus = options.returnFocus || (()=>previousFocus);
+    const reopen = () => openSettings({returnFocus});
     const prefs = root.TAI18n ? root.TAI18n.prefs : { lang: 'en', teach: true, scale: 1, density: 'comfortable' };
     const tr = (text, vars) => (root.TAI18n ? root.TAI18n.t(text, vars) : text);
     const host = document.getElementById('modal-root');
@@ -988,13 +988,13 @@
     function keyEvent(){
       if(!keyNote.isConnected){root.removeEventListener('quilvori-credential-status',keyEvent);return;}
       const status=api.credentialStatus();
-      if(!status.opening && status.generation!==modelGeneration){queueMicrotask(()=>{if(keyNote.isConnected)openSettings();});return;}
+      if(!status.opening && status.generation!==modelGeneration){queueMicrotask(()=>{if(keyNote.isConnected)reopen();});return;}
       paintKeyStatus();
     }
     if(host.keyStatusListener)root.removeEventListener('quilvori-credential-status',host.keyStatusListener);
     host.keyStatusListener=keyEvent;
     root.addEventListener('quilvori-credential-status',keyEvent);
-    keyRetry.onclick=async()=>{try{await api.retryCredentials();}catch(_){}if(keyNote.isConnected)openSettings();};
+    keyRetry.onclick=async()=>{try{await api.retryCredentials();}catch(_){}if(keyNote.isConnected)reopen();};
     keyRebuild.onclick=()=>{
       reviewedToken=api.credentialStatus().recoveryToken;paintKeyStatus();
       if(!review.hidden)cancelRebuild.focus();
@@ -1007,7 +1007,7 @@
       catch(error){if(keyNote.isConnected){paintKeyStatus();keyRetry.focus();toast(tr(error.message),{kind:'error'});}}
     };
     choices.innerHTML = api.profiles().map(row=>`<option value="${esc(row.id)}" ${row.active?'selected':''}>${esc(row.name)}</option>`).join('');
-    const changeProfile = fn => { try { fn(); openSettings(); renderStage(); } catch(error) { toast(tr(error.message)); } };
+    const changeProfile = fn => { try { fn(); reopen(); renderStage(); } catch(error) { toast(tr(error.message)); } };
     choices.onchange = () => changeProfile(()=>api.selectProfile(choices.value));
     host.querySelector('#add-profile').onclick = () => changeProfile(()=>api.newProfile(host.querySelector('#profile-name').value));
     modelId.value = model.model;
@@ -1158,14 +1158,16 @@
       if(!keyNote.isConnected)return;
       root.removeEventListener('quilvori-credential-status',keyEvent);
       host.keyStatusListener=null;
-      host.classList.remove('show'); host.innerHTML = ''; host.onclick = null; previousFocus?.focus?.();
+      host.classList.remove('show'); host.innerHTML = ''; host.onclick = null;
+      const target=returnFocus();
+      (target?.isConnected ? target : document.querySelector('[data-shell=settings]'))?.focus();
     };
     host.querySelector('#set-close').onclick = close;
     host.onclick = (event) => { if (event.target === host) close(); };
     if (root.TAWorkspace) root.TAWorkspace.prepareSettings(host);
     if (root.TAI18n) root.TAI18n.localize(host);
     paintKeyStatus();
-    if(api.credentialStatus().opening)api.ready.then(()=>{if(keyNote.isConnected)openSettings();});
+    if(api.credentialStatus().opening)api.ready.then(()=>{if(keyNote.isConnected)reopen();});
   }
 
   function mount(registered, loaded = TAStore.load()) {
@@ -1236,7 +1238,7 @@
             <button type="button" class="ws-command-trigger" data-workspace="command" aria-keyshortcuts="Control+K Meta+K" aria-label="${esc(tr('搜索或跳转'))}" title="${esc(tr('搜索或跳转'))} · ${commandKey}+K">${icon('search')}<kbd class="ws-key" data-no-translate>${commandKey} K</kbd></button>
             <button type="button" class="ws-icon-button" data-workspace="focus" aria-label="专注模式" title="专注模式" aria-pressed="false">${icon('focus')}</button>
             <button type="button" class="ws-icon-button" data-workspace="settings" aria-label="设置" title="设置">${icon('settings')}</button>
-            <span class="save-wrap"><span id="save-pill" class="pill"><i></i>已保存</span><span class="note">改动自动写入这台浏览器。</span></span>
+            <span id="save-pill" class="pill"><i></i></span>
           </div>
         </header>
         <details class="workspace-folders"><summary>${icon('backup')}<span>本地文件夹</span></summary><div id="folders" class="folders"></div></details>

@@ -28,6 +28,40 @@ test('literal templates preserve regex punctuation, dollars, path separators and
   assert.deepEqual(plain(assist.context('regex',null,assist.defaultBrief('regex'))),{
     brief:'根据示例生成正则',regexExamples:{original:'Delete me',expected:'',unchanged:'untouched'},
   });
+  env.TAUI.state.regexExamples.includeInAI=false;
+  assert.equal(assist.defaultBrief('regex'),'');
+  assert.deepEqual(plain(assist.context('regex',null,'Remove brackets')),{brief:'Remove brackets'});
+});
+
+test('native regex objects, arrays and all supported envelopes import the same script',()=>{
+  const {env}=environment(),formats=env.TAFormats;
+  const script={scriptName:'Line prefix',findRegex:'/^Note: /gm',replaceString:'',trimStrings:['x'],placement:[2],disabled:true,runOnEdit:true};
+  const [native]=formats.regexToExport([script]);
+  for(const packet of [native,[native],{scripts:[native]},{regex_scripts:[native]},{data:[native]}]){
+    const [row]=formats.regexFromImport(packet);
+    assert.deepEqual(plain(formats.regexToExport([row])[0]),plain(native));
+  }
+  for(const packet of [null,{},'text',{data:{}},[null]])assert.throws(()=>formats.regexFromImport(packet));
+  assert.deepEqual(plain(formats.regexFromImport([])),[]);
+});
+
+test('bare ST expressions preserve literal whitespace and replace only the first match without g',()=>{
+  const {env}=environment(),formats=env.TAFormats;
+  const cases=[
+    ['^Notes: ','Notes: the quay','','the quay',['Notes: ']],
+    [' bell ','bell, bell rang.','X','bell,Xrang.',[' bell ']],
+    [' ','a b c','·','a·b c',[' ']],
+    ['bell','bell bell','ring','ring bell',['bell']],
+    ['/bell/g','bell bell','ring','ring ring',['bell','bell']],
+    ['  /^Notes: /gm  ','Notes: A\nNotes: B','','A\nB',['Notes: ','Notes: ']],
+  ];
+  for(const [expression,original,replacement,expected,matches] of cases){
+    const compiled=formats.regexFromString(expression);
+    assert.ok(compiled,expression);assert.equal(original.replace(compiled,replacement),expected,expression);
+    const preview=formats.regexTrial(expression,original,replacement);
+    assert.ok(preview.ok,expression);assert.equal(preview.replaced,expected,expression);
+    assert.deepEqual(plain(preview.matches.map(match=>match.text)),matches,expression);
+  }
 });
 
 test('quick replies use only the chosen works and selected or actually relevant enabled entries',()=>{
@@ -57,6 +91,32 @@ test('quick replies use only the chosen works and selected or actually relevant 
   const native=env.TAFormats.qrToExport(reopened.quickReplySets[0]);
   assert.equal(native.qrList[0].message,'Set a route');
   assert.doesNotMatch(JSON.stringify(native),/workSource|Navigator notes|Selected route/);
+});
+
+test('a quick-reply preview retains only live references and a chosen cast resolves duplicate names by ID',()=>{
+  const {env,lib,assist}=environment();
+  lib.characters=[{id:0,name:'Pilot',description:'West coast'},{id:'b',name:'Pilot',description:'East coast'}];
+  lib.worldBooks=[{id:0,name:'Harbor',entries:[{id:0,comment:'Bell',content:'Two tones'}]}];
+  const ref={characterId:0,bookId:0,entryIds:[0]};
+  const plan={operations:[{path:['quickReplySets'],value:{workSource:ref}}]};
+  assert.equal(assist.quickSourcesAvailable(plan),true);lib.worldBooks[0].entries=[];assert.equal(assist.quickSourcesAvailable(plan),false);
+  env.TAUI.state.scriptCastIds=[0,'b'];
+  const ctx=assist.context('script',null,'A foggy harbor'),A=env.NIJANAI;
+  const script=speaker=>({script:{name:'Crossing',beats:[{speaker,line:'Wait.'}]}});
+  assert.throws(()=>A.proposal(lib,'create:script',script('Pilot'),ctx),/编号/);
+  assert.throws(()=>A.proposal(lib,'create:script',script('Outsider'),ctx));
+  const proposal=A.proposal(lib,'create:script',script(0),ctx);
+  const receipt=A.commit(lib,proposal);
+  assert.equal(receipt.operations[0].value.beats[0].speaker,'0');
+  assert.equal(env.TAFormats.scriptToExport(env.TAStore.verify(lib).scripts[0],lib).beats[0].speaker,'Pilot');
+  const legacy=A.proposal(lib,'create:script',script('0'),ctx);legacy.operations[0].value.beats[0].speaker=0;
+  assert.equal(A.commit(lib,legacy).operations[0].value.beats[0].speaker,'0');
+  const later=A.proposal(lib,'create:script',script('0'),ctx);
+  lib.characters.shift();assert.throws(()=>A.commit(lib,later),/剧本引用/);
+  env.TAUI.state.scriptCastIds=[];
+  const independent=assist.context('script',null,'Fog');
+  assert.deepEqual(plain(independent.availableCharacters),[]);
+  assert.doesNotThrow(()=>A.proposal(lib,'create:script',script('narrator'),independent));
 });
 
 // Two windows can share a generation key while holding different previews.

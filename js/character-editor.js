@@ -3,7 +3,7 @@
   const UI = root.TAUI;
   const F = root.TAFormats;
   const Store = root.TAStore;
-  const {hint}=UI;
+  const cardImportTip='更新酒馆已有角色时，打开该角色，选「更多 → 替换 / 更新 → 从文件替换」。新角色可在「角色管理」导入 PNG 或 JSON。';
   const {mountGalleryPager}=root.TACollectionControls;
   const {showReading,mountChips,mountSticker,exportStickerFiles,mountJson,mountAiBar}=root.TAWorkEditorTools;
 
@@ -105,7 +105,7 @@
       <label class="dark-muted">导出时附带<select id="attach-book"><option value="">不附带世界书</option>${books.map((book) => `<option value="${UI.esc(book.id)}">${UI.esc(book.name)}</option>`).join('')}</select></label>
       <button type="button" class="btn btn-primary" data-act="json" ${character ? '' : 'disabled'}>导出 JSON</button>
       <button type="button" class="btn btn-primary" data-act="png" ${character ? '' : 'disabled'}>导出 PNG</button>
-      ${hint(galleryOn ? '点卡片就能编辑。复制会另存一份。' : '选一张卡继续写。导出时，可以顺手带上一本世界书。')}
+      ${character ? `<p class="note work-export-guide">${UI.esc(UI.t(cardImportTip))}</p>` : ''}
     </div>
     ${!galleryOn && character ? '<button type="button" class="qc-current-card" aria-haspopup="dialog" data-switch-card></button>' : ''}
     <div id="card-ai"></div>
@@ -182,15 +182,16 @@
         UI.toast(UI.t('export.cardFailed', {reason: UI.t(error.message)}), {kind:'error'});
         return;
       }
-      const message = UI.t('export.cardRequested', {format:'JSON'});
-      UI.toast(message, {kind:'info'});
+      const requested = UI.t('export.cardRequested', {format:'JSON'});
+      const message = requested+' '+UI.t(cardImportTip);
+      UI.toast(requested, {kind:'info'});
       UI.showExport(filename, message);
       if (pack) await exportStickerFiles(pack, character.name, {filename, message});
     };
     stage.querySelector('[data-act="png"]').onclick = () => exportCharacterPng(character, bookOf()).then(() => {
       const message = UI.t('export.cardRequested', {format:'PNG'});
       UI.toast(message, {kind:'info'});
-      UI.showExport(`${UI.safeName(character.name)}.png`, message);
+      UI.showExport(`${UI.safeName(character.name)}.png`, message+' '+UI.t(cardImportTip));
     }).catch(error => UI.toast(UI.t('export.cardFailed', {reason:UI.t(error.message)}), {kind:'error'}));
     if (galleryOn) {
       const prefs = UI.state.characterGallery ||= {query:'',page:0};

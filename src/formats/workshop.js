@@ -53,8 +53,14 @@
   }
 
   function regexFromImport(json) {
-    const list = Array.isArray(json) ? json : (json.scripts || json.regex_scripts || json.data || []);
-    if (!Array.isArray(list)) throw new Error('正则文件应是数组');
+    let list = json;
+    if (json && typeof json === 'object' && !Array.isArray(json)) {
+      if (json.scripts || json.regex_scripts || json.data) list = json.scripts || json.regex_scripts || json.data;
+      else if (typeof json.findRegex === 'string') list = [json];
+    }
+    if (!Array.isArray(list) || list.some(script => !script || typeof script !== 'object' || Array.isArray(script))) {
+      throw new Error('请选择包含正则脚本的 SillyTavern JSON 文件。');
+    }
     return list.map((script) => blankRegex({
       scriptName: script.scriptName || script.name || '未命名脚本',
       findRegex: script.findRegex || '',
@@ -78,12 +84,11 @@
   }
 
   function regexFromString(input) {
-    if (typeof input !== 'string' || !input.trim()) return null;
-    const trimmed = input.trim();
+    if (typeof input !== 'string' || !input.length) return null;
     try {
-      const wrapped = trimmed.match(/^\/([\s\S]+)\/([gimsuy]*)$/);
+      const wrapped = input.trim().match(/^\/([\s\S]+)\/([gimsuy]*)$/);
       if (wrapped) return new RegExp(wrapped[1], wrapped[2]);
-      return new RegExp(trimmed, 'g');
+      return new RegExp(input);
     } catch (error) {
       return null;
     }
@@ -624,8 +629,9 @@
     };
 
     function splitRegexInput(input) {
-      const trimmed = String(input || '').trim();
-      if (!trimmed) return { empty: true };
+      const raw = String(input ?? '');
+      if (!raw.length) return { empty: true };
+      const trimmed = raw.trim();
       if (trimmed.startsWith('/')) {
         let index = 1;
         let escaped = false;
@@ -647,7 +653,7 @@
         }
         return { source, flags, wrapped: true };
       }
-      return { source: trimmed, flags: 'g', wrapped: false };
+      return { source: raw, flags: '', wrapped: false };
     }
 
     function explainRegExpError(message) {
@@ -856,9 +862,9 @@
       if (split.wrapped) {
         if (!split.flags) flagSteps.push('标志：结束斜杠后面是空的。只找第一处，并且区分大小写。');
         else [...split.flags].forEach((flag) => flagSteps.push(t('rx.flagLine', { flag, detail: t(FLAG_DETAIL[flag] || flag) })));
-      } else flagSteps.push('写法：没有用斜杠包起来，所以按全局 g 查找，并且区分大小写。');
+      } else flagSteps.push(t('裸表达式只替换第一处。要替换全部，请使用 /表达式/g。'));
       const flagText = split.flags
-        ? [...split.flags].map((flag) => FLAG_TEXT[flag] || flag).join('、') + (split.wrapped ? '' : '（没写斜杠，默认全局）')
+        ? [...split.flags].map((flag) => FLAG_TEXT[flag] || flag).join('、')
         : '只找第一处';
       const steps = [...(walked.steps || []), ...flagSteps];
       if (walked.error || compileError) {

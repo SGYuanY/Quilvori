@@ -101,10 +101,22 @@
     for(const [key,label] of [['from','从第几条'],['to','到第几条']]) {
       const wrap=document.createElement('label');wrap.className='field';wrap.append(tr(label));
       const input=document.createElement('input');input.type='number';input.min='1';input.step='1';input.dataset.journalRange=key;
-      input.oninput=()=>{scope[key]=input.value;};wrap.append(input);fields.append(wrap);
+      input.oninput=()=>{scope[key]=input.value;paintRange();};wrap.append(input);fields.append(wrap);
     }
     const hint=document.createElement('small');hint.className='help';hint.textContent=tr('生成时只会附上选中范围内的发言人和正文。');fields.append(hint);
-    details.append(fields);const field=box.querySelector('[data-assist]')?.closest('label');
+    const sample=document.createElement('ul');sample.className='authoring-source-range';sample.dataset.journalSourcePreview='';
+    sample.dataset.noTranslate='';details.append(fields,sample);
+    function paintRange(){
+      sample.replaceChildren();sample.hidden=true;
+      const chat=root.TAStore.byId(lib.chats,select.value), first=Number(scope.from)-1,last=Number(scope.to)-1;
+      if(!chat || !pos(first) || !pos(last) || first>last || last>=chat.messages.length)return;
+      const positions=last-first<=2?Array.from({length:last-first+1},(_,i)=>first+i):[first,null,last];
+      for(const index of positions){
+        const li=document.createElement('li');li.textContent=index===null?'…':lineLabel(chat.messages[index],index);sample.append(li);
+      }
+      sample.hidden=false;
+    }
+    const field=box.querySelector('[data-assist]')?.closest('label');
     if (field) field.before(details);else box.prepend(details);
     function sync() {
       const chat=root.TAStore.byId(lib.chats,select.value);
@@ -112,6 +124,7 @@
       fields.hidden=!chat;
       const total=chat?.messages.length || 1;
       for(const n of fields.querySelectorAll('input')) {n.max=String(total);n.value=String(scope[n.dataset.journalRange]);}
+      paintRange();
     }
     select.onchange=()=>{scope.from=1;scope.to=1;sync();};sync();
   }
@@ -143,10 +156,17 @@
         (a.location.floor??a.row.floor??Infinity)-(b.location.floor??b.row.floor??Infinity) || (a.row.order??0)-(b.row.order??0));
     stage.innerHTML='<div class="toolbar"><button type="button" class="btn btn-primary" id="add-note"></button><button type="button" class="btn" id="add-beat"></button><button type="button" class="btn" id="export-tl"></button></div><div class="work"><section class="paper stack"><h3></h3><div class="timeline" id="tl"></div></section><div id="tl-editor"></div></div>';
     const text=(sel,s)=>{stage.querySelector(sel).textContent=tr(s);};
-    text('#add-note','新建注记');text('#add-beat','添加情节');text('#export-tl','导出剧情手记');text('.work h3','手记目录');
-    stage.querySelector('#add-note').onclick=()=>{createItem('note');ui().renderStage();};
-    stage.querySelector('#add-beat').onclick=()=>{createItem('beat');ui().renderStage();};
-    stage.querySelector('#export-tl').onclick=()=>{const name='timeline.json';ui().downloadJson(name,root.TAFormats.timelineToExport(lib));ui().showExport(name,'剧情手记');};
+    text('#add-note','手动写注记');text('#add-beat','手动排情节');text('#export-tl','导出剧情手记');text('.work h3','手记目录');
+    const destination=tr(root.TACreationAssist.guide('timeline').destination);
+    const hint=document.createElement('span');hint.className='help authoring-export-help';hint.dataset.exportGuide='';hint.textContent=destination;
+    const toolbar=stage.querySelector('.toolbar');toolbar.append(hint);
+    function manual(kind){
+      createItem(kind);ui().go('timeline');stage.querySelector('#tl-editor [data-field=title]')?.focus();
+    }
+    stage.querySelector('#add-note').onclick=()=>manual('note');
+    stage.querySelector('#add-beat').onclick=()=>manual('beat');
+    const exportButton=stage.querySelector('#export-tl');exportButton.disabled=!lib.timeline.notes.length && !lib.timeline.beats.length;
+    exportButton.onclick=()=>{const name='timeline.json';ui().downloadJson(name,root.TAFormats.timelineToExport(lib));ui().showExport(name,destination);};
     const index=stage.querySelector('#tl'),editor=stage.querySelector('#tl-editor');
     function paintList() {
       index.replaceChildren();
@@ -236,5 +256,5 @@
     const row=log.querySelector('[data-index="'+loc.floor+'"]');
     if(row){row.tabIndex=-1;row.dataset.journalTarget='';row.focus({preventScroll:true});row.scrollIntoView({block:'center'});}
   }
-  root.TAJournal={render,markChat,mountAssist,context,resolve,attachment,assistScope,proposalLink};
+  root.TAJournal={render,markChat,mountAssist,context,resolve,sourceText,attachment,assistScope,proposalLink};
 })(globalThis);

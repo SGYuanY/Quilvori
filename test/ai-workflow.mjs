@@ -407,18 +407,28 @@ test("review requires evidence present in the actual source; an empty valid repo
   );
   assert.throws(() => A.validate("review", {}, ctx));
 });
-test("review and organize prompts never inherit creative style or a 600-character requirement", () => {
-  for (const task of ["review", "organize", "questions"]) {
-    const prompt = context.NIJANModel.systemPrompt(A.prompt(task, {}), task);
-    assert.ok(!prompt.includes("600"));
-    assert.ok(!prompt.includes("创作正文参考文风"));
+test("only enabled writing style reaches prose generation while other tasks keep their own constraints", () => {
+  const originalUI = context.TAUI, originalI18n = context.TAI18n;
+  const guide = task => context.NIJANModel.systemPrompt(A.prompt(task, {}), task);
+  try {
+    context.TAI18n = { t:key=>key,prefs:{ replyLength:"custom", replyChars:321 } };
+    const legacy=Store.emptyLibrary();
+    delete legacy.sections;
+    context.TAUI = {state:{lib:Store.verify(legacy)}};
+    assert.doesNotMatch(guide("create:world"), /创作正文参考文风/);
+    const style = context.TAUI.state.lib.sections.style;
+    Object.assign(style,{on:false,custom:"Fixture style",text:"Other style",preset:"spare"});
+    assert.doesNotMatch(guide("create:character"), /创作正文参考文风|Fixture style|Other style/);
+    assert.match(guide("create:character"), /321/);
+    style.on=true;
+    assert.match(guide("create:character"), /创作正文参考文风：Fixture style/);
+    for (const task of ["review","organize","questions","create:regex","create:graph","create:backup"]) {
+      assert.doesNotMatch(guide(task), /321|创作正文参考文风|Fixture style/);
+    }
+  } finally {
+    context.TAUI=originalUI;
+    context.TAI18n=originalI18n;
   }
-  assert.ok(
-    context.NIJANModel.systemPrompt(
-      A.prompt("create:character", {}),
-      "create:character",
-    ).includes("创作正文参考文风"),
-  );
 });
 test("organizing missing fields can only quote existing text and preserves optional blanks", () => {
   const { library, card } = setup();

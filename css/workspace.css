@@ -111,7 +111,6 @@ input:disabled, select:disabled, textarea:disabled, [aria-disabled="true"] { cur
 .ws-command .search-pages:empty { display: none; }
 .ws-command-trigger { display: flex; align-items: center; justify-content: center; gap: 7px; height: 34px; padding: 0 9px; border-radius: 8px; background: transparent; color: var(--muted); border: 1px solid var(--line); }
 .ws-command-trigger .ws-icon { width: 15px; }
-.save-wrap .note { display: none; }
 .pill { padding: 4px 0; border: 0; color: var(--muted); font-size: calc(11px * var(--ui-scale, 1)); gap: 6px; }
 .pill i { width: 5px; height: 5px; }
 .workspace-folders { align-self: flex-start; padding: 0 29px; margin-top: 9px; color: var(--muted); font-size: calc(11px * var(--ui-scale, 1)); max-width: 100%; }
@@ -527,8 +526,8 @@ html[data-density="compact"] .nav-btn { padding: 7px 11px; min-height: 34px; }
   .is-focused { grid-template-columns: 0 minmax(0, 1fr); }
   .top { padding: 19px 22px; }
   .search input { width: 185px; }
-  .save-wrap { display: none; }
-  .top-actions { gap: 7px; }
+  .top { flex-wrap: wrap; }
+  .top-actions { gap: 7px; max-width: 100%; flex-wrap: wrap; }
 }
 @media (max-width: 760px) {
   .shell, .nav-collapsed, .is-focused { display: flex; flex-direction: column; height: 100dvh; min-height: 0; }

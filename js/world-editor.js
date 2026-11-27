@@ -4,6 +4,8 @@
   const F = root.TAFormats;
   const Store = root.TAStore;
   const {hint}=UI;
+  const worldImportTip='在酒馆「世界书」中导入导出的 JSON。要更新已有世界书，请使用原文件名并确认替换。';
+  const embeddedBookTip='要更新卡内嵌的世界书，请在角色卡页选中这本书并重新导出角色卡。';
   const {showReading,mountChips,mountSticker,mountJson,mountAiBar}=root.TAWorkEditorTools;
 
   function blankEntry() {
@@ -71,6 +73,7 @@
         <button type="button" class="btn" id="lore-undo">撤销</button>
         <button type="button" class="btn btn-danger" id="del-book">删除此书</button>
       </div>
+      <p class="note work-export-guide">${UI.esc(UI.t(worldImportTip))} ${UI.esc(UI.t(embeddedBookTip))}</p>
     </div>
     <details class="ws-assist-details"><summary id="rename-book">书名与简介</summary><div class="paper stack">
       ${UI.field('书名', `<input type="text" data-book-field="name" value="${UI.esc(book.name)}">`)}
@@ -121,8 +124,9 @@
       const pack = (lib.stickerPacks || []).find((item) => item.id === book.stickerPackId);
       if (pack) data.stickerPack = pack.name;
       UI.downloadJson(filename, data);
-      UI.toast(pack ? '已导出世界书，并记下表情包名称' : '已导出酒馆世界书 JSON');
-      UI.showExport(filename, pack ? `世界书 JSON，只记录表情包「${pack.name}」，不含图片。放到酒馆 worlds 目录后从世界信息导入。` : '世界书 JSON。放到酒馆 worlds 目录，或在世界信息里导入。');
+      UI.toast(UI.t('已请求下载世界书 JSON。'));
+      const expressions=pack ? ' '+UI.t('另行导出表情图片。世界书中记录的表情包')+' · '+pack.name : '';
+      UI.showExport(filename, UI.t(worldImportTip)+expressions);
     };
     stage.querySelector('#import-book').onclick = () => importBook();
     mountLinkImport();

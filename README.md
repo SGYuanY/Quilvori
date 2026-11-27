@@ -197,7 +197,7 @@ The export preview lets you omit disabled entries, compact whitespace, remove re
 | Character cards | Edit SillyTavern card fields and import/export JSON or card PNG. |
 | World books | Edit entries and injection settings, test triggers, group by position or category. |
 | AI creation | Scoped edits, new drafts, conversation, review, and application previews. |
-| Writing sections | Combine style, viewpoint, relationships, boundaries, and output format. |
+| Writing sections | Start with a style or viewpoint, see what each switch produces, and open its prompt block, world-book entry, regex, or quick reply. |
 | Prompt assembly | Order and enable prompt blocks for comparison with a SillyTavern preset. |
 | Group cast | Select characters and set scenarios, talkativeness, and speaking behavior. |
 | Chat reader | Read JSONL or message arrays; search, bookmark, and copy. |
@@ -207,7 +207,7 @@ The export preview lets you omit disabled entries, compact whitespace, remove re
 | Story journal | Plan a scene or link a note or story beat to an imported chat message. Open the source from the journal, or open its notes from the message in the chat reader. |
 | Relationship graph | Edit nodes and links and export a world book. |
 | Consistency checks | Read local/AI reports and navigate to their sources. |
-| Group script | Arrange character lines, narration, and triggers. |
+| Group script | Choose speakers from your cards, preview their lines and narration, and save the script for editing or rehearsal in Quilvori. |
 | HTML memory | Create HTML memory for JS-Slash-Runner. |
 | Full-library backup | Export the local library; restore by replacing or merging. |
 | Guide | Instructions and destinations for exported files. |
@@ -222,7 +222,7 @@ When a prompt preset contains several execution orders, choose the `character_id
 | --- | --- |
 | Character card | JSON or PNG with `chara`/`ccv3` data. Use SillyTavern's character import; optionally embed a world book on export. |
 | World book | World Info JSON, including support for character-book `entries` arrays. Import in World Info. |
-| Regex | JSON array, imported through the Regex extension. |
+| Regex | Export the current script as a JSON object or all scripts as an array. Import the file through SillyTavern’s Regex extension. |
 | Quick replies | Quick Reply v2 JSON, imported through that extension. |
 | Expressions | Bundles install sprites at `characters/<character>/<expression>.<ext>`. The standalone expression-folder export uses an `expressions` subfolder. |
 | Prompts | Block configuration for reference, not a complete API preset that replaces model or temperature settings. |
@@ -318,7 +318,7 @@ Restart the desktop app or refresh the web page. Web-only users do not need `npm
 
 **Storage is full.** Export a backup before reducing large images. Do not clear browser data unless you have verified that your backup can restore the library.
 
-**Why is there no automatic write-back to SillyTavern?** Quilvori's local library and SillyTavern files are separate. Export your finished material and import it through the corresponding SillyTavern interface.
+**How do I use an edited card or world book in SillyTavern?** “Saved locally” refers to your Quilvori library. Export the updated card as PNG or JSON. In SillyTavern, open the existing character and choose **More → Replace / Update → Replace with File**. For a new character, import the card under **Character Management**. For a standalone world book, import the exported JSON under **World Info** using its original filename and confirm replacement. To update an embedded book, select it in Quilvori's character editor before exporting the card again.
 
 ## Tests and source layout
 
