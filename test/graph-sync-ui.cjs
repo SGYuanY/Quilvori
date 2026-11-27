@@ -90,7 +90,10 @@ suite('graph-sync',async ({run,wait,open,click,input,download})=>{
   assert.equal(fromEdge(reread.book,keep).id,alive.id);assert.equal(fromEdge(reread.book,extra).stUid,native.entries[fromEdge(reread.book,extra).stUid].uid);
   assert.equal(reread.book.entries.find(e=>e.id===orphan.id).graphSource,undefined);
   assert.ok(!reread.book.entries.some(e=>e.id===lost.id));
+  const savedHistory=await run(id=>TAHistory.list('worldBooks',id),b.id);
+  assert.ok(savedHistory.some(row=>row.reason==='关系图同步前' && row.value.entries.some(e=>e.id===lost.id)));
   await download('#export-graph');assert.deepEqual((await dump()).book,reread.book);
+  assert.equal((await run(id=>TAHistory.list('worldBooks',id),b.id)).length,savedHistory.length);
   await open('quick');
   assert.deepEqual(await run(()=>{
     const lib=TAUI.state.lib,set=lib.quickReplySets.find(s=>s.name==='Correspondence');

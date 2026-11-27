@@ -132,8 +132,19 @@
     }
     return changes;
   }
-  function publish(next,rows,draft=null,options) {
-    if (rows.length) database();
+  // Discrete work edits and their snapshots share the same library transaction.
+  // Legacy storage still supports manual writes. AI adoption and rollback keep
+  // their existing requirement for durable version history.
+  function commitWorks(next, targets, {reason, historyRequired=false, draft=null, ...options} = {}) {
+    const history = reason && targets.length && (historyRequired ? database() : root.TALibraryDB?.database());
+    const rows=[], seen=new Set();
+    for (const [kind,expected] of targets) {
+      if (!collections.has(kind) || expected?.id == null) throw conflict();
+      const live=root.TAStore.byId(root.TAUI.state.lib[kind],expected.id);
+      if (!live || live.id !== expected.id || (live !== expected && !same(live,expected))) throw conflict();
+      const key=idFor(kind,live.id);
+      if (history && !seen.has(key)) { rows.push(version(kind,live,reason)); seen.add(key); }
+    }
     return root.TAUI.commitLibrary(next,rows,false,draft,options);
   }
   async function apply(plan, keys, reason = 'AI 改稿前') {
@@ -144,19 +155,20 @@
       const kind = op.path[0];
       if (!collections.has(kind) || op.kind === 'add') continue;
       const item = ui.state.lib[kind].find(item=>item.id===op.id);
-      if (item) targets.set(idFor(kind,item.id),version(kind,item,reason));
+      if (item) targets.set(idFor(kind,item.id),[kind,item]);
     }
-    const snapshots = [...targets.values()];
+    const works = [...targets.values()];
     const scoped=chosen.length && chosen.every(op=>op.kind==='set' && op.path.length===1 && op.id!=null && targets.has(idFor(op.path[0],op.id)));
     const next=scoped ? {...ui.state.lib} : structuredClone(ui.state.lib);
     if (scoped) {
-      for (const kind of new Set(snapshots.map(row=>row.kind))) {
+      for (const kind of new Set(works.map(([kind])=>kind))) {
         next[kind]=next[kind].map(item=>targets.has(idFor(kind,item.id)) ? structuredClone(item) : item);
       }
     }
     const copy=structuredClone(plan),receipt=ai.commit(next,copy,keys);
     const draft=root.TAStudioDrafts?.onAdopt(plan,receipt);
-    await publish(next,snapshots,draft,scoped ? {scopes:snapshots.map(row=>[row.kind,row.id])} : undefined);
+    await commitWorks(next,works,{reason,historyRequired:true,draft,
+      scopes:scoped ? works.map(([kind,item])=>[kind,item.id]) : undefined});
     if(draft){delete plan.draftRevision;delete plan.draftSaveError;}
     for (const op of receipt.operations) plan.operations.find(row=>row.key===op.key).applied = true;
     return receipt;
@@ -165,12 +177,12 @@
     if (!collections.has(row.kind) || row.value?.id !== row.id) throw new Error('请选择要保存的作品');
     const current = () => root.TAUI.state.lib[row.kind].find(e=>e.id===row.id);
     if (!same(current(),expected)) throw new Error('资料库已变化，请重新打开。');
-    const snapshots = [version(row.kind,expected,'回滚前')];
     const library=root.TAUI.state.lib;
     const next={...library,[row.kind]:library[row.kind].map(item=>item.id===row.id ? structuredClone(row.value) : item)};
-    await publish(next,snapshots,null,{scopes:[[row.kind,row.id]],restore:{seq:row.seq,entity:row.entity}});
+    await commitWorks(next,[[row.kind,expected]],{reason:'回滚前',historyRequired:true,
+      scopes:[[row.kind,row.id]],restore:{seq:row.seq,entity:row.entity}});
   }
-  root.TAHistory = {tables,summary,append,list,inventory,overview,cleanupPlan,clean,diff,apply,restore,
+  root.TAHistory = {tables,summary,append,list,inventory,overview,cleanupPlan,clean,diff,apply,restore,commitWorks,
     get:seq=>read(database().transaction('versions').objectStore('versions').get(seq)),
     save:(kind,item,label)=>{
       const snapshot=version(kind,item,'手动快照',label);

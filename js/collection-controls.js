@@ -167,5 +167,38 @@
       list[index].focus();
     });
   }
-  root.TACollectionControls={titleInfo,titleMarkup,mountFilters,currentCard,chooseCard,mountMore};
+  // Bound cover images and interactive controls on both gallery pages.
+  function mountGalleryPager(host, preferences, draw) {
+    const UI = ui();
+    const pageSize = 24;
+    host.className = 'gallery-pagination row';
+    host.setAttribute('aria-label', UI.t('画廊分页'));
+    host.innerHTML = `<button class="btn btn-small" type="button" data-prev>${UI.esc(UI.t('上一页'))}</button><span role="status" aria-live="polite" data-page></span><button class="btn btn-small" type="button" data-next>${UI.esc(UI.t('下一页'))}</button>`;
+    const prev = host.querySelector('[data-prev]'), next = host.querySelector('[data-next]'), counter = host.querySelector('[data-page]');
+    let items = [];
+    function paint() {
+      const pages = Math.max(1, Math.ceil(items.length/pageSize));
+      const page = Math.max(0, Math.min(pages-1, preferences.page || 0));
+      preferences.page = page;
+      host.hidden = pages <= 1;
+      prev.disabled = page === 0;
+      next.disabled = page === pages - 1;
+      counter.textContent = (page+1)+' / '+pages;
+      draw(items.slice(page*pageSize,(page+1)*pageSize));
+    }
+    function turn(step, button) {
+      preferences.page += step; paint();
+      if (button.disabled) (step > 0 ? prev : next).focus();
+    }
+    prev.onclick = () => turn(-1,prev);
+    next.onclick = () => turn(1,next);
+    return (matches,reset,reveal) => {
+      items = matches;
+      if (reset) preferences.page = 0;
+      if (reveal && matches.includes(reveal)) preferences.page = Math.floor(matches.indexOf(reveal)/pageSize);
+      paint();
+    };
+  }
+
+  root.TACollectionControls={mountGalleryPager,titleInfo,titleMarkup,mountFilters,currentCard,chooseCard,mountMore};
 })(globalThis);

@@ -291,7 +291,7 @@ npm ci
 npm run validate
 ```
 
-`npm run validate` は JavaScript の構文チェック、プロンプトプリセット変換の型チェック（`npm run typecheck`）、動作テスト（`npm test`）を実行します。CI は Ubuntu と Windows の Node.js 22・24 で検証します。
+`npm run validate` は JavaScript の構文、カード・ワールドブック・プロンプトプリセット変換の型、生成済みコードとソースの一致を確認し、動作テストを実行します。変換処理のソースを変更したら `npm run build:formats` を実行してください。CI は Ubuntu と Windows の Node.js 22・24 で検証します。
 
 テストはサンプルと模擬 API を使い、有料モデルを呼びません。入出力、重複防止、原文移動、メタデータ整理、編集範囲、空欄、古いプレビュー、反映・取り消し、引用根拠、通信方式、推論設定、多言語を検証します。
 

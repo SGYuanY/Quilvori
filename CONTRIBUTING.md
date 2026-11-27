@@ -36,7 +36,7 @@ For the web app, serve the repository root on a loopback address:
 python3 -m http.server 8765 --bind 127.0.0.1
 ```
 
-On Windows, `py -m http.server 8765 --bind 127.0.0.1` is an equivalent option. Open [http://127.0.0.1:8765/](http://127.0.0.1:8765/). The web app has no bundler or build step, and does not need npm packages merely to run in a browser. Desktop development and the validation commands use Node.js.
+On Windows, `py -m http.server 8765 --bind 127.0.0.1` is an equivalent option. The checked-in files run directly in a browser. Source compilation, desktop development and validation use Node.js. [Open the local workbench](http://127.0.0.1:8765/).
 
 Use a separate browser profile or port for manual tests with sample data. Each browser origin has its own library. Save an existing session and export a full-library backup before testing changes against personal data; a test should not need someone's real card collection or API key.
 
@@ -45,8 +45,10 @@ Use a separate browser profile or port for manual tests with sample data. Each b
 | Location | Responsibility |
 | --- | --- |
 | Root `*.html` files | Page entry points and ordered script/style loading. |
-| `js/ui.js`, `js/views.js`, `js/workspace.js` | Shell, routes, editors, settings, navigation, and interaction. |
-| `js/store.js`, `js/formats.js`, `js/png.js` | Library storage, SillyTavern formats, and card PNG data. |
+| `js/ui.js`, `js/views.js`, `js/workspace.js` | Shell, page registration, settings, navigation, and interaction. |
+| `js/character-editor.js`, `js/world-editor.js`, `js/work-editor-tools.js` | Character and world-book pages, including their shared JSON, media and AI controls. |
+| `src/formats/card-world.ts`, `src/formats/workshop.js` | Typed card and world-book conversion, and the remaining workshop format implementations. |
+| `js/store.js`, `js/history.js`, `js/png.js` | Library storage, work edits and revision history, and card PNG data. |
 | `js/model.js`, `js/ai-tasks.js`, `js/studio.js`, `js/creation.js` | Model transport, typed tasks, editing proposals, and creation sessions. |
 | `js/organize*.js`, `js/review.js` | Lossless organization and readable review reports. |
 | `js/folder-import.js`, `js/link-import*.js` | Local-folder and public-link import workflows. |
@@ -76,7 +78,11 @@ npm run typecheck
 npm test
 ```
 
-The syntax check parses the project's JavaScript. The TypeScript pilot checks the JSDoc types in `js/prompt-presets.js` with `noEmit`. Treat imported JSON as `unknown` until its fields have been validated. The browser and desktop app load this JavaScript directly.
+Edit card and world-book conversions in `src/formats/card-world.ts`. Incoming files enter as `unknown`. Library records and native exports have separate types, including fields for third-party metadata. Prompt preset conversion uses checked JSDoc in `js/prompt-presets.js`.
+
+Run `npm run build:formats` after editing either source under `src/formats/` and commit the resulting `js/formats.js` alongside the source. The browser, desktop and Node consumers use that same entry point. Both packaging commands regenerate it. Validation catches an outdated artifact and type errors.
+
+Use `TAHistory.commitWorks` for a discrete replacement of an existing card or book. Pass the expected work and snapshot reason so the edit and its prior version are saved in one transaction. Ordinary field typing uses the existing debounced, per-work save.
 
 Behavior tests use fixtures and mock interfaces. CI runs the checks with Node.js 22 and 24 on Ubuntu and Windows. Keep test paths and temporary files portable across those environments.
 

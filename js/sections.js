@@ -230,7 +230,9 @@
         candidate[target.bucket]=live[target.bucket].map(row=>row.id===owner?structuredClone(row):row);
       }
       for(const op of chosen)write(candidate,key,op);
-      await UI.commitLibrary(candidate,[],false,null,{scopes});UI.renderStage();
+      const book=chosen.some(op=>op.target.bucket==='worldBooks') && live.worldBooks.find(row=>row.id===containers.worldBooks.id);
+      await root.TAHistory.commitWorks(candidate,book ? [['worldBooks',book]] : [],{reason:'段落同步前',scopes});
+      UI.renderStage();
     } catch(error) {UI.toast(UI.t(error.message),{kind:'error'});}
   }
   function render(stage) {

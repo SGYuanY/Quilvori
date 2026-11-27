@@ -1,0 +1,214 @@
+{
+  "atelier": "tavern-atelier",
+  "libraryVersion": 1,
+  "exportedAt": "2026-11-27T05:44:23.031Z",
+  "library": {
+    "version": 1,
+    "meta": {
+      "name": "我的酒馆库",
+      "updatedAt": "2026-11-27T05:44:23.030Z",
+      "seeded": false
+    },
+    "characters": [
+      {
+        "name": "Signal keeper",
+        "description": "Watches the harbor.",
+        "personality": "",
+        "scenario": "",
+        "first_mes": "",
+        "mes_example": "",
+        "creator_notes": "",
+        "system_prompt": "",
+        "post_history_instructions": "",
+        "alternate_greetings": [
+          "Dawn.",
+          "Dusk."
+        ],
+        "tags": [],
+        "creator": "",
+        "character_version": "",
+        "talkativeness": 0,
+        "stMetadata": {
+          "header": {
+            "spec": "chara_card_v3",
+            "spec_version": "3.0"
+          },
+          "extra": {
+            "group_only_greetings": [
+              "Welcome."
+            ]
+          },
+          "extensions": {
+            "talkativeness": 0,
+            "archive": {
+              "author": "Fixture Guild",
+              "edition": 3
+            }
+          }
+        },
+        "id": 0,
+        "embeddedBookId": "harbor",
+        "shelfPinned": true
+      }
+    ],
+    "worldBooks": [
+      {
+        "name": "Lantern archive",
+        "description": "Tide tables",
+        "entries": [
+          {
+            "stUid": 0,
+            "comment": "Pier",
+            "content": "West pier.",
+            "keys": [
+              "pier"
+            ],
+            "secondaryKeys": [],
+            "constant": false,
+            "selective": true,
+            "order": 100,
+            "position": "outlet",
+            "enabled": false,
+            "depth": 4,
+            "outletName": "harbor",
+            "selectiveLogic": 0,
+            "caseSensitive": null,
+            "matchWholeWords": null,
+            "id": "pier"
+          },
+          {
+            "stUid": 37,
+            "stSettings": {
+              "probability": 91
+            },
+            "stExtensions": {
+              "studio": {
+                "variant": "base"
+              }
+            },
+            "comment": "Signal",
+            "content": "Low tide.",
+            "keys": [
+              "signal"
+            ],
+            "secondaryKeys": [
+              "lamp"
+            ],
+            "constant": false,
+            "selective": false,
+            "order": 0,
+            "position": "at_depth",
+            "enabled": true,
+            "depth": 0,
+            "outletName": "",
+            "selectiveLogic": 0,
+            "caseSensitive": false,
+            "matchWholeWords": null,
+            "id": 0
+          }
+        ],
+        "stBookFields": {
+          "scan_depth": 3,
+          "token_budget": 1600
+        },
+        "stBookExtensions": {
+          "publisher": {
+            "edition": "blue"
+          }
+        },
+        "id": "harbor"
+      }
+    ],
+    "promptPresets": [],
+    "groups": [],
+    "chats": [],
+    "assets": [],
+    "regexScripts": [],
+    "quickReplySets": [
+      {
+        "id": "signal-set",
+        "name": "Dock replies",
+        "workSource": {
+          "characterId": 0,
+          "bookId": "harbor",
+          "entryIds": [
+            0
+          ]
+        },
+        "replies": [
+          {
+            "id": "r",
+            "label": "Answer",
+            "message": "Light the lamp."
+          }
+        ]
+      }
+    ],
+    "timeline": {
+      "notes": [],
+      "beats": []
+    },
+    "graph": {
+      "nodes": [],
+      "edges": []
+    },
+    "scripts": [],
+    "stickerPacks": [],
+    "themes": [],
+    "activeThemeId": null,
+    "settings": {
+      "chatBackgroundAssetId": null
+    },
+    "sections": {
+      "r18": {
+        "on": false,
+        "preset": "hint",
+        "custom": "",
+        "text": ""
+      },
+      "nsfw": {
+        "on": false,
+        "preset": "tease",
+        "custom": "",
+        "text": ""
+      },
+      "style": {
+        "on": false,
+        "preset": "short",
+        "custom": "",
+        "text": ""
+      },
+      "pov": {
+        "on": false,
+        "preset": "third",
+        "thoughts": false,
+        "custom": "",
+        "text": ""
+      },
+      "bond": {
+        "on": false,
+        "preset": "stranger",
+        "custom": "",
+        "text": ""
+      },
+      "safe": {
+        "on": false,
+        "word": "停",
+        "custom": "",
+        "text": ""
+      },
+      "format": {
+        "on": false,
+        "custom": "",
+        "text": ""
+      }
+    }
+  },
+  "backupVersion": 2,
+  "workState": {
+    "drafts": [],
+    "versions": [],
+    "limits": [],
+    "records": []
+  }
+}

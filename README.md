@@ -320,7 +320,7 @@ Restart the desktop app or refresh the web page. Web-only users do not need `npm
 npm run validate
 ```
 
-`npm run validate` runs the JavaScript syntax check, the TypeScript check for prompt preset conversion (`npm run typecheck`), and the behavior tests (`npm test`). CI uses Node.js 22 and 24 on Ubuntu and Windows.
+`npm run validate` checks JavaScript syntax, types for card, world-book and prompt preset conversion, the generated browser code and the behavior tests. After editing the format sources, run `npm run build:formats`. CI uses Node.js 22 and 24 on Ubuntu and Windows.
 
 Tests use sample data and mock interfaces rather than paid model calls. They cover format round trips, folder deduplication, lossless moves, metadata organization, editable scope, optional blanks, stale previews, apply/undo, evidence, transport protocols, reasoning parameters, locales, page palettes, attribution sanitization, resource catalogs, and bounded wallpaper imports.
 

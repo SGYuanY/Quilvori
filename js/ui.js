@@ -36,6 +36,25 @@
   };
 
   let views = {};
+  let boundWork = null;
+
+  function bindWork(collection, item) {
+    boundWork = {collection,item,library:state.lib};
+  }
+  function guardWorkEvent(event) {
+    if (!boundWork || boundWork.library === state.lib) return;
+    const {collection,item,library} = boundWork;
+    if (library[collection] === state.lib[collection] && (!item || TAStore.byId(state.lib[collection],item.id) === item)) {
+      boundWork.library = state.lib;
+      return;
+    }
+    // An async adoption or restore can replace the records still captured by
+    // this page's field, chip, gallery or toolbar handlers.
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    renderStage();
+    toast(root.TAI18n.t('资料库已变化，请重新打开。'),{kind:'warning'});
+  }
 
   function esc(value) {
     return String(value ?? '').replace(/[&<>"']/g, (ch) => ({
@@ -521,6 +540,7 @@
   }
 
   function renderStage() {
+    boundWork = null;
     const stage = document.getElementById('stage');
     paintChrome();
     paintSave();
@@ -1220,6 +1240,8 @@
     document.querySelector('[data-shell="settings"]').onclick = openSettings;
     if (root.TAI18n) root.TAI18n.apply();
     const searchBox = document.getElementById('search');
+    const editorStage = document.getElementById('stage');
+    for (const type of ['click','keydown','input','change','drop']) editorStage.addEventListener(type,guardWorkEvent,true);
     searchBox.addEventListener('pointerdown', () => searchBox.classList.add('held'));
     const releaseSearch = () => {
       if (!searchBox.classList.contains('held')) return;
@@ -1390,7 +1412,24 @@
     wrap.append(button, menu);
   }
 
+  function hint(text) {
+    return `<p class="note">${esc(text)}</p>`;
+  }
+
+  async function readImage(file) {
+    try { return await root.TAUI.readDataUrl(file); }
+    catch (error) { throw new Error(file.name + ' · ' + root.TAUI.t(error.message)); }
+  }
+
+  async function commitCurrentLibrary(update) {
+    // File reads and confirmation dialogs may outlive the editor that started the operation.
+    const candidate = structuredClone(root.TAUI.state.lib);
+    update(candidate);
+    await root.TAUI.commitLibrary(candidate);
+  }
+
   root.TAUI = {
+    hint, readImage, commitCurrentLibrary, bindWork,
     ROUTES, state, esc, toast, ask, dialogTabStops, downloadBlob, downloadText, downloadJson, pickFile, readText, readDataUrl, copyText,
     safeName, assetById, charById, selected, matchQuery, markDirty, flush, commitLibrary, applyTheme, ensureTheme, go, openAddress, setAddress, renderStage, show, flyPlane,
     openSettings, field, fold, mountFolds, area, text, bindFields, picker, bindPicker, empty, confirmLoadDemo, confirmClear, mount,
