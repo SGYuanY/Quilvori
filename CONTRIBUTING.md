@@ -50,6 +50,7 @@ Use a separate browser profile or port for manual tests with sample data. Each b
 | `src/formats/card-world.ts`, `src/formats/workshop.js` | Typed card and world-book conversion, and the remaining workshop format implementations. |
 | `src/restore/work-restore.ts`, `src/creation/work-outcomes.ts` | Planning a single-work restore and locating the works from a generation in the current draft shelf or library. |
 | `src/sync/` | Three-way comparison of character cards and standalone World Info, per-field choices, portraits, and device-local file links. |
+| `src/collection/` | Typed relationships and collection work pages for character cards, embedded world books, saved drafts and related assets. |
 | `electron/sync-file.js`, `electron/card-sync.js`, `electron/world-sync.js` | Desktop file selection, format validation, checked replacement, recovery receipts, and restoration of the original bytes. |
 | `js/store.js`, `js/history.js`, `js/png.js` | Library storage, work edits and revision history, and card PNG data. |
 | `js/model.js`, `js/ai-tasks.js`, `js/studio.js`, `js/creation.js` | Model transport, typed tasks, editing proposals, and creation sessions. |
@@ -81,11 +82,11 @@ npm run typecheck
 npm test
 ```
 
-To measure editor performance on a fixed synthetic library, run `node scripts/benchmark-library.mjs`. The benchmark uses a temporary Electron profile and reports median and 95th-percentile times. Use the same device and fixture when comparing releases.
+To measure editor performance on a fixed synthetic library, run `node scripts/benchmark-library.mjs`. The benchmark uses a temporary Electron profile and reports median and 95th-percentile times. Use the same device, fixture and shown-window benchmark for both releases. Chromium throttles hidden windows, which can distort layout timings.
 
 Edit card and world-book conversions in `src/formats/card-world.ts`. Incoming files enter as `unknown`. Library records and native exports have separate types, including fields for third-party metadata. Prompt preset conversion uses checked JSDoc in `js/prompt-presets.js`.
 
-Run `npm run build:formats` after editing sources under `src/`. Commit the affected generated scripts alongside the sources. Both editions load `js/formats.js`, `js/work-restore.js`, `js/work-outcomes.js`, `js/world-sync.js` and `js/card-sync.js` directly. The shared file-sync helpers and comparison panel load with the world-book bundle before the card bundle. Both packaging commands regenerate these files. Validation checks their contents and strict TypeScript diagnostics.
+Run `npm run build:formats` after editing sources under `src/`. Commit the affected generated scripts alongside the sources. Both editions load `js/formats.js`, `js/work-restore.js`, `js/work-outcomes.js`, `js/world-sync.js`, `js/card-sync.js` and `js/work-page.js` directly. The shared file-sync helpers and comparison panel load with the world-book bundle before the card bundle. Both packaging commands regenerate these files. Validation checks their contents and strict TypeScript diagnostics.
 
 Exercise file-sync changes with a disposable profile and synthetic PNG and JSON files. Cover independent edits, a field edited on both sides, and a second comparison after applying a choice. For PNGs, check the original portrait, embedded world-book entry IDs, and v2/v3 text records. On desktop, verify that the selected filename still opens the existing character, the saved bytes can be read back, and restoration recovers the original file. On the web, test both reselecting the installed download and selecting a different revision while the download is awaiting verification.
 

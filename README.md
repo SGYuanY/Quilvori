@@ -39,6 +39,8 @@ The collection, character editor and world-book trigger preview below use a fict
 
 ## Collection gallery and page colors
 
+Open a cover to view its work page. It lists the embedded book, linked expressions, Quick Replies, pending AI drafts, snapshots and the last file check. Open a world book to see the character cards that use it. **Back to collection** restores the filter, page and scroll position. In the character editor, the Main prompt and Post-history instructions fields are named alongside their SillyTavern counterparts.
+
 Use the pin beside a cover’s title to keep a card or world book at the front of the shelf. Unpinning restores its usual position. Pins travel with library backups and stay local when you export to SillyTavern.
 
 The **Collection** home page displays large character portraits and decorative world-book covers, with search, type filters, original-text previews, and quiet **Write a character card** / **Write a world book** actions. Missing portraits use a title cover; the gallery does not generate replacement artwork or change the stored character image.

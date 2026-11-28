@@ -10,6 +10,7 @@ try {
   const env = {...process.env, QUILVORI_TEST_PROFILE:sandbox};
   delete env.ELECTRON_RUN_AS_NODE;
   const phases={
+    'work-page':'work-page-ui.cjs',
     'card-portrait-export':'card-portrait-export-ui.cjs',
     'card-sync':'card-sync-ui.cjs',
     'world-sync':'world-sync-ui.cjs',

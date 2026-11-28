@@ -18,11 +18,13 @@
   const deleteWork = (collection,item,body) => root.TAIntegrityPanel.remove(collection,item,body);
 
   function home(stage) {
+    if(UI.state.collectionWork)return root.TAWorkPage.render(stage,UI.state.collectionWork);
     const lib = UI.state.lib, icon = root.TAWorkspace.icon, esc = UI.esc, tr = UI.t;
     const prefs = UI.state.collectionView ||= { kind: 'all', query: '' };
     const cards = [...lib.characters].sort((a, b) => String(b.updatedAt || b.createdAt || '').localeCompare(String(a.updatedAt || a.createdAt || '')));
     const books = lib.worldBooks;
-    const assetsById = new Map((lib.assets || []).map(asset=>[asset.id,asset]));
+    const duplicates={character:root.TAWorkRelations.duplicateNames(cards),book:root.TAWorkRelations.duplicateNames(books)};
+    const assetsById = new Map((lib.assets || []).map(asset=>[String(asset.id),asset]));
     // Interleave the two collections without changing their stored order.
     const collection = [];
     for (let i = 0; i < Math.max(cards.length, books.length); i++) {
@@ -46,20 +48,23 @@
     const moveFilter = root.TACollectionControls.mountFilters(host.querySelector('.collection-filters'));
     const showPage = mountGalleryPager(host.querySelector('[data-shelf-pages]'),prefs,items => {
       grid.innerHTML = items.map(({kind,item}) => {
-        const character = kind === 'character', name = root.TAIntegrityPanel.displayName(item), avatar = character && assetsById.get(item.avatarAssetId);
+        const character = kind === 'character', name = root.TAIntegrityPanel.displayName(item);
+        const imageId=character ? item.avatarAssetId : item.coverAssetId;
+        const avatar=imageId!=null && imageId!=='' && assetsById.get(String(imageId));
         const recent = character && latest?.id === item.id;
         const author = typeof item.creator === 'string' && item.creator.trim() ? item.creator : '';
         const title = esc(name), id = esc(item.id);
+        const identity=root.TAWorkPage.localId(item,duplicates[kind]);
         const pinned = item.shelfPinned === true, pinAction = esc(tr(pinned ? '取消书架置顶' : '在书架置顶'));
         return `<article class="collection-item collection-${kind} collection-tone-${tint(item.id)}">
-          <div class="collection-display"><button type="button" class="collection-open" data-collection-open="${id}" data-collection-type="${kind}" aria-label="${esc(tr('打开编辑'))} · ${title}">
+          <div class="collection-display"><button type="button" class="collection-open" data-collection-open="${id}" data-collection-type="${kind}" aria-label="${esc(tr('workPage.open'))} · ${esc(root.TAWorkPage.itemLabel(item,duplicates[kind]))}">
             <span class="collection-cover ${avatar ? 'collection-has-portrait' : ''}">
-              ${avatar ? `<img class="collection-portrait" src="${esc(avatar.dataUrl)}" alt="" loading="lazy" decoding="async"><span class="collection-portrait-shade"></span><span class="collection-portrait-caption" data-no-translate>${title}</span>` : `<span class="collection-book-frame" aria-hidden="true"></span><span class="collection-cover-top">${tr(character ? '角色卡' : '世界书')}</span><span class="collection-cover-emblem" aria-hidden="true"><img src="img/emblem.svg" alt=""></span><span class="collection-cover-title" data-no-translate>${title}</span><span class="collection-cover-flourish" aria-hidden="true">✦</span><span class="collection-cover-bottom" aria-hidden="true">QUILVORI</span>`}
+              ${avatar ? `<img class="collection-portrait" src="${esc(UI.imageUrl(avatar))}" alt="" loading="lazy" decoding="async"><span class="collection-portrait-shade"></span><span class="collection-portrait-caption" data-no-translate>${title}</span>` : `<span class="collection-book-frame" aria-hidden="true"></span><span class="collection-cover-top">${tr(character ? '角色卡' : '世界书')}</span><span class="collection-cover-emblem" aria-hidden="true"><img src="img/emblem.svg" alt=""></span><span class="collection-cover-title" data-no-translate>${title}</span><span class="collection-cover-flourish" aria-hidden="true">✦</span><span class="collection-cover-bottom" aria-hidden="true">QUILVORI</span>`}
               <span class="collection-spine" aria-hidden="true"></span><span class="collection-cover-ornament" aria-hidden="true"></span>
               ${recent ? `<span class="collection-bookmark" aria-label="${esc(tr('最近编辑'))}">${icon('clock')}</span>` : ''}
-            </span><span class="collection-open-hint">${tr('打开编辑')}${icon('arrow')}</span>
+            </span><span class="collection-open-hint">${tr('workPage.open')}${icon('arrow')}</span>
           </button><button type="button" class="collection-peek" data-collection-peek="${id}" data-collection-type="${kind}" aria-label="${esc(tr('原文预览'))} · ${title}">${icon('eye')}</button></div>
-          <div class="collection-caption"><button type="button" class="collection-pin" data-collection-pin="${id}" data-collection-type="${kind}" aria-pressed="${pinned}" aria-label="${pinAction} · ${title}" title="${pinAction}">${icon('pin')}</button><span class="collection-category">${tr(character ? '角色卡' : '世界书')}${recent ? `<span class="collection-recent">${tr('最近编辑')}</span>` : ''}</span><h3 data-no-translate>${title}</h3><p>${author ? `<span data-no-translate>${esc(author)}</span>` : character ? tr('未署名') : `${(item.entries || []).length} ${tr('条设定')}`}</p>${character && item.tags?.length ? `<div class="collection-tags" data-no-translate>${item.tags.slice(0,2).map(tag => `<span>${esc(tag)}</span>`).join('')}</div>` : ''}</div>
+          <div class="collection-caption"><button type="button" class="collection-pin" data-collection-pin="${id}" data-collection-type="${kind}" aria-pressed="${pinned}" aria-label="${pinAction} · ${title}" title="${pinAction}">${icon('pin')}</button><span class="collection-category">${tr(character ? '角色卡' : '世界书')}${recent ? `<span class="collection-recent">${tr('最近编辑')}</span>` : ''}</span><h3 data-no-translate>${title}</h3>${identity ? `<small class="work-page-id" data-no-translate>${esc(identity)}</small>` : ''}<p>${author ? `<span data-no-translate>${esc(author)}</span>` : character ? tr('未署名') : `${(item.entries || []).length} ${tr('条设定')}`}</p>${character && item.tags?.length ? `<div class="collection-tags" data-no-translate>${item.tags.slice(0,2).map(tag => `<span>${esc(tag)}</span>`).join('')}</div>` : ''}</div>
         </article>`;
       }).join('') || `<div class="collection-empty"><img src="img/emblem.svg" alt=""><h3>${tr(collection.length ? '没有找到这件藏品' : '收藏从这里开始')}</h3><p>${tr(collection.length ? '换个关键词，或看看其他分类。' : '导入角色卡或世界书，也可以写下你的第一份作品。')}</p><div class="row">${collection.length ? `<button type="button" class="btn" data-collection-reset>${tr('清除筛选')}</button>` : `<button type="button" class="btn" data-collection-import="card">${tr('导入角色卡')}</button><button type="button" class="btn" data-collection-import="book">${tr('导入世界书')}</button>`}</div></div>`;
     });
@@ -95,7 +100,10 @@
       }
       if (button.hasAttribute('data-collection-kind')) { prefs.kind = button.dataset.collectionKind; paint(true); }
       if (button.hasAttribute('data-collection-reset')) { prefs.kind = 'all'; prefs.query = ''; host.querySelector('[data-collection-search]').value = ''; paint(true); }
-      if (button.hasAttribute('data-collection-open')) root.TAWorkspace.openEntity({ kind: button.dataset.collectionType, id: button.dataset.collectionOpen });
+      if (button.hasAttribute('data-collection-open')) {
+        prefs.focused={kind:button.dataset.collectionType,id:button.dataset.collectionOpen};
+        UI.openAddress(root.TAWorkPage.href(prefs.focused.kind,prefs.focused.id));
+      }
       if (button.hasAttribute('data-collection-peek')) root.TAWorkspace.showPeek({ kind: button.dataset.collectionType, id: button.dataset.collectionPeek }, button, true);
       if (button.hasAttribute('data-collection-import')) document.querySelector(`[data-shell="import-${button.dataset.collectionImport}"]`)?.click();
       if (button.hasAttribute('data-collection-create')) {

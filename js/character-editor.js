@@ -69,7 +69,7 @@
 
   async function exportCharacterJson(character,book,includeExpressions) {
     const filename = UI.safeName(character.name)+'.json';
-    const pack = (UI.state.lib.stickerPacks || []).find(item => item.id === character.stickerPackId);
+    const pack = Store.byId(UI.state.lib.stickerPacks,character.stickerPackId);
     try {
       const card = F.characterToCard(character,book);
       if (pack?.stickers?.length) card.data.extensions.expression_folder = character.name+'/expressions';
@@ -139,6 +139,7 @@
     UI.bindWork('characters',character);
     if (character) UI.state.sel.character = character.id;
     const books = lib.worldBooks;
+    const duplicateBooks=root.TAWorkRelations.duplicateNames(books);
     const galleryOn = UI.state.cardView === 'gallery';
     stage.innerHTML = `<div class="dropwell"><div><strong>把角色卡拖到这里</strong><span>JSON，或带 chara 数据的 PNG。</span></div><button type="button" class="btn btn-primary" id="card-drop-btn">选择文件</button></div><div id="sticker-host"></div><div id="json-host"></div><div class="toolbar">
       <button type="button" class="btn${galleryOn ? ' btn-primary' : ''}" data-act="view-gallery">画廊</button>
@@ -148,7 +149,7 @@
       <button type="button" class="btn" data-act="dup" ${character ? '' : 'disabled'}>复制</button>
       <button type="button" class="btn btn-danger" data-act="del" ${character ? '' : 'disabled'}>删除</button>
       <span class="spacer"></span>
-      <label class="dark-muted">导出时附带<select id="attach-book"><option value="">不附带世界书</option>${books.map((book) => `<option value="${UI.esc(book.id)}">${UI.esc(book.name)}</option>`).join('')}</select></label>
+      <label class="dark-muted">导出时附带<select id="attach-book"><option value="">不附带世界书</option>${books.map((book) => `<option value="${UI.esc(book.id)}" data-no-translate>${UI.esc(root.TAWorkPage.itemLabel(book,duplicateBooks))}</option>`).join('')}</select></label>
       <button type="button" class="btn btn-primary" data-act="json" ${character ? '' : 'disabled'}>导出 JSON</button>
       <button type="button" class="btn btn-primary" data-act="png" ${character ? '' : 'disabled'}>导出 PNG</button>
       ${character ? `<p class="note work-export-guide">${UI.esc(UI.t(cardImportTip))}</p>` : ''}
@@ -215,11 +216,18 @@
     const bookOf = () => Store.byId(UI.state.lib.worldBooks,stage.querySelector('#attach-book').value);
     const recoverPortrait = portraitRecovery(toolbar,character,bookOf);
     root.TAHistoryPanel.mount(toolbar,'characters',character);
-    if(!galleryOn)root.TACardSyncPanel.mount(toolbar,character,recoverPortrait);
+    let workLinks;
+    if(!galleryOn){
+      root.TACardSyncPanel.mount(toolbar,character,recoverPortrait);
+      workLinks=root.TAWorkPage.editorLinks(toolbar,'character',character);
+    }
     root.TAStBundle.mount(stage,character,bookOf,makeCardPng,recoverPortrait);
-    const attached = character.embeddedBookId ?? character.source?.embeddedBookId;
-    if (books.some(book=>book.id === attached)) stage.querySelector('#attach-book').value = attached;
-    stage.querySelector('#attach-book').addEventListener('change', () => { character.embeddedBookId = bookOf()?.id ?? ''; UI.markDirty('characters',character.id); });
+    const attached = Store.byId(books,character.embeddedBookId ?? character.source?.embeddedBookId);
+    if (attached) stage.querySelector('#attach-book').value = attached.id;
+    stage.querySelector('#attach-book').addEventListener('change', () => {
+      character.embeddedBookId = bookOf()?.id ?? ''; UI.markDirty('characters',character.id);
+      if(workLinks){workLinks.remove();workLinks=root.TAWorkPage.editorLinks(toolbar,'character',character);}
+    });
     stage.querySelector('[data-act="json"]').onclick = () => exportCharacterJson(character,bookOf(),true);
     stage.querySelector('[data-act="png"]').onclick = () => exportCharacterPng(character, bookOf()).then(() => {
       const message = UI.t('export.cardRequested', {format:'PNG'});
@@ -248,7 +256,7 @@
         currentLabel.textContent=visible ? UI.t('当前角色')+' · '+root.TAIntegrityPanel.displayName(character) : UI.t('请在画廊中选择角色卡。');
         grid.innerHTML = items.map(item => {
           const avatar = assetsById.get(item.avatarAssetId), name = UI.esc(root.TAIntegrityPanel.displayName(item));
-          const face = avatar ? `<img alt="" src="${UI.esc(avatar.dataUrl)}" loading="lazy" decoding="async">` : `<div class="seal-fallback" data-no-translate>${UI.esc((item.name || '名').slice(0,1))}</div>`;
+          const face = avatar ? `<img alt="" src="${UI.esc(UI.imageUrl(avatar))}" loading="lazy" decoding="async">` : `<div class="seal-fallback" data-no-translate>${UI.esc((item.name || '名').slice(0,1))}</div>`;
           return `<article class="paper gallery-card${item.id === character.id ? ' on' : ''}">
             <button type="button" class="gallery-open" data-open-card="${UI.esc(item.id)}"${item.id===character.id?' aria-current="true"':''} aria-label="${UI.esc(UI.t('打开编辑'))} · ${name}">${face}</button>
             <div class="gallery-meta"><strong data-no-translate>${name}</strong><div class="row"><button type="button" class="btn btn-small" data-dup-card="${UI.esc(item.id)}" aria-label="${UI.esc(UI.t('复制'))} · ${name}">${UI.t('复制')}</button></div></div>
@@ -285,22 +293,19 @@
         ${UI.fold('avatarAssetId', '头像', `<select data-field="avatarAssetId"><option value="">无</option>${avatars.map((asset) => `<option value="${UI.esc(asset.id)}"${asset.id === character.avatarAssetId ? ' selected' : ''}>${UI.esc(asset.name)}</option>`).join('')}</select>`, '图片在素材库上传')}
         ${UI.fold('talkativeness', '话多程度', `<input data-field="talkativeness" type="range" min="0" max="1" step="0.05" value="${Number(character.talkativeness) || 0}">`, '0 很少开口，1 很爱说话。群聊导出时带上这个数。')}
         ${UI.fold('description', '描述', UI.area('description', character.description, 6))}
-        ${UI.fold('personality', '性格', UI.area('personality', character.personality, 4))}
+        ${UI.fold('personality', UI.t('workPage.personality'), UI.area('personality', character.personality, 4))}
         ${UI.fold('scenario', '情景', UI.area('scenario', character.scenario, 4))}
         ${UI.fold('first_mes', '开场白', UI.area('first_mes', character.first_mes, 6))}
         ${UI.fold('greetings', '备用开场', '<div id="greetings"></div>', '点「添加」再写。导出为备用开场白。')}
         ${UI.fold('mes_example', '对话示例', UI.area('mes_example', character.mes_example, 5), '可用 {{char}} 与 {{user}}')}
         ${UI.fold('creator_notes', '创作者备注', UI.area('creator_notes', character.creator_notes, 3))}
-        ${UI.fold('system_prompt', '系统提示', UI.area('system_prompt', character.system_prompt, 3), '写入角色卡的系统提示。')}
-        ${UI.fold('post_history_instructions', '历史后指令', UI.area('post_history_instructions', character.post_history_instructions, 3), '放在对话历史之后，给模型的补充指令。')}
+        ${UI.fold('system_prompt', UI.t('workPage.mainPrompt'), UI.area('system_prompt', character.system_prompt, 3) + '<a class="work-page-link" href="sections.html?part=style">'+UI.esc(UI.t('workPage.studioStyle'))+'</a>', UI.t('workPage.promptHelp'))}
+        ${UI.fold('post_history_instructions', UI.t('workPage.postHistory'), UI.area('post_history_instructions', character.post_history_instructions, 3), '放在对话历史之后，给模型的补充指令。')}
       </div>
       <aside class="paper card-preview" id="char-preview"></aside>
     </div>`;
-    const paintPreview = () => {
-      const avatar = UI.assetById(character.avatarAssetId);
-      const preview = body.querySelector('#char-preview');
-      preview.innerHTML = `${avatar ? `<img class="avatar" alt="" src="${UI.esc(avatar.dataUrl)}">` : `<div class="avatar seal-fallback">${UI.esc((character.name || '名').slice(0, 1))}</div>`}
-        <p class="eyebrow">CHARACTER · V2</p>
+    const preview = body.querySelector('#char-preview');
+    preview.innerHTML = `<div data-preview-face></div><p class="eyebrow">CHARACTER · V2</p>
         <h2 id="prev-name"></h2>
         <div class="tags" id="prev-tags"></div>
         <p class="clamp" id="prev-desc"></p>
@@ -308,14 +313,24 @@
         <p class="muted" id="prev-meta"></p>
         <div id="card-lesson"></div>
         <div id="card-import"></div>`;
+    let portrait;
+    const paintPreview = () => {
+      const avatar = UI.assetById(character.avatarAssetId);
+      const face = preview.querySelector('[data-preview-face]');
+      const next=avatar ? UI.imageUrl(avatar) : (character.name || '名').slice(0,1);
+      if(portrait!==next){
+        portrait=next;
+        const node=document.createElement(avatar?'img':'div');
+        node.className=avatar?'avatar':'avatar seal-fallback';
+        if(avatar){node.alt='';node.src=next;}else node.textContent=next;
+        face.replaceChildren(node);
+      }
       preview.querySelector('#prev-name').textContent = character.name || '未命名';
       preview.querySelector('#prev-tags').innerHTML = (character.tags || []).map((tag) => `<span class="tag">${UI.esc(tag)}</span>`).join('');
       preview.querySelector('#prev-desc').textContent = character.description || '描述还空着。';
       preview.querySelector('#prev-mes').textContent = character.first_mes || '还没有开场白。';
       preview.querySelector('#prev-meta').textContent = `${character.creator || '未署名'} · ${character.character_version || '无版本'} · 话多 ${Number(character.talkativeness || 0).toFixed(2)}`;
-      stage.querySelector('#attach-book').onchange = paintPreview;
-      const card = F.characterToCard(character, bookOf());
-      const data = card.data;
+      const attached=bookOf(),data=F.characterToCard(character).data;
       const clip = (value) => {
         const text = String(value || '').replace(/\s+/g, ' ').trim();
         return text ? (text.length > 42 ? `${text.slice(0, 42)}…` : text) : '空';
@@ -331,12 +346,13 @@
         UI.t('card.post', { text: clip(data.post_history_instructions) }),
         UI.t('card.notes', { text: clip(data.creator_notes), tags: data.tags.length ? data.tags.join('、') : UI.t('没有') }),
         UI.t('card.talk', { n: data.extensions.talkativeness }),
-        data.character_book ? UI.t('card.book', { name: data.character_book.name || UI.t('未命名'), count: data.character_book.entries.length }) : UI.t('card.bookNone'),
+        attached ? UI.t('card.book', { name: attached.name || UI.t('未命名'), count: attached.entries.length }) : UI.t('card.bookNone'),
         UI.t('card.spec'),
       ]);
       const importedCard = UI.state.cardImportId === character.id ? F.explainCard(character) : null;
       showReading(preview.querySelector('#card-import'), UI.t('import.cardTitle'), importedCard);
     };
+    stage.querySelector('#attach-book').onchange=paintPreview;
     paintPreview();
     UI.state.openFold ||= {};
     if (!UI.state.openFold.char) UI.state.openFold.char = 'description';

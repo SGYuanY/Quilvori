@@ -787,13 +787,16 @@
 
   function foreignLists() {
     if (reversePhrase) return reversePhrase;
-    const lists = Object.keys(LANGUAGES).filter((lang)=>lang!=='zh').map(()=>[]);
+    const languages=Object.keys(LANGUAGES).filter(lang=>lang!=='zh');
+    const lists=languages.map(()=>new Map());
     Object.keys(PHRASE).forEach((zh) => {
       const row = PHRASE[zh];
       if (!row) return;
-      Object.keys(LANGUAGES).filter((lang)=>lang!=='zh').forEach((lang,index)=>{if(row[lang]&&row[lang]!==zh)lists[index].push([row[lang],zh]);});
+      languages.forEach((lang,index)=>{
+        const foreign=row[lang];
+        if(foreign && foreign!==zh && !lists[index].has(foreign))lists[index].set(foreign,zh);
+      });
     });
-    lists.forEach((list)=>list.sort((a,b)=>b[0].length-a[0].length));
     reversePhrase = lists;
     return reversePhrase;
   }
@@ -802,15 +805,12 @@
     const trimmed = raw.trim();
     if (!trimmed) return raw;
     const lists = foreignLists();
-    for (let pass = 0; pass < lists.length; pass += 1) {
-      const list = lists[pass];
-      for (let i = 0; i < list.length; i += 1) {
-        const foreign = list[i][0];
-        const zh = list[i][1];
-        if (trimmed === foreign) return raw.replace(trimmed, zh);
-        const lead = trimmed.length - foreign.length;
-        const prefix = trimmed.slice(0, lead);
-        if (lead > 0 && lead <= 2 && !/[\p{L}\p{N}]/u.test(prefix) && trimmed.endsWith(foreign)) return raw.replace(trimmed, prefix + zh);
+    for (const list of lists) {
+      for(let n=0;n<=2 && n<trimmed.length;n++){
+        const prefix=trimmed.slice(0,n);
+        if(n && /[\p{L}\p{N}]/u.test(prefix))break;
+        const zh=list.get(trimmed.slice(n));
+        if(zh!==undefined)return raw.replace(trimmed,prefix+zh);
       }
     }
     return raw;
@@ -871,11 +871,11 @@
     kids.forEach((child) => {
       if (child.nodeType === 3) {
         const previous=textSources.get(child),current=child.nodeValue;
-        const raw = previous&&previous.output===current?previous.source:toChinese(current);
-        const trimmed = raw.trim();
-        if (!trimmed) return;
+        if(!current.trim())return;
         const skipContent = child.parentElement && child.parentElement.closest && child.parentElement.closest('textarea, .msg .body, #char-preview, .cast, .gallery, figcaption, .snippet, .entry > p, #studio-think-body, .ai-idea-options .check, .ai-adopted-ideas p, .ai-creation-conversation p, .ai-target-list, .ai-diff, .ai-model-thought, .ai-finding, .ai-conversation p, .ai-source-panel h3');
         if (skipContent) return;
+        const raw = previous&&previous.output===current?previous.source:toChinese(current);
+        const trimmed = raw.trim();
         let mapped = phraseOf(trimmed);
         const unitHost = child.parentElement && child.parentElement.matches && child.parentElement.matches('.muted, .field-label, .dark-muted, small, #prev-meta');
         if (!mapped && unitHost) {

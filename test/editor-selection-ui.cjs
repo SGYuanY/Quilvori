@@ -133,6 +133,7 @@ async function integerWorks(c){
   assert.equal(await c.run(()=>TAUI.state.lib.characters.find(v=>v.id===0).embeddedBookId),202);
   await c.select('#attach-book',0);out=await c.download('[data-act=png]');assert.equal(out.json.data.character_book.name,'Map Zero');
   await c.go('home');await c.click('[data-collection-open="202"][data-collection-type=book]');
+  await c.click('[data-work-edit]');
   assert.equal(await c.run(()=>TAUI.state.sel.book),202);
   await c.click('.entry[data-id="0"]');await c.reopen();assert.equal(await c.run(()=>TAUI.state.sel.entry),0);
   await c.input('#lore-editor [data-field=content]','Night sail under a new moon');await c.select('#book-select',0);

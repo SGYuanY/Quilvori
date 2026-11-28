@@ -64,7 +64,9 @@
     if (!host) return;
     const lib = UI.state.lib;
     if (!Array.isArray(lib.stickerPacks)) lib.stickerPacks = [];
-    host.innerHTML = `<div class="paper stack"><p class="eyebrow">表情包（可选）</p><p class="help">一套可以同时挂到人物卡和世界书。没选的话，导出只有卡和世界书。</p><label class="field"><span class="field-label">使用的一套</span><select id="pack-select"><option value="">不使用</option>${lib.stickerPacks.map((pack) => `<option value="${UI.esc(pack.id)}"${owner && owner.stickerPackId === pack.id ? ' selected' : ''}>${UI.esc(pack.name)}</option>`).join('')}</select></label><div class="row"><button type="button" class="btn btn-small" id="pack-new">新建一套</button><button type="button" class="btn btn-small" id="pack-add">加入图片</button><button type="button" class="btn btn-small" id="pack-export">导出表情文件夹</button></div></div>`;
+    const selectedPack = Store.byId(lib.stickerPacks,owner?.stickerPackId);
+    const duplicates = root.TAWorkRelations.duplicateNames(lib.stickerPacks);
+    host.innerHTML = `<div class="paper stack"><p class="eyebrow">表情包（可选）</p><p class="help">一套可以同时挂到人物卡和世界书。没选的话，导出只有卡和世界书。</p><label class="field"><span class="field-label">使用的一套</span><select id="pack-select"><option value="">不使用</option>${lib.stickerPacks.map((pack) => `<option value="${UI.esc(pack.id)}" data-no-translate${selectedPack === pack ? ' selected' : ''}>${UI.esc(root.TAWorkPage.itemLabel(pack,duplicates))}</option>`).join('')}</select></label><div class="row"><button type="button" class="btn btn-small" id="pack-new">新建一套</button><button type="button" class="btn btn-small" id="pack-add">加入图片</button><button type="button" class="btn btn-small" id="pack-export">导出表情文件夹</button></div></div>`;
     host.querySelector('#pack-select').onchange = (event) => {
       if (!owner) { UI.toast('先选定一张卡或一本书'); return; }
       owner.stickerPackId = Store.byId(lib.stickerPacks,event.target.value)?.id ?? null;
@@ -92,7 +94,7 @@
           stickers.push({name:file.name,dataUrl:await readImage(file)});
         }
         await commitCurrentLibrary(candidate => {
-          const pack = candidate.stickerPacks.find(item => item.id === packId);
+          const pack = Store.byId(candidate.stickerPacks,packId);
           if (!pack || !candidate[collection].some(item => item.id === owner.id)) throw new Error('资料库已变化，请重新打开。');
           pack.stickers = (pack.stickers || []).concat(stickers);
         });
@@ -100,7 +102,7 @@
       } catch (error) { UI.toast(UI.t(error.message),{kind:'error'}); }
     };
     host.querySelector('#pack-export').onclick = () => {
-      const pack = lib.stickerPacks.find((item) => owner && item.id === owner.stickerPackId);
+      const pack = Store.byId(lib.stickerPacks,owner?.stickerPackId);
       if (!pack) { UI.toast('这张卡或这本书没有表情包'); return; }
       return exportStickerFiles(pack, owner.name || pack.name);
     };

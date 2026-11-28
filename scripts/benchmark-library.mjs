@@ -110,8 +110,13 @@ function statistics(values) {
 
 if (process.versions.electron) {
   const suite = require('../test/desktop-fixture.cjs');
-  suite('library-benchmark',async({run,open}) => {
+  suite('library-benchmark',async({run,open,win}) => {
+    // Hidden Chromium windows can wait for a throttled frame inside a forced
+    // layout. Exercise a shown, inactive window without covering the user's work.
+    win.setSkipTaskbar(true);win.setOpacity(0);win.showInactive();win.setContentSize(1280,900);
     await open('index');
+    const viewport=await run(()=>({width:innerWidth,height:innerHeight,visibility:document.visibilityState}));
+    assert.equal(viewport.visibility,'visible');
     const bytes = await run(seed,size), measurements = {}, persisted = {};
     for (const kind of ['character','worldBook']) {
       const rows = [];
@@ -131,10 +136,10 @@ if (process.versions.electron) {
     }),Object.values(persisted)),'Edited works must survive a reload.');
     const report = {
       environment:{os:os.type()+' '+os.release(),arch:os.arch(),cpu:os.cpus()[0]?.model?.trim(),ramGiB:Number((os.totalmem()/2**30).toFixed(1)),
-        electron:process.versions.electron,chromium:process.versions.chrome,viewport:'1280x900',gpu:'disabled'},
+        electron:process.versions.electron,chromium:process.versions.chrome,viewport:viewport.width+'x'+viewport.height,visibility:viewport.visibility,gpu:'disabled'},
       library:{...size,serializedMiB:Number((bytes/2**20).toFixed(2))},samplesPerEditor:samples,discardedWarmupsPerEditor:warmups,
       milliseconds:measurements,
-      method:'Open and input-to-layout span the UI event through synchronous browser layout of the populated editor. Hidden-window frame cadence and display paint are excluded. Input-handler time is synchronous. Save spans flush through the IndexedDB commit, excluding the 320 ms typing debounce. Final edits were verified after reload.',
+      method:'Shown, inactive window. Open and input-to-layout span the UI event through synchronous layout of the populated editor. Display paint is outside the measurement. Save spans flush through the IndexedDB commit, excluding the 320 ms typing debounce. Final edits were verified after reload.',
     };
     console.log(JSON.stringify(report,null,2));
   });

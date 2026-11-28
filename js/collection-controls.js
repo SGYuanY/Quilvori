@@ -50,7 +50,7 @@
     const asset = ui().assetById(card?.avatarAssetId);
     const initial = [...String(card?.name || tr('未命名')).trim()][0] || '·';
     return '<span class="qc-portrait '+size+'" aria-hidden="true">'
-      +(asset?.dataUrl ? '<img alt="" src="'+text(asset.dataUrl)+'" decoding="async">' : text(initial))+'</span>';
+      +(asset?.dataUrl ? '<img alt="" src="'+text(ui().imageUrl(asset))+'" decoding="async">' : text(initial))+'</span>';
   }
   function currentCard(button, card) {
     button.innerHTML = portrait(card)+'<span class="qc-person-name"><small>'+text(tr('当前角色'))+'</small><strong data-no-translate>'

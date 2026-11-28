@@ -41,6 +41,7 @@
       return;
     }
     UI.state.sel.book = book.id;
+    const duplicateBooks=root.TAWorkRelations.duplicateNames(lib.worldBooks);
     const entries = UI.state.query ? book.entries.filter(entry=>root.TAContext.matchesEntry(entry,UI.state.query)) : book.entries;
     const entry = entries.find(item=>item.id===UI.state.sel.entry) || entries[0];
     if (entry) UI.state.sel.entry = entry.id;
@@ -57,7 +58,7 @@
     };
     stage.innerHTML = `<div class="dropwell"><div><strong>把世界书拖到这里</strong><span>酒馆世界信息的 JSON。</span></div><button type="button" class="btn btn-primary" id="book-drop-btn">选择文件</button></div><div id="sticker-host"></div><div id="json-host"></div><div class="toolbar">
       <div class="qc-book-selectors">
-        <label><span>当前世界书</span><select id="book-select" data-no-translate>${lib.worldBooks.map((item) => `<option value="${UI.esc(item.id)}"${item.id === book.id ? ' selected' : ''}>${UI.esc(root.TAIntegrityPanel.displayName(item))}</option>`).join('')}</select></label>
+        <label><span>当前世界书</span><select id="book-select" data-no-translate>${lib.worldBooks.map((item) => `<option value="${UI.esc(item.id)}"${item.id === book.id ? ' selected' : ''}>${UI.esc(root.TAWorkPage.itemLabel(item,duplicateBooks))}</option>`).join('')}</select></label>
         <label><span>目录分组</span><select id="lore-group-by"><option value="position"${UI.state.loreGroupBy !== 'category' ? ' selected' : ''}>按注入位置</option><option value="category"${UI.state.loreGroupBy === 'category' ? ' selected' : ''}>按内容分类</option></select></label>
       </div>
       <div class="qc-book-actions">
@@ -97,6 +98,7 @@
     const toolbar = stage.querySelector('.toolbar');
     toolbar.classList.add('qc-book-toolbar'); root.TACollectionControls.mountMore(toolbar);
     root.TAWorldSyncPanel.mount(toolbar,book);
+    root.TAWorkPage.editorLinks(toolbar,'book',book);
     stage.querySelector('#lore-group-by').onchange = (event) => { UI.state.loreGroupBy = event.target.value; UI.renderStage(); };
     stage.querySelector('#book-select').onchange = (event) => root.TASearch.open({kind:'book',id:event.target.value,field:'name',selectOnly:true});
     stage.querySelector('#new-book').onclick = () => addBook();
@@ -110,9 +112,13 @@
     bookName.oninput = () => {
       if (!bookName.value.trim()) return;
       book.name = bookName.value;
-      bookSelect.selectedOptions[0].textContent = root.TAIntegrityPanel.displayName(book);
+      const duplicates=root.TAWorkRelations.duplicateNames(lib.worldBooks);
+      for(const [i,item] of lib.worldBooks.entries()){
+        const label=root.TAWorkPage.itemLabel(item,duplicates);
+        if(bookSelect.options[i].text!==label)bookSelect.options[i].text=label;
+      }
       const display = bookSelect.closest('.dark-select')?.querySelector('.dark-select-value');
-      if (display) display.textContent = book.name;
+      if (display) display.textContent = bookSelect.selectedOptions[0].text;
       const address = editor.querySelector('.ws-address');
       if (address) address.textContent = book.name;
       UI.markDirty('worldBooks',book.id);
@@ -122,7 +128,7 @@
     stage.querySelector('#export-book').onclick = () => {
       const filename = `${UI.safeName(book.name)}.json`;
       const data = F.bookToWorldInfo(book);
-      const pack = (lib.stickerPacks || []).find((item) => item.id === book.stickerPackId);
+      const pack = Store.byId(lib.stickerPacks,book.stickerPackId);
       if (pack) data.stickerPack = pack.name;
       UI.downloadJson(filename, data);
       UI.toast(UI.t('已请求下载世界书 JSON。'));

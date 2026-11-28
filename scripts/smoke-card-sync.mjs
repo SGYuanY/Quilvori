@@ -195,7 +195,18 @@ export async function cardSyncFixture({scratch,profile,web,tavern}) {
   }
   async function reopen(ctx) {
     const {read,click,until}=ctx;
-    await read(id=>{TAUI.state.sel.character=id;TAUI.state.cardView='edit';TAUI.go('characters');},localId);
+    await read((id,name)=>{
+      TAUI.go('home');
+      const input=document.querySelector('[data-collection-search]');input.value=name;input.dispatchEvent(new Event('input'));
+      document.querySelector('[data-collection-type=character][data-collection-open="'+CSS.escape(id)+'"]').click();
+    },localId,name);
+    await until(()=>read(id=>document.querySelector('[data-work-page=character]')?.dataset.workId===id,localId),'saved card work page');
+    await until(()=>read(filename=>document.querySelector('[data-work-file]')?.textContent.includes(filename),filename),'linked character filename');
+    const companion=await read(()=>document.querySelector('[data-work-book]').dataset.workBook);
+    await click('[data-work-book]');
+    assert.equal(await read(()=>document.querySelector('[data-work-page=book]').dataset.workId),companion);
+    await read(id=>document.querySelector('[data-work-reader="'+CSS.escape(id)+'"]').click(),localId);
+    await click('[data-work-edit]');
     const loaded=await read(async id=>{
       const card=TAUI.state.lib.characters.find(row=>row.id===id);
       const book=TAUI.state.lib.worldBooks.find(row=>row.id===card.embeddedBookId);
@@ -214,6 +225,7 @@ export async function cardSyncFixture({scratch,profile,web,tavern}) {
       assert.equal(await read(id=>TAUI.state.lib.characters.find(card=>card.id===id).description,localId),combined.data.description);
     }else await verify(combined);
     await read(()=>TAUI.go('home'));
+    console.log('Reopened the linked card and embedded world book from their collection work pages.');
   }
   async function continued() {
     const saved=await tavern.readChat(filename,chats[0]);

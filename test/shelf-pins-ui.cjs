@@ -39,9 +39,11 @@ suite('shelf-pins', async ({run,open,wait,click,input,key,file,download}) => {
   await wait(()=>TAUI.state.lib.characters.some(c=>c.id===24 && c.shelfPinned) && !document.querySelector('#app').inert,'pins restored');
   await open('index'); assert.equal(await first(),'Book zero');
   await click('[data-collection-open="0"][data-collection-type=book]');
+  await click('[data-work-edit]');
   await wait(()=>!!document.querySelector('#export-book'),'open pinned book');
   assert.ok(!(await download('#export-book')).bytes.includes('shelfPinned'));
   await open('index'); await click('[data-collection-open="24"][data-collection-type=character]');
+  await click('[data-work-edit]');
   await wait(()=>!!document.querySelector('[data-act=json]'),'open pinned card');
   assert.ok(!(await download('[data-act=json]')).bytes.includes('shelfPinned'));
   await click('[data-act=dup]');

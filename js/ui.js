@@ -311,6 +311,40 @@
   function assetById(id) {
     return TAStore.byId(state.lib.assets,id);
   }
+  // Very long data URLs block Chromium's image requests during layout. Keep a
+  // short URL for each mounted image; exports continue to read the stored bytes.
+  const previewUrls=new Map();
+  let previewSweep=false;
+  function sweepPreviews(){
+    if(previewSweep || !previewUrls.size)return;
+    previewSweep=true;
+    queueMicrotask(()=>{
+      previewSweep=false;
+      const mounted=new Set();
+      for(const img of document.images){const src=img.getAttribute('src');if(src?.startsWith('blob:'))mounted.add(src);}
+      for(const [source,url] of previewUrls)if(!mounted.has(url)){URL.revokeObjectURL(url);previewUrls.delete(source);}
+    });
+  }
+  function imageUrl(asset){
+    const source=asset?.dataUrl || '';
+    if(source.length<32768 || !URL.createObjectURL)return source;
+    let url=previewUrls.get(source);
+    if(!url){
+      const comma=source.indexOf(','), match=/^data:(image\/[\w.+-]+);base64$/i.exec(source.slice(0,comma));
+      if(!match)return source;
+      try{
+        const payload=source.slice(comma+1);
+        let bytes;
+        if(typeof Uint8Array.fromBase64==='function')bytes=Uint8Array.fromBase64(payload);
+        else{
+          const binary=atob(payload);bytes=new Uint8Array(binary.length);
+          for(let i=0;i<binary.length;i++)bytes[i]=binary.charCodeAt(i);
+        }
+        url=URL.createObjectURL(new Blob([bytes],{type:match[1]}));previewUrls.set(source,url);
+      }catch{return source;}
+    }
+    sweepPreviews();return url;
+  }
 
   function charById(id) {
     return TAStore.byId(state.lib.characters,id);
@@ -465,6 +499,7 @@
     return ROUTES.find((route) => route.id === state.route) || ROUTES[0];
   }
 
+  let lastRail;
   function paintRail() {
     const host = document.getElementById('rail-cast');
     if (!host || !state.lib) return;
@@ -474,9 +509,15 @@
     state.railSelected = state.sel.character;
     const pages = Math.max(1,Math.ceil(cards.length/size)), page = Math.min(pages-1,state.railPage || 0);
     const visible = cards.slice(page*size,(page+1)*size);
+    const labels=visible.map(card=>[card.id,card.name,assetById(card.avatarAssetId)?.dataUrl]);
+    const lang=root.TAI18n?.prefs.lang,selected=state.sel.character;
+    if(lastRail && lastRail.host===host && lastRail.page===page && lastRail.pages===pages && lastRail.lang===lang &&
+        lastRail.selected===selected && lastRail.rows.length===labels.length &&
+        labels.every((row,i)=>row.every((value,j)=>value===lastRail.rows[i][j])))return;
+    lastRail={host,page,pages,lang,selected,rows:labels};
     host.innerHTML = visible.map((character) => {
       const avatar = assetById(character.avatarAssetId);
-      const face = avatar ? `<img alt="" loading="lazy" decoding="async" src="${esc(avatar.dataUrl)}">` : `<span>${esc((character.name || '名').slice(0, 1))}</span>`;
+      const face = avatar ? `<img alt="" loading="lazy" decoding="async" src="${esc(imageUrl(avatar))}">` : `<span>${esc((character.name || '名').slice(0, 1))}</span>`;
       const on = state.sel.character === character.id ? ' on' : '';
       return `<button type="button" class="rail-char${on}" data-char="${esc(character.id)}">${face}<b data-no-translate>${esc(character.name || '未命名')}</b></button>`;
     }).join('') + (pages>1 ? `<div class="row"><button class="btn btn-small" data-prev aria-label="${esc(root.TAI18n.t('上一页'))}" ${page?'':'disabled'}>‹</button><small>${page+1}/${pages}</small><button class="btn btn-small" data-next aria-label="${esc(root.TAI18n.t('下一页'))}" ${page+1<pages?'':'disabled'}>›</button></div>` : '');
@@ -553,8 +594,12 @@
     stage.ondrop = null;
     try {
       closeSelect();
-      view(stage);
-      if (['home','characters','lore'].includes(state.route) && root.TAStudioDrafts) {
+      if(state.missingAttachment){
+        stage.append(empty(root.TAI18n.t('workPage.missing'),'',root.TAI18n.t(routeMeta().label),()=>go(state.route)));
+      }else view(stage);
+      if(state.route==='home' && state.collectionWork){
+        stage.refreshDraftShelf=()=>stage.querySelector('[data-work-page]')?.refreshDrafts?.();
+      } else if (['home','characters','lore'].includes(state.route) && root.TAStudioDrafts) {
         stage.refreshDraftShelf=root.TAStudioDrafts.mount(stage,{characters:'character',lore:'world'}[state.route]);
       } else stage.refreshDraftShelf=null;
       if (root.TAWorkspace) root.TAWorkspace.enhance(stage);
@@ -563,6 +608,7 @@
         root.TAI18n.localize(document.getElementById('modal-root'));
       }
       root.TASearch?.focus(stage, state.route);
+      sweepPreviews();
     } catch (error) {
       console.error(error);
       stage.innerHTML = `<div class="paper empty"><h3>这一页没有画出来</h3><p>${esc(error.message)}</p></div>`;
@@ -714,6 +760,11 @@
   }
 
   let lastAddress = '';
+  function saveShelfPosition() {
+    const stage=document.getElementById('stage');
+    if(!state.collectionView || !stage?.querySelector('.collection-home'))return;
+    state.collectionView.scroll=stage.scrollTop;
+  }
   function setAddress(value, push = true) {
     const url = new URL(value, location.href);
     const here = new URL(location.href);
@@ -727,16 +778,37 @@
     // A hash works for both a local file and an HTTP-served application. Changing
     // the path of a file: URL with pushState is forbidden in several browsers.
     const fragment = '/' + route + (stateParams.size ? '?' + stateParams : '');
-    if (push && here.hash.slice(1) !== fragment) history.pushState(null,'','#' + fragment);
+    if (push && here.hash.slice(1) !== fragment) {
+      if(state.route==='home' && !state.collectionWork && state.collectionView){
+        saveShelfPosition();
+        history.replaceState({shelf:{...state.collectionView}},'',location.href);
+      }
+      const origin=route==='home' && url.searchParams.has('work') && state.collectionView;
+      history.pushState(origin?{originShelf:{...origin}}:null,'','#' + fragment);
+    }
     lastAddress = location.href;
     return {url,route};
   }
   function openAddress(value, push = true) {
     const address=setAddress(value,push);
     if(!address)return false;
-    if (address.url.hash) root.TASearch?.restoreAddress(address.route,address.url);
-    show(address.route);
+    visitAddress(address.route,address.url);
     return true;
+  }
+  function visitAddress(route,url) {
+    if(url?.hash){
+      if(route==='assets' || route==='quick'){
+        const asset=route==='assets',key=asset?'asset':'qr';
+        let id;try{id=decodeURIComponent(url.hash.slice(1));}catch{id=null;}
+        const item=TAStore.byId(state.lib[asset?'assets':'quickReplySets'],id);
+        if(!item){show(route,null,true);return;}
+        state.sel[key]=item.id;if(asset)state.assetKind='all';
+      }else root.TASearch?.restoreAddress(route,url);
+    }
+    const work=root.TAWorkPage?.readAddress(route,url);
+    show(route,work);
+    const part=url?.searchParams.get('part');
+    if(part)root.TAWorkPage?.focusPart(document.getElementById('stage'),part);
   }
   function followLocation() {
     if (lastAddress === location.href && lastAddress) return;
@@ -751,25 +823,26 @@
     // Standalone pages historically put an entity ID in the hash. A leading
     // slash distinguishes navigation fragments from those saved links.
     if (isRoute && (modern || !entry)) {
-      if (address && params?.has('entity')) {
-        const target = new URL(pageHref(route),address);
-        target.search = params.get('fields') || ''; target.hash = params.get('entity');
-        root.TASearch?.restoreAddress(route,target);
-      }
-      lastAddress=location.href || ''; show(route); return;
+      const target = address && new URL(pageHref(route),address);
+      if(target){target.search = params?.get('fields') || ''; target.hash = params?.get('entity') || '';}
+      lastAddress=location.href || ''; visitAddress(route,target); return;
     }
     lastAddress=location.href || '';
-    if (entry && address) root.TASearch?.restoreAddress(entry,address);
-    show(entry || (isRoute ? route : 'home'));
+    visitAddress(entry || (isRoute ? route : 'home'),address);
   }
   function go(id) {
     const next = ROUTES.some(route=>route.id===id) ? id : 'home';
     return openAddress(pageHref(next));
   }
 
-  function show(id) {
+  function show(id,work=null,missingAttachment=false) {
+    saveShelfPosition();
     if (state.route !== id) root.NIJANOrganizePanel?.hideForNavigation();
     state.route = ROUTES.some((route) => route.id === id) ? id : 'home';
+    state.missingAttachment=missingAttachment;
+    state.collectionWork=state.route==='home'?work:null;
+    if(work && !state.collectionView && root.history?.state?.originShelf)state.collectionView={...root.history.state.originShelf};
+    if(state.route==='home' && !work && root.history?.state?.shelf)state.collectionView={...root.history.state.shelf};
     state.query = '';
     const search = document.getElementById('search');
     if (search) search.value = '';
@@ -779,6 +852,11 @@
     const stage = document.getElementById('stage');
     if (stage) stage.scrollTop = 0;
     renderStage();
+    const shelf=state.collectionView;
+    if(state.route==='home' && !work && shelf && stage){
+      if(shelf.focused)stage.querySelector('[data-collection-type="'+CSS.escape(shelf.focused.kind)+'"][data-collection-open="'+CSS.escape(String(shelf.focused.id))+'"]')?.focus({preventScroll:true});
+      stage.scrollTop=shelf.scroll || 0;
+    }
   }
 
   function field(label, inner, help) {
@@ -1367,12 +1445,18 @@
       const current = select.options[select.selectedIndex];
       button.textContent = current ? current.text : '';
       button.disabled = select.disabled;
+      if(select.hasAttribute('data-no-translate') || current?.hasAttribute('data-no-translate'))button.dataset.noTranslate='';
+      else delete button.dataset.noTranslate;
+    };
+    if(select.hasAttribute('data-no-translate')){button.dataset.noTranslate='';menu.dataset.noTranslate='';}
+    const paintOptions = () => {
       menu.replaceChildren(...[...select.options].map((opt, index) => {
         const item = document.createElement('button');
         item.type = 'button';
         item.className = 'dark-select-opt';
         if (index === select.selectedIndex) item.classList.add('on');
         item.textContent = opt.text;
+        if(opt.hasAttribute('data-no-translate'))item.dataset.noTranslate='';
         item.disabled = opt.disabled;
         item.setAttribute('role', 'option');
         item.setAttribute('aria-selected', String(index === select.selectedIndex));
@@ -1390,6 +1474,7 @@
       if (select.disabled) return;
       closeSelect();
       paint();
+      paintOptions();
       menu.hidden = false;
       const rect = button.getBoundingClientRect();
       const below = window.innerHeight - rect.bottom - 8;
@@ -1452,7 +1537,7 @@
   root.TAUI = {
     hint, readImage, commitCurrentLibrary, bindWork,
     ROUTES, state, esc, toast, ask, dialogTabStops, downloadBlob, downloadText, downloadJson, pickFile, readText, readDataUrl, copyText,
-    safeName, assetById, charById, selected, matchQuery, markDirty, flush, commitLibrary, applyTheme, ensureTheme, go, openAddress, setAddress, renderStage, show, flyPlane,
+    safeName, assetById, imageUrl, charById, selected, matchQuery, markDirty, flush, commitLibrary, applyTheme, ensureTheme, go, openAddress, setAddress, renderStage, show, flyPlane,
     openSettings, field, fold, mountFolds, area, text, bindFields, picker, bindPicker, empty, confirmLoadDemo, confirmClear, mount,
     t: (key, vars) => (root.TAI18n ? root.TAI18n.t(key, vars) : key),
     estimateLength, mountLengths, showExport, fillLesson, enhanceSelect, readFolders,

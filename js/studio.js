@@ -1367,7 +1367,7 @@
       }
       ${
         s.mode === "create"
-          ? `<div class="ai-creation-grid"><section class="paper ai-create"><label class="field"><span class="field-label">想写什么？</span><textarea id="ai-brief" rows="5" placeholder="人物是谁，故事在哪儿发生？写几句就行，细节可以边聊边补。">${esc(s.brief)}</textarea></label><fieldset class="ai-module-choices"><legend>这次写哪些</legend>${Object.entries(
+          ? `<div class="ai-creation-grid"><section class="paper ai-create"><label class="field"><span class="field-label">想写什么？</span><textarea id="ai-brief" rows="5" placeholder="人物是谁，故事在哪儿发生？写几句就行，细节可以边聊边补。">${esc(s.brief)}</textarea></label><a class="work-page-link" href="sections.html?part=style">${esc(UI().t("workPage.studioStyle"))}</a><fieldset class="ai-module-choices"><legend>这次写哪些</legend>${Object.entries(
               AI().MODULES,
             )
               .map(
@@ -1744,8 +1744,9 @@
     }
     if(!controller){
       if(s.creationBatchId!==plan.batchId || !s.brief){
-        const input=plan.creationInput || {brief:plan.request,modules:s.plans.filter(row=>row.batchId===plan.batchId).map(row=>row.task.slice(7))};
-        Object.assign(s,{brief:input.brief || '',modules:[...input.modules],questions:structuredClone(input.questions || []),
+        const input=plan.creationInput || {};
+        const modules=Array.isArray(input.modules) ? input.modules : s.plans.filter(row=>row.batchId===plan.batchId).map(row=>row.task.slice(7));
+        Object.assign(s,{brief:input.brief ?? plan.request ?? '',modules:[...modules],questions:structuredClone(input.questions || []),
           answers:structuredClone(input.answers || []),ideas:structuredClone(input.ideas || []),cardId:input.cardId ?? '',bookId:input.bookId ?? '',
           creationHistory:[],creationMessage:''});
       }

@@ -226,14 +226,15 @@
     const ui = root.TAUI, lib = ui.state.lib, t = ui.t, esc = ui.esc;
     const details = document.createElement('details');
     details.className = 'ws-assist-details'; details.id = 'st-bundle';
-    const assets = (character.expressionAssetIds || []).map(id=>lib.assets.find(a=>a.id===id)).filter(Boolean);
+    const assets = [...new Set((character.expressionAssetIds || []).map(id=>root.TAStore.byId(lib.assets,id)).filter(Boolean))];
+    const pack = root.TAStore.byId(lib.stickerPacks,character.stickerPackId);
     const checkboxes = (attribute, rows, selected) => rows.map(row=>'<label class="check"><input type="checkbox" data-'+attribute+' value="'+esc(row.id)+'" '+(selected.includes(row.id)?'checked':'')+'><span data-no-translate>'+esc(row.name)+'</span></label>').join('');
     details.innerHTML = '<summary>'+esc(t('酒馆资源包'))+'</summary><div class="paper stack">'
       +'<label class="field"><span class="field-label">'+esc(t('包内角色名'))+'</span><input data-bundle-name value="'+esc(portableStem(character.name,'character'))+'"></label>'
       +'<p data-embedded data-no-translate class="help"></p><label class="check"><input data-world-file type="checkbox" checked>'+esc(t('另附独立世界书 JSON'))+'</label>'
-      +(lib.stickerPacks?.length ? '<fieldset><legend>'+esc(t('表情包'))+'</legend>'+checkboxes('pack',lib.stickerPacks,[character.stickerPackId])+'</fieldset>' : '')
+      +(lib.stickerPacks?.length ? '<fieldset><legend>'+esc(t('表情包'))+'</legend>'+checkboxes('pack',lib.stickerPacks,[pack?.id])+'</fieldset>' : '')
       +(assets.length ? '<fieldset><legend>'+esc(t('角色关联表情'))+'</legend>'+checkboxes('expression',assets,assets.map(a=>a.id))+'</fieldset>' : '')
-      +(lib.quickReplySets?.length ? '<fieldset><legend>'+esc(t('快捷回复'))+'</legend>'+checkboxes('qr',lib.quickReplySets,lib.quickReplySets.filter(set=>set.workSource?.characterId===character.id).map(set=>set.id))+'</fieldset>' : '')
+      +(lib.quickReplySets?.length ? '<fieldset><legend>'+esc(t('快捷回复'))+'</legend>'+checkboxes('qr',lib.quickReplySets,lib.quickReplySets.filter(set=>root.TAStore.byId([character],set.workSource?.characterId)).map(set=>set.id))+'</fieldset>' : '')
       +(lib.quickReplySets?.length || assets.length || lib.stickerPacks?.length ? '<p class="help">'+esc(t('表情图的文件名对应酒馆表情标签。快捷回复集可在酒馆的快捷回复设置中启用。'))+'</p>' : '')
       +'<h4>'+esc(t('包内文件'))+'</h4><ul data-files data-no-translate></ul><p class="help">'+esc(t('解压到酒馆用户目录，再刷新酒馆。也可以在相应的酒馆工具中分别导入。'))+'</p>'
       +'<div class="row"><button type="button" class="btn btn-primary" data-zip>'+esc(t('下载 ZIP'))+'</button>'
