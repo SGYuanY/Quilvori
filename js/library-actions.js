@@ -2,7 +2,8 @@
 (function(root) {
   'use strict';
   const copy = value => structuredClone(value);
-  const eqId = (a,b) => a != null && b != null && String(a) === String(b);
+  const store = typeof module !== 'undefined' && module.exports ? require('./store') : root.TAStore;
+  const eqId = store.sameId;
   const same = (a,b) => JSON.stringify(a) === JSON.stringify(b);
   const match = (key,value) => ({key,value});
   const id = value => match('id',value);
@@ -58,6 +59,14 @@
         add(isCard?'replyCard':'replyBook',['quickReplySets',id(set.id),'workSource'],['快捷回复',set.name || set.id],
           isCard?['characterId','characterName']:['bookId','bookName','entryIds']);
     }
+    if(collection==='graph.nodes') {
+      for(const edge of lib.graph?.edges || []) if(eqId(edge.from,target) || eqId(edge.to,target))
+        add('edge',['graph','edges',id(edge.id)],['关系图',edge.label || edge.id],['from','to']);
+    }
+    if(collection==='stickerPacks') {
+      for(const bucket of ['characters','worldBooks']) for(const work of lib[bucket] || []) if(eqId(work.stickerPackId,target))
+        add('pack',[bucket,id(work.id)],[types[bucket],work.name || work.id],['stickerPackId']);
+    }
     if(collection==='chats') {
       for(const key of ['notes','beats']) for(const note of lib.timeline?.[key] || []) if(eqId(note.chatId,target))
         add('journal',['timeline',key,id(note.id)],['剧情手记',note.title || note.id],['chatId','floor','messageStamp']);
@@ -67,6 +76,42 @@
       if(source?.kind===folderKind && eqId(source.id,target))
         add('source',['settings','folderImports'],['文件夹导入',key],[key]);
     }
+    return refs;
+  }
+  // Apply the inverse receipt to a structural copy of its affected paths. A
+  // surviving owner may lose a link or regain one through a field in this receipt.
+  function undoReferences(lib,operations) {
+    const removed=new Map();
+    for(const op of operations) if(op.kind==='add') {
+      const bucket=op.path.join('.');
+      if(!removed.has(bucket))removed.set(bucket,{path:op.path,ids:new Set()});
+      removed.get(bucket).ids.add(String(op.value.id));
+    }
+    if(!removed.size)return [];
+    function update(value,path,replace) {
+      if(!path.length)return replace(value);
+      const [step,...rest]=path;
+      const key=typeof step==='string'?step:value.findIndex(row=>eqId(row[step.key],step.value));
+      const next=Array.isArray(value)?value.slice():{...value};
+      next[key]=update(value[key],rest,replace);
+      return next;
+    }
+    let surviving=lib;
+    for(const op of operations.slice().reverse()) if(op.kind==='set') {
+      const path=[...op.path];
+      if(op.id!=null)path.push(id(op.id));
+      if(op.entryId!=null)path.push('entries',id(op.entryId));
+      surviving=update(surviving,path,row=>{
+        const next={...row,[op.field]:op.before};
+        if(op.before===undefined)delete next[op.field];
+        return next;
+      });
+    }
+    for(const {path,ids} of removed.values())
+      surviving=update(surviving,path,rows=>rows.filter(row=>!ids.has(String(row.id))));
+    const refs=[];
+    for(const [bucket,{ids}] of removed) for(const target of ids)
+      refs.push(...dependencies(surviving,bucket,target).filter(ref=>ref.active));
     return refs;
   }
   function plan(lib,collection,workId) {
@@ -184,7 +229,7 @@
     const [kind,...where]=ref.location;
     return [translate(kind),...where].join(' › ');
   }
-  const api={dependencies,referenceLabel,plan,remove,undo,types};
+  const api={dependencies,undoReferences,referenceLabel,plan,remove,undo,types};
   if(typeof module!=='undefined' && module.exports) module.exports=api;
   else root.TALibraryActions=api;
 })(globalThis);

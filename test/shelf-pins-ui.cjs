@@ -2,7 +2,7 @@
 const assert = require('node:assert/strict');
 const suite = require('./desktop-fixture.cjs');
 
-suite('shelf-pins', async ({run,open,wait,click,input,key,file,download}) => {
+suite('shelf-pins', async ({run,open,wait,click,input,key,file,download,win}) => {
   await open('index');
   await run(async () => {
     const lib=TAStore.emptyLibrary();
@@ -22,7 +22,13 @@ suite('shelf-pins', async ({run,open,wait,click,input,key,file,download}) => {
   await click('[data-collection-kind=character]'); assert.equal(await first(),'Card 24');
   await input('[data-collection-search]','Card 1');
   assert.equal(await first(),'Card 1','filters still control which pins are visible');
-  await run(()=>TAUI.flush()); await open('index');
+  await run(()=>TAUI.flush());
+  await win.webContents.reload();
+  await wait(()=>!!document.querySelector('[data-collection-search]'),'reloaded filtered shelf');
+  assert.deepEqual(await run(()=>[TAUI.state.collectionView.kind,document.querySelector('[data-collection-search]').value]),['character','Card 1']);
+  assert.equal(await first(),'Card 1');
+  // Open a fresh shelf entry to check pin order without this history entry's filter.
+  await open('backup'); await open('index');
   assert.equal(await first(),'Book zero'); assert.ok(await run(s=>document.querySelector(s).getAttribute('aria-pressed')==='true',cardPin));
   await open('backup'); const packet=JSON.parse((await download('#save-backup')).bytes);
   assert.deepEqual(packet.library.characters.filter(c=>c.shelfPinned).map(c=>c.id),[24]);

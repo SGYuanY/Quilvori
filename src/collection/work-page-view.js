@@ -103,7 +103,7 @@
     section.append(details);
   }
   function drafts(block,kind,work) {
-    const rows=root.TAWorkRelations.draftsFor(root.TAStudioDrafts.pending(),kind,work);
+    const rows=root.TAWorkRelations.draftsFor(root.TAStudioDrafts.pending(),kind,work,ui().state.lib,root.NIJANModel.history());
     const list=el('div',null,'work-page-list');
     if(!rows.length)list.append(el('p',tr('workPage.noDrafts'),'help'));
     for(const row of rows){

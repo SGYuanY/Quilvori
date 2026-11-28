@@ -261,7 +261,7 @@ async function exportExpressions(payload,io=fs,{confirm,allowed=()=>true}={}) {
       await cleanStage();stage=null;
       return {canceled:true};
     }
-    if(!allowed())throw error('expression-changed',plan.directory);
+    if(!await allowed())throw error('expression-changed',plan.directory);
     await guardDirectories();await guardStage();
     for(const file of plan.files)await live(file);
     // Probe only private stage files. Volumes without hard links can still publish by creating a new, exclusive file.
@@ -285,7 +285,7 @@ async function exportExpressions(payload,io=fs,{confirm,allowed=()=>true}={}) {
       await checkDirectory(io,row);
     }
     for(const file of plan.files){
-      if(!allowed())throw error('expression-changed',plan.directory);
+      if(!await allowed())throw error('expression-changed',plan.directory);
       await guardDirectories();await guardStage();await live(file);
       await validateStored(file,file.staged.path,file.staged.info,1,file.newDigest);
       if(file.original){

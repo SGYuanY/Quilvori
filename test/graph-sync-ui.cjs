@@ -35,6 +35,7 @@ suite('graph-sync',async ({run,wait,open,click,input,download})=>{
     await input('#edge-label',label);await input('#edge-note',note);await click('#add-edge');
     return run(()=>TAUI.state.lib.graph.edges.at(-1).id);
   };
+  const regen=await edge('Courier route','Unreferenced managed entry');
   const keep=await edge('Ally','Keep in graph'),linked=await edge('Pen pals','Letters'),removed=await edge('Rivals','Removed');
   const first=await download('#export-graph');
   assert.equal(JSON.parse(first.bytes).name,'关系图 (2)');
@@ -46,7 +47,7 @@ suite('graph-sync',async ({run,wait,open,click,input,download})=>{
   const initial=await dump(),b=initial.book;
   assert.equal(initial.n,3);const oldBooks=initial.protected;
   const fromEdge=(book,id)=>book.entries.find(row=>row.graphSource?.edgeId===id);
-  const alive=fromEdge(b,keep),orphan=fromEdge(b,linked),lost=fromEdge(b,removed);
+  const recoverable=fromEdge(b,regen),alive=fromEdge(b,keep),orphan=fromEdge(b,linked),lost=fromEdge(b,removed);
   assert.notEqual(alive.id,orphan.id);assert.notEqual(alive.stUid,orphan.stUid);
   await open('lore');await select('#book-select',b.id);
   await wait(id=>TAUI.state.sel.book===id || document.querySelector('[data-book-field=name]')?.value==='关系图 (2)','select the generated book',b.id);
@@ -101,22 +102,22 @@ suite('graph-sync',async ({run,wait,open,click,input,download})=>{
   }),[alive.id,orphan.id]);
   const deleteManagedRow=async()=>{
     await open('lore');await select('#book-select',b.id);
-    await click('.entry[data-id="'+alive.id+'"]');await click('#del-entry');assert.ok(await run(()=>TAUI.flush()));
+    await click('.entry[data-id="'+recoverable.id+'"]');await click('#del-entry');assert.ok(await run(()=>TAUI.flush()));
     return run(id=>{
       const book=TAUI.state.lib.worldBooks.find(b=>b.id===id);
       return Object.values(TAFormats.bookToWorldInfo(book).entries).find(e=>e.comment==='An independent page').uid;
     },b.id);
   };
   const manualUid=await deleteManagedRow();
-  assert.equal(manualUid,alive.stUid,'The standalone hand-written row now has the deleted row’s implicit native UID');
+  assert.equal(manualUid,recoverable.stUid,'The standalone hand-written row now has the deleted row’s implicit native UID');
   await open('graph');await download('#export-graph');await open('graph');
-  const rebuilt=fromEdge((await dump()).book,keep);
-  assert.equal(rebuilt.id,alive.id);assert.notEqual(rebuilt.stUid,manualUid);
+  const rebuilt=fromEdge((await dump()).book,regen);
+  assert.equal(rebuilt.id,recoverable.id);assert.notEqual(rebuilt.stUid,manualUid);
   const third=JSON.parse((await download('#export-graph')).bytes);
   assert.equal(third.entries[manualUid].comment,'An independent page');
   assert.equal(await deleteManagedRow(),manualUid);
   await open('graph');await download('#export-graph');await open('graph');
-  const reused=fromEdge((await dump()).book,keep);
+  const reused=fromEdge((await dump()).book,regen);
   assert.deepEqual([reused.id,reused.stUid],[rebuilt.id,rebuilt.stUid],'Unclaimed native and local IDs are reused');
   await open('quick');
   assert.ok(await run(id=>{

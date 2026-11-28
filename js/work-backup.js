@@ -38,7 +38,7 @@
     root.TAStore.verify({[kind]:[value]});
     return structuredClone(value);
   }
-  function draft(raw) {
+  function draft(raw,plans) {
     if(!object(raw)||!object(raw.plan)||!Number.isFinite(raw.time))fail('drafts');
     const p=raw.plan,kind=collections[p.task],op=p.operations?.[0];
     if(!own(collections,p.task)||!text(p.id)||!p.id||!text(p.batchId)||!p.batchId||
@@ -53,8 +53,10 @@
       {[module]:kind==='characters'?only(work,Object.keys(root.NIJANAI.CARD_FIELDS)):{name:work.name,entries:structuredClone(work.entries||[])}};
     if(kind==='worldBooks' && (!Array.isArray(plan.result.world.entries)||!plan.result.world.entries.every(object)))fail('draft.result.entries');
     if(p.creationInput!=null){
-      if(!object(p.creationInput)||!Array.isArray(p.creationInput.modules)||!p.creationInput.modules.every(m=>text(m)&&own(root.NIJANAI.MODULES,m)))fail('draft.creationInput.modules');
+      if(!object(p.creationInput))fail('draft.creationInput');
       const input=only(p.creationInput,['brief','modules','questions','answers','ideas','cardId','bookId']);
+      if(!own(input,'modules'))input.modules=root.NIJANCreation.modulesForDraft(p,plans);
+      if(!Array.isArray(input.modules)||!input.modules.every(m=>text(m)&&own(root.NIJANAI.MODULES,m)))fail('draft.creationInput.modules');
       if(own(input,'brief')&&!text(input.brief))fail('draft.brief');
       for(const k of ['cardId','bookId'])if(input[k]!=null && input[k]!=='' && !id(input[k]))fail('draft.'+k);
       if(input.questions!=null && (!Array.isArray(input.questions)||!input.questions.every(text)))fail('draft.questions');
@@ -101,14 +103,19 @@
   }
   function normalize(input) {
     if(!object(input)||!all.every(key=>Array.isArray(input[key])))fail('workState');
-    const state={drafts:input.drafts.map(draft),versions:input.versions.map(snapshot),limits:input.limits.map(limit),records:input.records.map(record)};
+    const batches=new Map();
+    for(const row of input.drafts){
+      const batch=row?.plan?.batchId;
+      if(!batches.has(batch))batches.set(batch,[]);
+      batches.get(batch).push(row?.plan);
+    }
+    const state={drafts:input.drafts.map(row=>draft(row,batches.get(row?.plan?.batchId))),versions:input.versions.map(snapshot),limits:input.limits.map(limit),records:input.records.map(record)};
     unique(state.drafts,d=>groupKey(d.plan),'draft.batch');unique(state.drafts,d=>d.plan.id,'draft.id');
     unique(state.drafts,d=>entity(collections[d.plan.task],String(d.plan.operations[0].value.id)),'draft.work.id');
-    unique(state.limits,row=>entity(row.kind,row.id),'limits');unique(state.records,r=>r.id,'records');
+    unique(state.limits,row=>entity(row.kind,root.TAStore.idKey(row.id)),'limits');unique(state.records,r=>r.id,'records');
     return state;
   }
-  function remapWork(row,kind,maps) {
-    const ref=(collection,value)=>maps.get(collection)?.get(String(value))??value;
+  function remapWork(row,kind,ref) {
     function prop(obj,k,collection){if(obj && obj[k]!=null)obj[k]=ref(collection,obj[k]);}
     if(kind==='characters'){
       prop(row,'embeddedBookId','worldBooks');prop(row.source,'embeddedBookId','worldBooks');prop(row,'avatarAssetId','assets');
@@ -118,6 +125,34 @@
   }
   function merge(local,incoming,library,maps=new Map()) {
     const out=structuredClone(local), copies=[], batchMap=new Map();
+    const {idKey,sameId}=root.TAStore;
+    const owners=new Map(),bookEntries=new Map();
+    for(const kind of ['characters','worldBooks','assets','stickerPacks']){
+      for(const item of library[kind] || []){
+        owners.set(entity(kind,idKey(item.id)),item.id);
+        if(kind==='worldBooks')bookEntries.set(item.id,item.entries);
+      }
+    }
+    // Snapshot and retention indexes store typed IDs. Resolve every imported
+    // owner to the merged work, or to the local spelling of an orphaned work.
+    for(const row of [...local.versions,...local.limits,...incoming.versions,...incoming.limits]){
+      const key=entity(row.kind,idKey(row.id));
+      if(!owners.has(key))owners.set(key,row.id);
+    }
+    const localId=(kind,id)=>owners.get(entity(kind,idKey(id))) ?? id;
+    const incomingId=(kind,id)=>maps.get(kind)?.get(idKey(id)) ?? localId(kind,id);
+    const entryIndexes=new Map();
+    function alignSnapshot(row,resolveId){
+      row.id=resolveId(row.kind,row.id);row.value.id=row.id;
+      remapWork(row.value,row.kind,resolveId);
+      const entries=row.kind==='worldBooks' && bookEntries.get(row.id);
+      if(entries){
+        if(!entryIndexes.has(row.id))entryIndexes.set(row.id,new Map(entries.map(e=>[idKey(e.id),e.id])));
+        const index=entryIndexes.get(row.id);
+        for(const entry of row.value.entries || [])entry.id=index.get(idKey(entry.id)) ?? entry.id;
+      }
+      return row;
+    }
     const keyName=(id,n)=>n===0?id:String(id)+'~backup'+(n===1?'':n);
     function available(id,used) {
       let n=0;while(used.has(String(keyName(id,n))))n++;
@@ -130,7 +165,7 @@
       const taken=new Set(library[kind].map(item=>String(item.id)));
       for(const other of out.drafts)if(other!==d && collections[other.plan.task]===kind)taken.add(String(other.plan.operations[0].value.id));
       const old=work.id;work.id=available(old,taken);
-      for(const diff of p.draftDiff || [])if(diff.id===old)diff.id=work.id;
+      for(const diff of p.draftDiff || [])if(sameId(diff.id,old))diff.id=work.id;
       copies.push(work.name || p.id);
     }
     // Conflict aliases are stable across retries. Compare a candidate with its actual
@@ -155,10 +190,10 @@
           const occupied=new Set(library[kind].map(x=>String(x.id)));
           for(const row of others)if(collections[row.plan.task]===kind)occupied.add(String(row.plan.operations[0].value.id));
           const initial=w.id;
-          w.id=available(w.id,occupied);remapWork(w,kind,maps);
-          if(w.id!==initial && p.draftDiff)for(const diff of p.draftDiff)if(diff.id===initial)diff.id=w.id;
+          w.id=available(w.id,occupied);remapWork(w,kind,incomingId);
+          if(w.id!==initial && p.draftDiff)for(const diff of p.draftDiff)if(sameId(diff.id,initial))diff.id=w.id;
           if(p.creationInput)for(const [k,bucket] of [['cardId','characters'],['bookId','worldBooks']]){
-            const value=p.creationInput[k];if(value!=null)p.creationInput[k]=maps.get(bucket)?.get(String(value))??value;
+            const value=p.creationInput[k];if(value!=null)p.creationInput[k]=incomingId(bucket,value);
           }
           projected.push(d);
         }
@@ -200,18 +235,15 @@
       const added=asId(name);out.records.push(added);byRecord.set(name,added);
     }
 
-    const target=(kind,id)=>maps.get(kind)?.get(String(id))??id;
-    const incomingVersions=incoming.versions.map(source=>{
-      const row=structuredClone(source);row.id=target(row.kind,row.id);row.value.id=row.id;
-      remapWork(row.value,row.kind,maps);
-      return row;
-    });
+    for(const row of out.versions)alignSnapshot(row,localId);
+    for(const row of out.limits)row.id=localId(row.kind,row.id);
+    const incomingVersions=incoming.versions.map(row=>alignSnapshot(structuredClone(row),incomingId));
+    const sourceEntities=(versions,limits)=>new Set([...versions,...limits].map(v=>entity(v.kind,v.id)));
+    const localEntities=sourceEntities(out.versions,out.limits);
+    const left=new Map(out.limits.map(v=>[entity(v.kind,v.id),v.keep]));
     for(const row of missingVersions(out.versions,incomingVersions))out.versions.push(row);
     out.versions.sort((a,b)=>a.time-b.time);
-    const sourceEntities=(versions,limits)=>new Set([...versions,...limits].map(v=>entity(v.kind,v.id)));
-    const localEntities=sourceEntities(local.versions,local.limits);
-    const left=new Map(local.limits.map(v=>[entity(v.kind,v.id),v.keep]));
-    const incomingLimits=incoming.limits.map(v=>({...v,id:target(v.kind,v.id)}));
+    const incomingLimits=incoming.limits.map(v=>({...v,id:incomingId(v.kind,v.id)}));
     const incomingEntities=sourceEntities(incomingVersions,incomingLimits);
     const right=new Map(incomingLimits.map(v=>[entity(v.kind,v.id),v.keep]));
     const total=new Map();

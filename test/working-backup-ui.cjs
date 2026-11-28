@@ -49,7 +49,9 @@ async function seed(c,tag){
     const result={character:{name:tag+' pending',description:tag+' draft body'}};
     const p=NIJANAI.proposal(next,'create:character',result,{brief:'Write '+tag});
     p.batchId='shared-batch';p.id='shared-plan';p.operations[0].key='shared-operation';p.operations[0].value.id='pending-work';
-    p.creationInput={brief:'Write '+tag,modules:['character'],questions:['Which season?'],answers:[{question:'Which season?',answer:'Autumn'}],ideas:[]};
+    p.creationInput={brief:'Write '+tag,questions:['Which season?'],answers:[{question:'Which season?',answer:'Autumn'}],ideas:[]};
+    // The source exercises the older, still readable draft shape; the target has modern data.
+    if(tag!=='source')p.creationInput.modules=['character'];
     p.result=result;
     await TAStudioDrafts.keep(p);
     const record={id:'shared-record',task:'create:world',label:'Response '+tag,startedAt:'2026-03-02T10:00:00.000Z',finishedAt:'2026-03-02T10:01:00.000Z',
@@ -189,6 +191,8 @@ async function main(){
   await src.open();await src.click('#save-backup');await writing;
   const raw=await fs.readFile(savedFile,'utf8'),file=JSON.parse(raw);
   assert.equal(file.backupVersion,2);assert.equal(file.workState.drafts.length,1);
+  assert.deepEqual(file.workState.drafts[0].plan.creationInput.modules,['character']);
+  assert.deepEqual(file.workState.drafts[0].plan.creationInput.answers,[{question:'Which season?',answer:'Autumn'}]);
   assert.equal(file.workState.versions.length,2);assert.equal(file.workState.records.length,1);
   assert.equal(file.workState.limits.find(rule=>rule.id==='orphan-source').keep,3);
   assert.ok(!raw.includes('private/test-user')&&!raw.includes('fixture-private-credential')&&!raw.includes('Authorization'));

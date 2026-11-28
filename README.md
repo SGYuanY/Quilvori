@@ -285,6 +285,8 @@ The desktop edition backs up the original file on this device, checks it again b
 
 ## Storage, backups, and updates
 
+Two browser tabs can save ordinary text edits to different works. If both edit the same work, choose **Review unsaved edits** beside the save status, compare the fields, and select the values to keep from this tab. After a full library replacement, export the pending tab from Backup before reopening the latest library. Snapshot restore lists missing attachments and lets you keep a current link, choose a replacement, or detach it.
+
 Your library and revision history use IndexedDB in the current browser or desktop profile. On upgrade, Quilvori migrates the previous localStorage library and archives the original bytes in the same transaction. **Full-library backup → Download pre-migration library** retrieves that copy. Browser profiles, addresses and ports can have separate libraries. Use the same entry point each time and move your current library with backup export and restore.
 
 IndexedDB schema v6 stores works as separate records. Editing a card field writes that card and its revision metadata. Editing an image name or a chat bookmark leaves the image data and message body in separate records. Imports and whole-library replacements still validate the complete candidate library.

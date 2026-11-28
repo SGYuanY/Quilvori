@@ -44,7 +44,7 @@ Use a separate browser profile or port for manual tests with sample data. Each b
 
 | Location | Responsibility |
 | --- | --- |
-| Root `*.html` files | Page entry points and ordered script/style loading. |
+| Root `*.html` files | Standalone page entry points. The shared script order comes from `index.html`. |
 | `js/ui.js`, `js/views.js`, `js/workspace.js` | Shell, page registration, settings, navigation, and interaction. |
 | `js/character-editor.js`, `js/world-editor.js`, `js/work-editor-tools.js` | Character and world-book pages, including their shared JSON, media and AI controls. |
 | `src/formats/card-world.ts`, `src/formats/workshop.js` | Typed card and world-book conversion, and the remaining workshop format implementations. |
@@ -64,7 +64,7 @@ Use a separate browser profile or port for manual tests with sample data. Each b
 | `img/`, `fonts/` | Interface assets, credited previews, and bundled font files/licenses. |
 | `test/` | Node-based behavior checks and a separate optional browser harness. |
 
-The interface uses plain HTML, CSS, and JavaScript. Most browser modules attach an API to `globalThis`; some also expose CommonJS exports for tests. Follow the surrounding module style. When adding a module, keep script order consistent across the HTML entry points that need it. A small UI change should not require introducing a framework or build pipeline.
+The interface uses plain HTML, CSS, and JavaScript. Most browser modules attach an API to `globalThis`. Some also expose CommonJS exports for tests. To add, remove or reorder a shared module, edit the script tags between the shared script markers in `index.html`, then run `npm run build:formats`. Commit the updated entry pages together. The build copies only that block to the other pages listed in `electron/navigation.js`, so each page still opens directly over `file://` with its own title, markup and route.
 
 ## Validate a change
 
@@ -86,7 +86,7 @@ To measure editor performance on a fixed synthetic library, run `node scripts/be
 
 Edit card and world-book conversions in `src/formats/card-world.ts`. Incoming files enter as `unknown`. Library records and native exports have separate types, including fields for third-party metadata. Prompt preset conversion uses checked JSDoc in `js/prompt-presets.js`.
 
-Run `npm run build:formats` after editing sources under `src/`. Commit the affected generated scripts alongside the sources. Both editions load `js/formats.js`, `js/work-restore.js`, `js/work-outcomes.js`, `js/world-sync.js`, `js/card-sync.js` and `js/work-page.js` directly. The shared file-sync helpers and comparison panel load with the world-book bundle before the card bundle. Both packaging commands regenerate these files. Validation checks their contents and strict TypeScript diagnostics.
+Run `npm run build:formats` after editing sources under `src/`. Commit the affected generated scripts alongside the sources. Both editions load `js/formats.js`, `js/work-restore.js`, `js/work-outcomes.js`, `js/world-sync.js`, `js/card-sync.js`, `js/work-page.js` and `js/record-edits.js` directly. The shared file-sync helpers and comparison panel load with the world-book bundle before the card bundle. Both packaging commands regenerate these files. Validation checks their contents, strict TypeScript diagnostics, the shared scripts' presence and their order on every page.
 
 Exercise file-sync changes with a disposable profile and synthetic PNG and JSON files. Cover independent edits, a field edited on both sides, and a second comparison after applying a choice. For PNGs, check the original portrait, embedded world-book entry IDs, and v2/v3 text records. On desktop, verify that the selected filename still opens the existing character, the saved bytes can be read back, and restoration recovers the original file. On the web, test both reselecting the installed download and selecting a different revision while the download is awaiting verification.
 

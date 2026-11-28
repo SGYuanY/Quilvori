@@ -56,6 +56,20 @@
       if (loreUndo.at(-1) !== before) loreUndo.push(before);
       if (loreUndo.length > 40) loreUndo.shift();
     };
+    const mayUseEntries = next => {
+      const {lib,replyReference}=UI.state;
+      const used=root.TAWorkRestore.entryReferenceChanges(lib,book,next,replyReference);
+      if(!used.length)return true;
+      const owners=used.map(({set})=>set ? (set.name || String(set.id))+' · '+UI.t('workPage.libraryId',{id:set.id}) : UI.t('lore.currentReplySource'));
+      UI.toast(UI.t('lore.entryInUse')+' '+owners.join(' / '),{id:'entry-references',kind:'warning',duration:12000,
+        action:{label:UI.t('lore.openReplySource'),onClick:()=>root.TACreationAssist.openEntryReference(used[0])}});
+      return false;
+    };
+    const writeEntries = next => {
+      book.entries=next;UI.markDirty('worldBooks',book.id);
+      if(Store.byId(next,UI.state.sel.entry))UI.renderStage();
+      else UI.openAddress(root.TASearch.href({kind:'book',id:book.id,selectOnly:true}));
+    };
     stage.innerHTML = `<div class="dropwell"><div><strong>把世界书拖到这里</strong><span>酒馆世界信息的 JSON。</span></div><button type="button" class="btn btn-primary" id="book-drop-btn">选择文件</button></div><div id="sticker-host"></div><div id="json-host"></div><div class="toolbar">
       <div class="qc-book-selectors">
         <label><span>当前世界书</span><select id="book-select" data-no-translate>${lib.worldBooks.map((item) => `<option value="${UI.esc(item.id)}"${item.id === book.id ? ' selected' : ''}>${UI.esc(root.TAWorkPage.itemLabel(item,duplicateBooks))}</option>`).join('')}</select></label>
@@ -198,10 +212,9 @@
         root.TASearch.open({kind:'entry',id:copy.id,parentId:book.id,field:'content'});
       };
       editor.querySelector('#del-entry').onclick = () => {
-        book.entries = book.entries.filter((item) => item.id !== current.id);
-        UI.state.sel.entry = null;
-        UI.markDirty('worldBooks',book.id);
-        UI.renderStage();
+        const next=book.entries.filter(item=>item.id!==current.id);
+        if(!mayUseEntries(next))return;
+        snapLore();writeEntries(next);
       };
     }
     const openEntryField = (id,field) => {
@@ -235,16 +248,16 @@
     stage.querySelector('#book-drop-btn').onclick = () => importBook();
     mountAiBar(stage.querySelector('#lore-ai') || stage, 'book');
     stage.querySelector('#lore-undo').onclick = () => {
-      const prev = loreUndo.pop();
+      const prev = loreUndo.at(-1);
       if (!prev) { UI.toast('没有可撤销的世界书修改'); return; }
-      book.entries = JSON.parse(prev);
-      UI.markDirty('worldBooks',book.id);
-      UI.renderStage();
+      const next=JSON.parse(prev);
+      if(!mayUseEntries(next))return;
+      loreUndo.pop();writeEntries(next);
     };
     mountSticker(stage, book);
     mountJson(stage, 'book', book);
     editor.addEventListener('focusin', event => { if (event.target.matches('textarea,input,select')) snapLore(); });
-    editor.addEventListener('click', event => { if (event.target.closest('#del-entry,#dup-entry,.chips button')) snapLore(); }, true);
+    editor.addEventListener('click', event => { if (event.target.closest('#dup-entry,.chips button')) snapLore(); }, true);
     stage.querySelector('#new-entry').addEventListener('click', snapLore, true);
     paintEditor();
     function addBook() {

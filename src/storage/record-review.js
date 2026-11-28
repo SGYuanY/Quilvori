@@ -1,0 +1,39 @@
+(function(root){
+  'use strict';
+  const text={
+    'editConflict.open':['核对未保存的改动','Review unsaved edits','未保存の変更を確認','Сравнить несохранённые изменения','저장하지 않은 수정 비교','ตรวจสอบการแก้ไขที่ยังไม่บันทึก'],
+    'editConflict.explain':['另一窗口已保存修改。逐项勾选想保留的本窗内容，其余使用已保存值。','Another window saved changes. Check the fields to keep from this window. Other fields use the saved values.','別のウィンドウで変更が保存されました。この画面の値を残す項目にチェックしてください。他の項目には保存済みの値を使います。','В другом окне сохранены изменения. Отметьте поля, которые хотите взять из этого окна. Для остальных полей будут использованы сохранённые значения.','다른 창에서 수정 사항을 저장했습니다. 이 창의 값을 유지할 필드를 선택하세요. 나머지는 저장된 값을 사용합니다.','หน้าต่างอื่นบันทึกการเปลี่ยนแปลงแล้ว เลือกช่องที่ต้องการเก็บค่าจากหน้าต่างนี้ ช่องอื่นจะใช้ค่าที่บันทึกไว้'],
+    'editConflict.saved':['已保存版本','Saved version','保存済みの版','Сохранённая версия','저장된 버전','ฉบับที่บันทึกไว้'],
+    'editConflict.local':['本窗口','This window','このウィンドウ','Это окно','이 창','หน้าต่างนี้'],
+    'editConflict.apply':['保存所选结果','Save reviewed changes','確認した変更を保存','Сохранить результат','선택한 결과 저장','บันทึกผลที่เลือก'],
+    'editConflict.structural':['资料库结构或作品列表已变化。可先导出本窗口的稿件，再重开最新资料库并合并。','The library or its list of works changed. Export the work in this window, reopen the latest library, then merge the backup.','ライブラリまたは作品一覧が変更されました。この画面の作品を書き出し、最新のライブラリを開き直してバックアップを統合してください。','Изменилась структура библиотеки или список произведений. Экспортируйте работы из этого окна, откройте библиотеку заново и объедините её с резервной копией.','자료 구조나 작품 목록이 바뀌었습니다. 이 창의 작품을 내보낸 후 최신 자료실을 다시 열어 백업을 병합하세요.','โครงสร้างคลังหรือรายการผลงานเปลี่ยนไป ส่งออกผลงานของหน้าต่างนี้ เปิดคลังล่าสุดอีกครั้ง แล้วรวมข้อมูลสำรอง'],
+  };
+  const languages=['zh','en','ja','ru','ko','th'];
+  root.TAI18n?.add({},Object.fromEntries(Object.entries(text).map(([key,values])=>
+    [key,Object.fromEntries(languages.map((lang,index)=>[lang,values[index]]))])));
+  async function choose(changes) {
+    const ui=root.TAUI, selected=new Set(), content=document.createElement('div');
+    content.className='integrity-conflicts';
+    for(const change of changes.filter(row=>row.review)){
+      const detail=document.createElement('details'), summary=document.createElement('summary');
+      const label=document.createElement('label'), check=document.createElement('input');
+      const labels=root.NIJANAI?.CARD_FIELDS || {};
+      const title=change.name+' · '+ui.t(Object.hasOwn(labels,change.field)?labels[change.field]:change.field);
+      summary.textContent=title;summary.dataset.noTranslate='';
+      check.type='checkbox';check.dataset.windowField=change.field;check.setAttribute('aria-label',ui.t('editConflict.local')+' · '+title);
+      check.disabled=!!change.issue;
+      check.onchange=()=>{if(check.checked)selected.add(change.key);else selected.delete(change.key);};
+      label.append(check,document.createTextNode(ui.t('editConflict.local')));detail.append(summary,label);
+      if(change.issue){
+        const note=document.createElement('p');note.className='help';note.textContent=ui.t(change.issue);detail.append(note);
+      }
+      detail.ontoggle=()=>{if(detail.open && !detail.querySelector('.integrity-diff'))detail.append(
+        root.TAIntegrityPanel.difference(change.saved,change.local,['editConflict.saved','editConflict.local']));};
+      content.append(detail);
+    }
+    const choice=await ui.ask({title:ui.t('editConflict.open'),body:ui.t('editConflict.explain'),content,
+      actions:[{id:'cancel',label:ui.t('取消')},{id:'apply',label:ui.t('editConflict.apply'),kind:'btn-primary'}]});
+    return choice==='apply'?selected:null;
+  }
+  root.TARecordEditReview={choose};
+})(globalThis);

@@ -4,6 +4,15 @@
   const copy = (value) => root.NIJANAI.copy(value);
   const pathKey = (op) => JSON.stringify(op.path);
   const at = (lib, path) => path.reduce((value, key) => value?.[key], lib);
+  function modulesForDraft(plan, plans) {
+    const requested=plan.creationInput?.modules;
+    if(Array.isArray(requested))return requested.slice();
+    // Older drafts only captured the brief and sources. Recover the modules
+    // actually present in this batch, in the same order as the creation UI.
+    const present=new Set([plan.task]);
+    for(const other of plans)if(other?.batchId===plan.batchId)present.add(other.task);
+    return Object.keys(root.NIJANAI.MODULES).filter(kind=>present.has('create:'+kind));
+  }
   function selectedIdeas(ideas) {
     return (ideas || [])
       .filter(
@@ -203,6 +212,7 @@
     context,
     mergeResult,
     preserveIds,
+    modulesForDraft,
     withdraw,
     refinePlan,
   };

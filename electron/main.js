@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain, dialog, shell, safeStorage } = require('ele
 const fs = require('fs');
 const path = require('path');
 const { preserveLegacyProfile } = require('./profile');
+const { createFolderScan, sameFolder } = require('./folder-scan');
 const { downloadRemote } = require('./remote-import');
 const { isTrustedSender, installNavigationPolicy } = require('./navigation');
 const { exportExpressions, overwriteOptions } = require('./expression-export');
@@ -20,18 +21,7 @@ preserveLegacyProfile(app);
 const primaryInstance = app.requestSingleInstanceLock();
 let mainWindow = null;
 
-const storePath = () => path.join(app.getPath('userData'), 'folders.json');
-
-function readPaths() {
-  try { return Object.assign({ cards: '', worlds: '' }, JSON.parse(fs.readFileSync(storePath(), 'utf8'))); }
-  catch (error) { return { cards: '', worlds: '' }; }
-}
-
-function writePaths(next) {
-  fs.mkdirSync(path.dirname(storePath()), { recursive: true });
-  fs.writeFileSync(storePath(), JSON.stringify(next, null, 2));
-  return next;
-}
+const folders = createFolderScan(path.join(app.getPath('userData'), 'folders.json'), fs.promises);
 
 function createWindow() {
   if (mainWindow && !mainWindow.isDestroyed()) return mainWindow;
@@ -85,7 +75,11 @@ function handleTrusted(channel, handler) {
   });
 }
 
-handleTrusted('folders:get', () => readPaths());
+function ownsWindow(event, owner) {
+  return owner && owner === mainWindow && !owner.isDestroyed() && event.sender === owner.webContents && isTrustedSender(event, appRoot);
+}
+
+handleTrusted('folders:get', () => folders.getPaths());
 // Electron's rejected invoke promises discard custom properties. Send the public
 // error code explicitly so that the renderer can offer the appropriate recovery.
 function registerSync(kind,{service,publicError,folder,label,extensions}) {
@@ -100,14 +94,16 @@ function registerSync(kind,{service,publicError,folder,label,extensions}) {
     });
   }
   handle('pick',async event=>{
-    const suggested=readPaths()[folder],owner=mainWindow;
+    const owner=mainWindow, suggested=(await folders.getPaths())[folder];
+    function checkOwner() {
+      if (!ownsWindow(event,owner)) throw Object.assign(new Error('Picker window changed'),{code:kind+'-sync-unsafe'});
+    }
+    checkOwner();
     const options={properties:['openFile'],filters:[{name:label,extensions}]};
     if (typeof suggested==='string' && path.isAbsolute(suggested)) options.defaultPath=suggested;
     const result=await dialog.showOpenDialog(owner,options);
     if (result.canceled || !result.filePaths[0]) return null;
-    if (owner!==mainWindow || owner.isDestroyed() || !isTrustedSender(event,appRoot)) {
-      throw Object.assign(new Error('Picker window changed'),{code:kind+'-sync-unsafe'});
-    }
+    checkOwner();
     return service.bind(result.filePaths[0]);
   });
   handle('read',(_event,target)=>service.read(target));
@@ -125,18 +121,15 @@ registerSync('card',{
 handleTrusted('model-key:seal', (_event,id,key) => modelVault.seal(id,key));
 handleTrusted('model-key:open', (_event,id,blob) => modelVault.open(id,blob));
 handleTrusted('folders:pick', async (event, kind) => {
-  const result = await dialog.showOpenDialog({ properties: ['openDirectory'] });
-  if (result.canceled || !result.filePaths[0]) return readPaths();
-  const paths = readPaths();
-  paths[kind === 'worlds' ? 'worlds' : 'cards'] = result.filePaths[0];
-  return writePaths(paths);
+  const owner = mainWindow;
+  if (!ownsWindow(event, owner)) throw new Error('Untrusted application frame');
+  const result = await dialog.showOpenDialog(owner, { properties: ['openDirectory'] });
+  if (!ownsWindow(event, owner)) throw new Error('Picker window changed');
+  if (result.canceled || !result.filePaths[0]) return folders.getPaths();
+  return folders.select(kind, result.filePaths[0]);
 });
-handleTrusted('folders:list', (event, folder) => {
-  if (!folder) return [];
-  if (!fs.existsSync(folder) || !fs.statSync(folder).isDirectory()) throw new Error('文件夹不存在，请重新选择。');
-  return fs.readdirSync(folder, { withFileTypes: true }).filter((item) => item.isFile() && /\.(json|png)$/i.test(item.name)).map((item) => ({ name: item.name, full: path.join(folder, item.name) }));
-});
-handleTrusted('folders:read', (event, file) => fs.readFileSync(file));
+handleTrusted('folders:list', (_event, folder) => folders.list(folder));
+handleTrusted('folders:read', (_event, file) => folders.read(file));
 handleTrusted('links:download', async (event, payload) => {
   if (!payload || !/^[a-zA-Z0-9_-]{1,80}$/.test(payload.id || '') || typeof payload.url !== 'string' || payload.url.length > 8192) return { ok:false, code:'invalid-url' };
   const owner = event.sender.id, key = `${owner}/${payload.id}`;
@@ -150,17 +143,15 @@ handleTrusted('links:download', async (event, payload) => {
 handleTrusted('links:cancel', (event, id) => { linkRequests.get(`${event.sender.id}/${id}`)?.abort(); });
 handleTrusted('folders:writeExpressions', async (event,payload) => {
   const window=mainWindow;
-  const allowed=()=> {
-    if(!window || mainWindow!==window || window.isDestroyed() || event.sender!==window.webContents ||
-        !isTrustedSender(event,appRoot))return false;
-    const folder=readPaths().cards;
-    return typeof folder==='string' && path.isAbsolute(folder) && typeof payload?.folder==='string' &&
-      path.isAbsolute(payload.folder) && path.relative(folder,payload.folder)==='';
+  const allowed=async()=> {
+    if(!ownsWindow(event,window))return false;
+    const current=await folders.getPaths();
+    return ownsWindow(event,window) && sameFolder(current.cards,payload?.folder);
   };
-  if(!allowed())return {ok:false,code:'invalid-expression-folder'};
+  if(!await allowed())return {ok:false,code:'invalid-expression-folder'};
   try {
     return await exportExpressions(payload,fs.promises,{allowed,confirm:async preview=>{
-      if(!allowed())return false;
+      if(!await allowed())return false;
       const answer=await dialog.showMessageBox(window,overwriteOptions(preview,payload.lang || app.getLocale()));
       return answer.response===1 && allowed();
     }});

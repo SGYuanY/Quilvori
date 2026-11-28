@@ -6,7 +6,7 @@
     const kinds = ['character', 'world'];
     const bucket = { character: 'characters', world: 'worldBooks' };
     function requested(record) {
-        const wanted = kinds.filter(kind => record.workKinds?.includes(kind));
+        const wanted = kinds.filter(kind => Array.isArray(record.workKinds) && record.workKinds.includes(kind));
         return wanted.length ? wanted : kinds.filter(kind => record.task === 'create:' + kind);
     }
     function key(id, hash) {
@@ -15,19 +15,36 @@
     function recordKey(record) {
         return key(record.workOrigin || record.id, record.sourceKey);
     }
-    function keys(work) {
-        return Array.isArray(work?.creationRecordKeys) ? work.creationRecordKeys.filter((v) => typeof v === 'string') : [];
+    function isRecordKey(value) {
+        if (typeof value !== 'string' || value[0] !== '[')
+            return false;
+        try {
+            const pair = JSON.parse(value);
+            return Array.isArray(pair) && pair.length === 2 && pair.every(part => typeof part === 'string' && part.length > 0) &&
+                JSON.stringify(pair) === value;
+        }
+        catch {
+            return false;
+        }
     }
-    function stamp(work, previous, recordId, hash) {
+    function keys(work, field = 'creationRecordKeys') {
+        const values = work?.[field];
+        return Array.isArray(values) ? values.filter(isRecordKey) : [];
+    }
+    function stamp(work, previous, recordId, hash, peerKeys = []) {
         work.creationSource = hash;
         const unique = key(recordId, hash);
         if (unique)
             work.creationRecordKeys = [...new Set([...keys(previous), unique])];
+        const peers = new Set([...keys(previous, 'creationPeerKeys'), ...peerKeys.filter(isRecordKey)]);
+        peers.delete(unique ?? '');
+        if (peers.size)
+            work.creationPeerKeys = [...peers];
     }
     function item(plan, kind) {
         if (plan.task !== 'create:' + kind)
             return;
-        return plan.operations?.find(op => op.kind === 'add' && op.path[0] === bucket[kind])?.value;
+        return Array.isArray(plan.operations) ? plan.operations.find(op => op?.kind === 'add' && op.path?.[0] === bucket[kind])?.value : undefined;
     }
     function groupFor(selected, records) {
         if (!selected.workRun)
@@ -36,6 +53,68 @@
         // Offline branches may contain competing editions of the same request.
         // Group only when each primary request occurs once in this generation.
         return group.includes(selected) && new Set(group.map(r => r.task)).size === group.length ? group : [selected];
+    }
+    // Older works have only their own return receipt. A retained, unambiguous run
+    // can still identify its other reply. Persist this exact key in newly recovered drafts.
+    function peerRecordKeys(record, records) {
+        if (!record.workRun || !record.workBatch)
+            return [];
+        const group = groupFor(record, records);
+        if (group.length < 2)
+            return [];
+        const related = new Set(group);
+        const receipts = new Set(group.map(recordKey).filter(isRecordKey));
+        // A forked backup may alias a return ID into a second batch while retaining
+        // its original receipt. That receipt cannot identify a unique generation.
+        if (records.some(r => !related.has(r) && receipts.has(recordKey(r) ?? '')))
+            return [];
+        return group.filter(row => row !== record).map(recordKey).filter(isRecordKey);
+    }
+    function companionDrafts(kind, work, library, plans, records) {
+        const matches = new Set(), own = keys(work);
+        const other = kind === 'character' ? 'world' : 'character';
+        const candidates = plans.flatMap(plan => {
+            const value = item(plan, other);
+            return value ? [{ plan, value }] : [];
+        });
+        if (!own.length || !candidates.length)
+            return matches;
+        // A backup may hold multiple editions of the same receipt. Explicit references
+        // are handled by ID in the work page; automatic pairing requires unique owners.
+        function ambiguous(side) {
+            const seen = new Set(), duplicates = new Set();
+            const drafts = plans.map(p => item(p, side)).filter((w) => w !== undefined);
+            for (const w of [...library[bucket[side]], ...drafts]) {
+                const receipts = keys(w);
+                if (!receipts.length)
+                    continue;
+                for (const claim of new Set([...receipts, ...keys(w, 'creationPeerKeys')])) {
+                    if (seen.has(claim))
+                        duplicates.add(claim);
+                    seen.add(claim);
+                }
+            }
+            return duplicates;
+        }
+        const ambiguousOwn = ambiguous(kind), ambiguousOther = ambiguous(other);
+        const sources = new Set(own.filter(k => !ambiguousOwn.has(k)));
+        if (!sources.size)
+            return matches;
+        const possible = new Set([...sources, ...keys(work, 'creationPeerKeys').filter(k => !ambiguousOwn.has(k))]);
+        for (const record of records) {
+            const k = recordKey(record);
+            if (k && sources.has(k) && requested(record).includes(kind)) {
+                for (const peer of peerRecordKeys(record, records))
+                    possible.add(peer);
+            }
+        }
+        for (const { plan, value } of candidates) {
+            const receipts = keys(value).filter(k => !ambiguousOther.has(k));
+            if (receipts.length && (receipts.some(k => possible.has(k)) ||
+                keys(value, 'creationPeerKeys').some(k => !ambiguousOther.has(k) && sources.has(k))))
+                matches.add(plan.id);
+        }
+        return matches;
     }
     function legacyPlan(plan, work, record, unambiguous) {
         return unambiguous && !record.workRun && !keys(work).length && !!record.sourceKey && !!record.workBatch &&
@@ -115,5 +194,5 @@
         }
         return outcomes;
     }
-    Object.assign(globalThis, { TAWorkOutcomes: { requested, recordKey, stamp, resolve } });
+    Object.assign(globalThis, { TAWorkOutcomes: { requested, recordKey, isRecordKey, stamp, resolve, peerRecordKeys, companionDrafts } });
 })();

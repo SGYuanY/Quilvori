@@ -11,6 +11,12 @@ try {
   delete env.ELECTRON_RUN_AS_NODE;
   const phases={
     'work-page':'work-page-ui.cjs',
+    'editor-recovery':'editor-recovery-ui.cjs',
+    'window-edits':'window-edits-ui.cjs',
+    'identity-recovery':'identity-recovery-ui.cjs',
+    'folder-selection':'folder-selection-ui.cjs',
+    'draft-compat':'draft-compat-ui.cjs',
+    'history-references':'history-reference-ui.cjs',
     'card-portrait-export':'card-portrait-export-ui.cjs',
     'card-sync':'card-sync-ui.cjs',
     'world-sync':'world-sync-ui.cjs',

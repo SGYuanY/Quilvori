@@ -88,7 +88,7 @@ test('a full-backup merge assigns a response only to the work that owns it',()=>
     const local=root.TAStore.emptyLibrary(), incoming=root.TAStore.emptyLibrary();
     local.characters=[localCard];incoming.characters=[incomingCard];
     const preview=root.TABackupReview.plan(local,incoming);
-    assert.ok(!preview.conflicts.some(c=>c.path.some(key=>key==='creationRecordKeys' || key==='creationSource')));
+    assert.ok(!preview.conflicts.some(c=>c.path.some(key=>['creationRecordKeys','creationSource','creationPeerKeys'].includes(key))));
     const field=preview.conflicts.find(c=>c.path.at(-1)==='description');
     assert.ok(field);
     return root.TABackupReview.apply(preview,new Map([[field.key,choice]]),local);
@@ -103,12 +103,15 @@ test('a full-backup merge assigns a response only to the work that owns it',()=>
   const reversed=merge(generated,manual,'copy'), handwritten=reversed.characters.find(c=>c.id!=='shared');
   assert.equal(handwritten.creationRecordKeys,undefined);assert.equal(handwritten.creationSource,undefined);
   assert.equal(state(resolve(r,[r],reversed),'character').workId,'shared');
-  const revised={...work('shared','Untitled',later,generated),description:'Revised text'};
+  const peerKey=out.recordKey(record('peer','peer-hash'));
+  const revised={...work('shared','Untitled',later,generated),description:'Revised text',creationPeerKeys:[peerKey]};
   const related=merge(generated,revised,'backup');
+  assert.deepEqual(Array.from(related.characters[0].creationPeerKeys),[peerKey]);
   for(const original of [r,later])assert.equal(state(resolve(original,[r,later],related),'character').workId,'shared');
   const unrelated=merge({...manual,creationRecordKeys:['old-extension-value']},
     {...generated,creationRecordKeys:['old-extension-value',...generated.creationRecordKeys]},'backup');
   assert.equal(state(resolve(r,[r],unrelated),'character').status,'recoverable');
+  assert.equal(merge(manual,revised,'backup').characters[0].creationPeerKeys,undefined);
 });
 
 test('reasoning-only and other failures keep a small exportable status without prompt or model diagnostics',()=>{

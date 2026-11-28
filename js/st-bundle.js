@@ -1,6 +1,7 @@
 /* A SillyTavern user-directory package. Its individual files use ST's native formats. */
 (function (root) {
   'use strict';
+  const store=typeof module!=='undefined' && module.exports ? require('./store') : root.TAStore;
   const encoder = new TextEncoder();
   const imageExtensions = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp', 'image/avif': 'avif' };
   const maxFiles = 4096, maxBytes = 256 * 1024 * 1024;
@@ -128,16 +129,18 @@
     if (exportBook && selection.worldFile) {
       records.push({path:'worlds/' + exportBook.name + '.json', world:exportBook});
     }
+    const packs=new Set(selection.packs.map(store.idKey)), replies=new Set(selection.quickReplies.map(store.idKey));
     for (const pack of library.stickerPacks || []) {
-      if (selection.packs.includes(pack.id)) for (const sticker of pack.stickers || []) records.push(imageRecord(stem,sticker));
+      if (packs.has(store.idKey(pack.id))) for (const sticker of pack.stickers || []) records.push(imageRecord(stem,sticker));
     }
+    const attached=new Set((character.expressionAssetIds || []).map(store.idKey));
     for (const id of selection.expressions) {
-      const image = (library.assets || []).find(asset=>asset.id===id);
-      if (!image || !(character.expressionAssetIds || []).includes(id)) throw error('invalid-image');
+      const image=store.byId(library.assets,id);
+      if (!image || !attached.has(store.idKey(image.id))) throw error('invalid-image');
       records.push(imageRecord(stem,image));
     }
     for (const set of library.quickReplySets || []) {
-      if (selection.quickReplies.includes(set.id)) {
+      if (replies.has(store.idKey(set.id))) {
         const name = portableStem(set.name,'quick-reply');
         records.push({path:'QuickReplies/' + name + '.json', quickReply:set});
       }

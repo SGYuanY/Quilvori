@@ -67,8 +67,10 @@
   }
   async function select(id){
     if(id===ui().state.lib.activeThemeId)return;
-    const next=structuredClone(ui().state.lib);if(!next.themes.some(item=>item.id===id))throw new Error('主题已在其他位置更改，请重新打开。');
-    next.activeThemeId=id;await ui().commitLibrary(next);ui().applyTheme();
+    const library=ui().state.lib,theme=root.TAStore.byId(library.themes,id);
+    if(!theme)throw new Error('主题已在其他位置更改，请重新打开。');
+    await ui().commitLibrary({...library,activeThemeId:theme.id},[],false,null,{scopes:[['activeThemeId']]});
+    ui().applyTheme();
   }
   function el(tag,label,cls){const n=document.createElement(tag);if(label!==undefined)n.textContent=label;if(cls)n.className=cls;return n;}
   function sample(host,theme,asset){

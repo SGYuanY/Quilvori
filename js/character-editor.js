@@ -181,6 +181,7 @@
       delete copy.shelfPinned;
       delete copy.creationSource;
       delete copy.creationRecordKeys;
+      delete copy.creationPeerKeys;
       copy.id = Store.uid('ch');
       copy.name = `${source.name} 的副本`;
       copy.createdAt = stamp();

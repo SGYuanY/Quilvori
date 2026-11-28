@@ -8,6 +8,62 @@
     return bytes<1048576 ? (bytes/1024).toFixed(1)+' KiB' : (bytes/1048576).toFixed(1)+' MiB';
   }
 
+  async function confirmRestore(row,expected) {
+    const {lib,replyReference}=ui().state;
+    const {missing,blocked}=root.TAWorkRestore.snapshotReview(lib,row.kind,row.value,expected,replyReference);
+    if(blocked)throw new Error(blocked);
+    const content=document.createElement('div'),choices=new Map();
+    content.className='integrity-content';
+    let submit;
+    const validate=()=>{if(submit)submit.disabled=choices.size!==missing.length;};
+    if(missing.length){
+      const note=document.createElement('p');note.textContent=tr('history.missingLinks');content.append(note);
+    }
+    function itemLabel(item) {
+      return (item.name || tr('未命名'))+' · '+tr('workPage.libraryId',{id:item.id});
+    }
+    for(const link of missing){
+      const field=document.createElement('label'),label=document.createElement('span'),select=document.createElement('select');
+      field.className='field';label.className='field-label';label.dataset.noTranslate='';
+      label.textContent=tr(link.role)+' · '+tr('workPage.libraryId',{id:link.id});
+      select.dataset.historyLink=link.key;
+      const rows=lib[link.bucket];
+      if(link.currentIds.length){
+        const kept=link.currentIds.slice(0,3).map(id=>itemLabel(root.TAStore.byId(rows,id)));
+        const extra=link.currentIds.length-kept.length;
+        const option=new Option(tr('history.keepLink')+' · '+kept.join(', ')+(extra?' (+'+extra+')':''),'keep');
+        option.dataset.noTranslate='';
+        select.add(option);
+      }
+      select.add(new Option(tr('history.unlink'),'unlink'));
+      if(rows.length)select.add(new Option(tr('history.replaceLink'),'replace'));
+      const picker=document.createElement('select');
+      picker.setAttribute('aria-label',tr('history.replaceLink')+' · '+label.textContent);
+      picker.dataset.historyReplacement=link.key;picker.hidden=true;picker.dataset.noTranslate='';
+      field.append(label,select);content.append(field,picker);
+      function read(){
+        if(select.value==='keep')choices.set(link.key,{mode:'keep',ids:link.currentIds});
+        else if(select.value==='unlink')choices.set(link.key,{mode:'unlink'});
+        else if(picker.value!=='')choices.set(link.key,{mode:'replace',id:picker.value});
+        else choices.delete(link.key);
+        validate();
+      }
+      select.onchange=()=>{
+        picker.hidden=select.value!=='replace';
+        if(!picker.hidden && !picker.options.length){
+          picker.add(new Option(tr('history.chooseLink'),''));
+          for(const item of rows)picker.add(new Option(itemLabel(item),String(item.id)));
+        }
+        read();
+      };
+      picker.onchange=read;read();
+    }
+    const answer=ui().ask({title:tr('恢复此版本'),body:tr('将先保存当前稿，再恢复所选版本。'),content,
+      actions:[{id:'yes',label:tr('恢复此版本')},{id:'no',label:tr('取消')}]});
+    submit=content.closest('.modal')?.querySelector('[data-act=yes]');validate();
+    return await answer==='yes'?choices:null;
+  }
+
   function mountRetention(panel,status,refresh) {
     const history=root.TAHistory, at=selector=>panel.querySelector(selector);
     let inventory=null,plan=null;
@@ -140,8 +196,13 @@
       if (!chosen || !live()) return;
       compared=structuredClone(live());
       const differences=history.diff(chosen.value,compared);
-      restore.disabled=!differences.length;
-      if (!differences.length) {target.textContent=tr('与当前稿相同');return;}
+      if (!differences.length) {
+        const {missing}=root.TAWorkRestore.snapshotReview(ui().state.lib,kind,chosen.value,compared);
+        restore.disabled=!missing.length;
+        target.textContent=tr(missing.length?'history.missingLinks':'与当前稿相同');
+        return;
+      }
+      restore.disabled=false;
       appendDifferences(target,differences,['快照内容','当前稿']);
     }
     async function select(seq) {
@@ -189,11 +250,17 @@
         at('[data-restore]').onclick=async()=>{
           const row=chosen,expected=compared;
           if (!row) return;
-          const yes=await ui().ask({title:tr('恢复此版本'),body:tr('将先保存当前稿，再恢复所选版本。'),
-            actions:[{id:'yes',label:tr('恢复此版本')},{id:'no',label:tr('取消')}]});
-          if (yes!=='yes') return;
-          try {await history.restore(row,expected);ui().renderStage();ui().toast(tr('已恢复所选版本'),{kind:'success'});}
-          catch(error) {status(tr(error.message));}
+          try {
+            const choices=await confirmRestore(row,expected);
+            if(!choices)return;
+            if(!host.isConnected || chosen!==row)throw new Error('资料库已变化，请重新打开。');
+            await history.restore(row,expected,choices);
+            ui().renderStage();ui().toast(tr('已恢复所选版本'),{kind:'success'});
+          }
+          catch(error) {
+            if(host.isConnected)status(tr(error.message));
+            else ui().toast(tr(error.message),{kind:'warning'});
+          }
         };
         const editor=host.closest('#stage');
         const edited=event=>{

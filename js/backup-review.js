@@ -4,21 +4,19 @@
   const store=()=>root.TAStore, clone=value=>structuredClone(value);
   const object=value=>value!==null && typeof value==='object' && !Array.isArray(value);
   const own=(value,key)=>Object.hasOwn(value,key);
-  const workOrigins=['creationSource','creationRecordKeys'];
-  function isWorkOrigin(key){
-    if(typeof key!=='string')return false;
-    try{
-      const pair=JSON.parse(key);
-      return Array.isArray(pair) && pair.length===2 && pair.every(value=>typeof value==='string' && value.length>0) && JSON.stringify(pair)===key;
-    }catch(_){return false;}
-  }
+  const workOrigins=['creationSource','creationRecordKeys','creationPeerKeys'];
   function copyOrigins(target,owner,related){
     for(const field of workOrigins){
       if(own(owner,field))target[field]=clone(owner[field]);else delete target[field];
     }
     const local=target.creationRecordKeys, incoming=related?.creationRecordKeys;
-    if(Array.isArray(local) && Array.isArray(incoming) && incoming.some(key=>local.includes(key) && isWorkOrigin(key))){
-      target.creationRecordKeys=[...new Set([...local,...incoming.filter(isWorkOrigin)])];
+    if(Array.isArray(local) && Array.isArray(incoming) && incoming.some(key=>local.includes(key) && root.TAWorkOutcomes.isRecordKey(key))){
+      target.creationRecordKeys=[...new Set([...local,...incoming.filter(root.TAWorkOutcomes.isRecordKey)])];
+      const peers=related?.creationPeerKeys;
+      if(Array.isArray(peers) && (target.creationPeerKeys===undefined || Array.isArray(target.creationPeerKeys))){
+        const combined=new Set([...(target.creationPeerKeys || []),...peers.filter(root.TAWorkOutcomes.isRecordKey)]);
+        if(combined.size)target.creationPeerKeys=[...combined];
+      }
     }
   }
   function equal(a,b) {
@@ -30,11 +28,8 @@
   const typeNames={characters:'角色卡',worldBooks:'世界书',groups:'群组',scripts:'剧本',chats:'聊天',assets:'素材',themes:'主题',
     regexScripts:'正则',quickReplySets:'快捷回复',promptPresets:'提示词',stickerPacks:'表情包','timeline.notes':'剧情手记','timeline.beats':'剧情手记',
     'graph.nodes':'关系图','graph.edges':'关系图'};
-  const schema=path=>path.filter(step=>typeof step==='string').join('.');
-  function rowKey(row,by) {
-    if(by==='bookmark') return JSON.stringify(row.id!=null?['id',row.id]:['excerpt',row.index,row.excerpt,row.note]);
-    return row[by];
-  }
+  const schema=path=>path.filter(step=>typeof step==='string').map(key=>key.includes('.')?JSON.stringify([key]):key).join('.');
+  const rowKey=(row,by)=>store().mergeRowKey(row,by);
   function selector(by,row) {return {by,key:rowKey(row,by)};}
   function resolve(value,path) {
     for(const step of path) {
@@ -54,21 +49,20 @@
       .find(v=>(typeof v==='string' && v) || typeof v==='number');
   }
   function listKey(kind,a,b) {
-    if(kind==='groups.members') return 'characterId';
-    if(kind==='chats.bookmarks') return 'bookmark';
-    if(kind==='stickerPacks.stickers') return 'name';
-    return [...a,...b].every(row=>object(row) && (typeof row.id==='string' && row.id.trim() || Number.isSafeInteger(row.id)))?'id':null;
+    const by=store().mergeKeyType(kind);
+    if(by==='extensionId' && (!a.every(row=>rowKey(row,by)!==undefined) || !b.every(row=>rowKey(row,by)!==undefined)))return null;
+    return by;
   }
   function plan(local,incoming) {
     const current=store().verify(structuredClone(local)), source=clone(incoming), divergent=new Set();
     const proposed=store().merge(current,source,{divergedChats:divergent}),conflicts=[];
     // An ID collision does not make a handwritten work the destination of another device's request.
     for(const kind of ['characters','worldBooks']){
-      const localById=new Map(current[kind].map(row=>[row.id,row]));
-      const incomingById=new Map((source[kind] || []).map(row=>[row.id,row]));
+      const localById=new Map(current[kind].map(row=>[store().idKey(row.id),row]));
+      const incomingById=new Map((source[kind] || []).map(row=>[store().idKey(row.id),row]));
       for(const row of proposed[kind]){
-        const original=localById.get(row.id);
-        if(original)copyOrigins(row,original,incomingById.get(row.id));
+        const key=store().idKey(row.id),original=localById.get(key);
+        if(original)copyOrigins(row,original,incomingById.get(key));
       }
     }
     // Save timestamps describe writes on this device and are never choices in a content merge.
@@ -123,49 +117,6 @@
       return;
     }
     assign(lib,c.path,clone(value));
-  }
-
-  function remapReferences(result,original,copies) {
-    const map=(bucket,value)=>copies.get(bucket)?.get(String(value));
-    const prior=(list,key,value)=>list?.find(x=>String(x[key])===String(value));
-    function link(row,old,key,bucket) {
-      if(!row || row[key]==null || old?.[key]===row[key])return;
-      const replacement=map(bucket,row[key]);if(replacement!==undefined)row[key]=replacement;
-    }
-    for(const card of result.characters) {
-      const old=prior(original.characters,'id',card.id);
-      link(card,old,'embeddedBookId','worldBooks');link(card.source,old?.source,'embeddedBookId','worldBooks');link(card,old,'avatarAssetId','assets');
-      link(card,old,'stickerPackId','stickerPacks');
-      card.expressionAssetIds=card.expressionAssetIds.map(value=>old?.expressionAssetIds?.includes(value)?value:map('assets',value)??value);
-    }
-    for(const book of result.worldBooks){
-      const old=prior(original.worldBooks,'id',book.id);
-      link(book,old,'coverAssetId','assets');link(book,old,'stickerPackId','stickerPacks');
-    }
-    for(const set of result.quickReplySets) {
-      const old=prior(original.quickReplySets,'id',set.id);
-      link(set.workSource,old?.workSource,'characterId','characters');link(set.workSource,old?.workSource,'bookId','worldBooks');
-    }
-    for(const group of result.groups) {
-      const old=prior(original.groups,'id',group.id);
-      for(const member of group.members)link(member,prior(old?.members,'characterId',member.characterId),'characterId','characters');
-    }
-    for(const script of result.scripts) {
-      const old=prior(original.scripts,'id',script.id);
-      for(const beat of script.beats)link(beat,prior(old?.beats,'id',beat.id),'speaker','characters');
-    }
-    for(const node of result.graph.nodes)link(node,prior(original.graph.nodes,'id',node.id),'characterId','characters');
-    for(const edge of result.graph.edges) {
-      const old=prior(original.graph.edges,'id',edge.id);
-      for(const key of ['from','to'])link(edge,old,key,'graph.nodes');
-    }
-    for(const k of ['notes','beats']) for(const note of result.timeline[k])link(note,prior(original.timeline[k],'id',note.id),'chatId','chats');
-    for(const theme of result.themes)link(theme,prior(original.themes,'id',theme.id),'backgroundAssetId','assets');
-    link(result.settings,original.settings,'chatBackgroundAssetId','assets');link(result,original,'activeThemeId','themes');
-    for(const [key,source] of Object.entries(result.settings.folderImports || {})) {
-      const bucket={cards:'characters',worlds:'worldBooks',chats:'chats'}[source?.kind];
-      if(bucket)link(source,original.settings.folderImports?.[key],'id',bucket);
-    }
   }
 
   function apply(preview,choices,live=preview.current,copies=new Map()) {
@@ -226,7 +177,7 @@
       if(!copies.has(work.collection))copies.set(work.collection,new Map());
       copies.get(work.collection).set(String(work.id),newId);
     }
-    if(copies.size)remapReferences(result,active.current,copies);
+    if(copies.size)store().remapBackupReferences(result,active.current,copies);
     return store().verify(result);
   }
   root.TABackupReview={plan,apply,typeNames};

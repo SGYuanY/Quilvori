@@ -100,8 +100,8 @@
     if(book){
       const value=root.NIJANStudio.bookContent(book);
       if(setting.scope==='selected'){
-        const ids=new Set(setting.entryIds);
-        referenceBook={...value,entries:value.entries.filter(entry=>ids.has(entry.id)),scope:{mode:'selected_entries',totalEntries:book.entries.length}};
+        const ids=new Set((setting.entryIds || []).map(String));
+        referenceBook={...value,entries:value.entries.filter(entry=>ids.has(String(entry.id))),scope:{mode:'selected_entries',totalEntries:book.entries.length}};
       }else{
         const terms=[brief,card?.name,card?.scenario].filter(Boolean).join('\n');
         referenceBook=root.NIJANAI.referenceBook(value,terms,[],80000,{onlyRelevant:true});
@@ -112,13 +112,8 @@
         entryIds:(referenceBook?.entries||[]).map(e=>e.id)}};
   }
   function quickSourcesAvailable(plan){
-    const ref=plan.operations.find(op=>op.path[0]==='quickReplySets')?.value.workSource;
-    if(!ref)return true;
-    const lib=ui().state.lib,chosen=id=>id!=null && id!=='';
-    if(chosen(ref.characterId) && !root.TAStore.byId(lib.characters,ref.characterId))return false;
-    if(!chosen(ref.bookId))return true;
-    const book=root.TAStore.byId(lib.worldBooks,ref.bookId);
-    return !!book && (ref.entryIds || []).every(id=>root.TAStore.byId(book.entries,id));
+    const ref=plan.operations.find(op=>op.path[0]==='quickReplySets')?.value?.workSource;
+    return root.TAStore.hasReplySources(ui().state.lib,ref);
   }
   function quickFields(box){
     const s=prefs(), lib=ui().state.lib;
@@ -130,16 +125,17 @@
     box.querySelector('label')?.before(row);
     function paintBook(){
       extras.replaceChildren();
-      const chosen=lib.worldBooks.find(item=>item.id===s.bookId);
+      const chosen=root.TAStore.byId(lib.worldBooks,s.bookId);
       if(!chosen)return;
       const scope=node('select');scope.dataset.refScope='';
       scope.add(option(tr('按要求选取相关条目'),'relevant'));scope.add(option(tr('只参考勾选的条目'),'selected'));
       scope.value=s.scope;extras.append(field('条目范围',scope));
       if(s.scope==='selected'){
         const choices=node('fieldset');choices.className='reply-entry-choices';choices.append(node('legend',tr('选择条目')));
+        const selectedIds=new Set(s.entryIds.map(String));
         chosen.entries.forEach(entry=>{
-          const label=node('label'),check=node('input');label.className='check';check.type='checkbox';check.value=entry.id;check.checked=s.entryIds.includes(entry.id);
-          check.onchange=()=>{const ids=new Set(s.entryIds);if(check.checked)ids.add(entry.id);else ids.delete(entry.id);s.entryIds=[...ids];};
+          const label=node('label'),check=node('input');label.className='check';check.type='checkbox';check.value=entry.id;check.checked=selectedIds.has(String(entry.id));
+          check.onchange=()=>{s.entryIds=s.entryIds.filter(id=>!root.TAStore.sameId(id,entry.id));if(check.checked)s.entryIds.push(entry.id);};
           const name=node('span',entry.comment||tr('未命名'));name.dataset.noTranslate='';label.append(check,name);choices.append(label);
         });
         const help=node('small',tr('未勾选条目时，只使用世界书名称和简介。'));help.className='help';choices.append(help);
@@ -305,10 +301,50 @@
   }
   function selectedReply(stage,set){
     const src=set?.workSource;if(!src)return;
-    const lib=ui().state.lib,names=[root.TAStore.byId(lib.characters,src.characterId)?.name || src.characterName,root.TAStore.byId(lib.worldBooks,src.bookId)?.name || src.bookName].filter(Boolean);
-    if(!names.length)return;
-    const line=node('p');line.className='help';line.textContent=tr('这组回复参考的作品')+' · '+names.join(' / ');line.dataset.noTranslate='';
-    stage.querySelector('#qr-body').before(line);
+    const store=root.TAStore,lib=ui().state.lib,book=store.byId(lib.worldBooks,src.bookId);
+    const names=[store.byId(lib.characters,src.characterId)?.name || src.characterName,book?.name || src.bookName].filter(Boolean);
+    const body=stage.querySelector('#qr-body');
+    if(names.length){
+      const line=authored('p',tr('这组回复参考的作品')+' · '+names.join(' / '));line.className='help';body.before(line);
+    }
+    if(!Array.isArray(src.entryIds) || !src.entryIds.length)return;
+    const details=node('details'),summary=node('summary',tr('lore.replyEntries'));
+    details.dataset.replySources='';details.className='ws-assist-details';details.append(summary);body.before(details);
+    const select=node('select'),unlink=node('button',tr('解除关联'));
+    select.dataset.replySourceEntry='';select.setAttribute('aria-label',tr('lore.replyEntries'));select.dataset.noTranslate='';
+    unlink.type='button';unlink.className='btn btn-small';unlink.dataset.unlinkReplyEntry='';
+    function fill(){
+      if(select.parentNode)return;
+      const entries=new Map((book?.entries || []).map(entry=>[String(entry.id),entry]));
+      for(const id of new Set(src.entryIds.map(String))){
+        const name=entries.get(id)?.comment || tr('未命名');
+        select.add(option(name+' · '+ui().t('workPage.libraryId',{id}),id,true));
+      }
+      const controls=node('div');controls.className='row';controls.append(select,unlink);details.append(controls);
+    }
+    details.ontoggle=()=>{if(details.open)fill();};
+    details.focusEntry=id=>{details.open=true;fill();select.value=String(id);if(select.selectedIndex>=0)unlink.focus();};
+    unlink.onclick=()=>{
+      const id=select.value,live=store.byId(ui().state.lib.quickReplySets,set.id);
+      if(live?.workSource!==src || !src.entryIds.some(value=>store.sameId(value,id))){
+        ui().renderStage();ui().toast(tr('资料库已变化，请重新打开。'),{kind:'warning'});return;
+      }
+      src.entryIds=src.entryIds.filter(value=>!store.sameId(value,id));
+      ui().markDirty('quickReplySets',set.id);select.remove(select.selectedIndex);
+      if(select.options.length)select.focus();
+      else{details.remove();body.querySelector('[data-field=name]')?.focus();}
+    };
   }
-  root.TACreationAssist={mount,context,guide,preview,defaultBrief,quickContext,quickSourcesAvailable,templateRegex,verifyRegexExamples,selectedReply};
+  function openEntryReference({set,entryIds}){
+    if(set){
+      ui().openAddress('quick.html#'+encodeURIComponent(set.id));
+      document.querySelector('[data-reply-sources]')?.focusEntry(entryIds[0]);
+    }else{
+      ui().go('quick');
+      const box=document.querySelector('.reply-entry-choices input[value="'+CSS.escape(String(entryIds[0]))+'"]');
+      for(let parent=box?.parentElement;parent;parent=parent.parentElement)if(parent.tagName==='DETAILS')parent.open=true;
+      box?.focus();
+    }
+  }
+  root.TACreationAssist={mount,context,guide,preview,defaultBrief,quickContext,quickSourcesAvailable,templateRegex,verifyRegexExamples,selectedReply,openEntryReference};
 })(globalThis);

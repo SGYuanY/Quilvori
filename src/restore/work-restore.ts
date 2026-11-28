@@ -19,13 +19,15 @@
     keys?: string[];
     secondaryKeys?: string[];
   }
-  interface ReplySource {bookId?: Id; entryIds?: Id[]}
+  interface ReplySource {bookId?: Id; entryIds?: Id[]; scope?: string}
+  interface ReplySet {id?: Id; name?: string; workSource?: ReplySource}
+  interface EntryReference {set: ReplySet | null; entryIds: Id[]}
   interface Library extends Fields {
     characters: Row[];
     worldBooks: Row[];
     assets: Row[];
     stickerPacks: Row[];
-    quickReplySets?: {workSource?: ReplySource}[];
+    quickReplySets?: ReplySet[];
     graph?: {exportBookId?: Id};
   }
   interface Version {
@@ -47,6 +49,10 @@
     row: Row | null;
     role: string;
   }
+  type LinkField = 'avatarAssetId' | 'coverAssetId' | 'expressionAssetIds' | 'embeddedBookId' | 'sourceBook' | 'stickerPackId';
+  interface WorkLink {field:LinkField; bucket:Dependency['bucket']; id:Id; role:string;}
+  interface MissingLink extends WorkLink {key:string; currentIds:Id[];}
+  type LinkChoice = {mode:'keep'; ids:Id[]} | {mode:'unlink'} | {mode:'replace'; id:Id};
   interface Choices {
     mode: 'copy' | 'replace';
     dependencies: ReadonlySet<string>;
@@ -91,15 +97,128 @@
     if (work.id !== current.id) return 'restore.differentIds';
     if (kind !== 'worldBooks') return '';
     if (current.graphSource || current.id === 'book_sections' || live.graph?.exportBookId === current.id) return 'restore.managedBook';
-    const references = [...(live.quickReplySets || []).map(set => set.workSource),reply];
-    for (const ref of references) {
-      if (!ref || !isId(ref.bookId) || String(ref.bookId) !== String(current.id)) continue;
-      for (const id of ref.entryIds || []) {
-        const local = find(current.entries || [],id), imported = find(work.entries || [],id);
-        if (!local || !imported || imported.id !== local.id || imported.stUid !== local.stUid) return 'restore.linkedEntries';
+    return entryReferenceChanges(live,current,work.entries || [],reply,true).length ? 'restore.linkedEntries' : '';
+  }
+  // A saved reply records the entries actually used. An in-progress selection lives in
+  // the current window. Index the book only if one of those owners references an entry.
+  function entryReferenceChanges(live: Pick<Library,'quickReplySets'>, current: Row, proposed: readonly Entry[],
+                                 reply?: ReplySource, requireIntact=false): EntryReference[] {
+    const changes:EntryReference[]=[];
+    let before:Map<string,Entry> | undefined,after:Map<string,Entry> | undefined;
+    function inspect(ref:ReplySource | undefined,set:ReplySet | null) {
+      if(!Array.isArray(ref?.entryIds) || !ref.entryIds.length || !isId(ref.bookId) || String(ref.bookId)!==String(current.id))return;
+      before??=new Map((current.entries || []).map(entry=>[String(entry.id),entry]));
+      after??=new Map(proposed.map(entry=>[String(entry.id),entry]));
+      const affected=new Map<string,Id>();
+      for(const id of ref.entryIds){
+        const key=String(id),local=before.get(key),next=after.get(key);
+        // A new edit may repair a previously broken link. Complete backup replacement is stricter.
+        if(local ? !next || local.id!==next.id || local.stUid!==next.stUid : requireIntact)affected.set(key,local?.id ?? id);
+      }
+      if(affected.size)changes.push({set,entryIds:[...affected.values()]});
+    }
+    for(const set of live.quickReplySets || [])inspect(set.workSource,set);
+    if(reply?.scope!=='relevant')inspect(reply,null);
+    return changes;
+  }
+  function workLinks(work: Row, kind: Kind, includeSource=false): WorkLink[] {
+    const links: WorkLink[] = [];
+    function add(field:LinkField, bucket:WorkLink['bucket'], value:unknown, role:string) {
+      if(isId(value))links.push({field,bucket,id:value,role});
+    }
+    if(kind==='characters'){
+      add('avatarAssetId','assets',work.avatarAssetId,'头像');
+      for(const id of work.expressionAssetIds || [])add('expressionAssetIds','assets',id,'表情');
+      const source=work.source?.embeddedBookId, attached=work.embeddedBookId ?? source;
+      add('embeddedBookId','worldBooks',attached,'关联世界书');
+      if(includeSource && isId(source) && (!isId(attached) || String(attached)!==String(source)))
+        add('sourceBook','worldBooks',source,'来源世界书');
+    }else add('coverAssetId','assets',work.coverAssetId,'世界书封面');
+    add('stickerPackId','stickerPacks',work.stickerPackId,'表情包');
+    return links;
+  }
+  // A local snapshot owns its text and attachment IDs, but not copies of the
+  // attached books or images. Establish which links actually exist on this device.
+  function snapshotReview(live: Library, kind: Kind, snapshot: Row, current: Row, reply?: ReplySource) {
+    const blocked=kind==='worldBooks' && entryReferenceChanges(live,current,snapshot.entries || [],reply).length ? 'history.linkedEntries' : '';
+    const lookup=new Map<WorkLink['bucket'],Map<string,Id>>();
+    function stored(bucket:WorkLink['bucket'], id:Id) {
+      let ids=lookup.get(bucket);
+      if(!ids){
+        ids=new Map(live[bucket].map(row=>[String(row.id),row.id]));
+        lookup.set(bucket,ids);
+      }
+      return ids.get(String(id));
+    }
+    const missing:MissingLink[]=[],seen=new Set<string>();
+    for(const link of workLinks(snapshot,kind,true)){
+      const key=JSON.stringify([link.field,String(link.id)]);
+      if(stored(link.bucket,link.id)===undefined && !seen.has(key)){
+        missing.push({...link,key,currentIds:[]});
+        seen.add(key);
       }
     }
-    return '';
+    if(missing.length){
+      const kept=new Map<LinkField,Set<Id>>();
+      function keep(field:LinkField,bucket:WorkLink['bucket'],id:Id){
+        const existing=stored(bucket,id);
+        if(existing===undefined)return;
+        const ids=kept.get(field);
+        if(ids)ids.add(existing);
+        else kept.set(field,new Set([existing]));
+      }
+      for(const link of workLinks(current,kind))keep(link.field,link.bucket,link.id);
+      if(kind==='characters' && isId(current.source?.embeddedBookId))keep('sourceBook','worldBooks',current.source.embeddedBookId);
+      const currentIds=new Map(Array.from(kept,([field,ids])=>[field,[...ids]]));
+      for(const link of missing)link.currentIds=currentIds.get(link.field) || [];
+    }
+    return {missing,blocked};
+  }
+  function restoreSnapshot(live: Library, kind: Kind, snapshot: Row, current: Row,
+                           choices: ReadonlyMap<string,LinkChoice> = new Map(), reply?: ReplySource) {
+    const {missing,blocked}=snapshotReview(live,kind,snapshot,current,reply);
+    if(blocked)throw new Error(blocked);
+    if(missing.length!==choices.size)throw new Error('history.reviewLinks');
+    const restored=copy(snapshot),expressions=new Map<string,Id[]>();
+    for(const link of missing){
+      const choice=choices.get(link.key);
+      if(!choice)throw new Error('history.reviewLinks');
+      let ids:Id[]=[];
+      if(choice.mode==='keep'){
+        if(!link.currentIds.length || !equal(choice.ids,link.currentIds))throw new Error('history.reviewLinks');
+        ids=link.currentIds;
+      }else if(choice.mode==='replace'){
+        const item=find(live[link.bucket],choice.id);
+        if(!item)throw new Error('history.reviewLinks');
+        ids=[item.id];
+      }else if(choice.mode!=='unlink')throw new Error('history.reviewLinks');
+      if(link.field==='expressionAssetIds')expressions.set(String(link.id),ids);
+      else if(link.field==='sourceBook'){
+        if(restored.source){
+          if(ids.length)restored.source.embeddedBookId=ids[0];
+          else delete restored.source.embeddedBookId;
+        }
+      }else if(link.field==='embeddedBookId'){
+        restored.embeddedBookId=ids[0] ?? '';
+        if(isId(restored.source?.embeddedBookId) && String(restored.source.embeddedBookId)===String(link.id))
+          delete restored.source.embeddedBookId;
+      }else restored[link.field]=ids[0] ?? null;
+    }
+    if(expressions.size){
+      const seen=new Set<string>(),inserted=new Set<Id[]>(),resolved:Id[]=[];
+      for(const id of restored.expressionAssetIds || []){
+        const replacement=expressions.get(String(id));
+        // Multiple missing slots can share the same set of current expressions.
+        if(replacement && inserted.has(replacement))continue;
+        if(replacement)inserted.add(replacement);
+        for(const value of replacement ?? [id]){
+          const key=String(value);
+          if(!seen.has(key)){seen.add(key);resolved.push(value);}
+        }
+      }
+      restored.expressionAssetIds=resolved;
+    }
+    return restored;
   }
   function review(live: Library, file: Library, state: {versions: Version[]} | null,
                   kind: Kind, id: Id, context: Context = {}): Review {
@@ -122,14 +241,7 @@
       if (row && bucket === 'worldBooks' && (!selected || selected.has(key))) inspect(row,'worldBooks');
     }
     function inspect(work: Row, kind: Kind) {
-      if (kind === 'characters') {
-        add('assets',work.avatarAssetId,'头像');
-        for (const id of work.expressionAssetIds || []) add('assets',id,'表情');
-        add('worldBooks',work.embeddedBookId ?? work.source?.embeddedBookId,'关联世界书');
-      } else {
-        add('assets',work.coverAssetId,'世界书封面');
-      }
-      add('stickerPacks',work.stickerPackId,'表情包');
+      for(const link of workLinks(work,kind))add(link.bucket,link.id,link.role);
     }
     inspect(plan.work,plan.kind);
     plan.versions.forEach((v,i) => {if (selectedVersions.has(i)) inspect(v.value,plan.kind);});
@@ -168,7 +280,7 @@
     function workRow(original: Row, kind: Kind, id: Id, identity: Fields, existing?: Row | null): Row {
       const work = copy(original);
       work.id = id;
-      for (const field of ['creationSource','creationRecordKeys','backupCopyOf','backupCopyIndex','restoredForCharacterId',
+      for (const field of ['creationSource','creationRecordKeys','creationPeerKeys','backupCopyOf','backupCopyIndex','restoredForCharacterId',
         'folderTextHash','folderPortraitHash','folderAvatarPending']) delete work[field];
       Object.assign(work,identity);
       // On an in-place restore, declining a file attachment keeps the actual local link.
@@ -248,7 +360,7 @@
     if (replacing && current) {
       delete identity.backupCopyOf;
       delete identity.backupCopyIndex;
-      for (const key of ['creationSource','creationRecordKeys','backupCopyOf','backupCopyIndex','restoredForCharacterId',
+      for (const key of ['creationSource','creationRecordKeys','creationPeerKeys','backupCopyOf','backupCopyIndex','restoredForCharacterId',
         'folderTextHash','folderPortraitHash','folderAvatarPending']) {
         if (Object.hasOwn(current,key)) identity[key] = copy(current[key]);
       }
@@ -263,5 +375,5 @@
     }] : []);
     return {candidate,work,importSnapshots,previous:replacing ? current : null,changed:!replacing || !equal(current,work)};
   }
-  Object.assign(globalThis,{TAWorkRestore:{search,review,dependencies,materialize}});
+  Object.assign(globalThis,{TAWorkRestore:{search,review,dependencies,materialize,snapshotReview,restoreSnapshot,entryReferenceChanges}});
 })();

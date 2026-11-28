@@ -5,7 +5,7 @@ import vm from 'node:vm';
 import test from 'node:test';
 
 const env=vm.createContext({structuredClone,Date,TextDecoder,TextEncoder,crypto:webcrypto,btoa,atob});
-for(const name of ['formats','store','library-actions','backup-review']) {
+for(const name of ['formats','store','library-actions','work-outcomes','backup-review']) {
   vm.runInContext(readFileSync(new URL('../js/'+name+'.js',import.meta.url),'utf8'),env);
 }
 const {TAStore:S,TAFormats:F,TALibraryActions:D,TABackupReview:B}=env;

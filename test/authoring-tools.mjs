@@ -99,7 +99,11 @@ test('a quick-reply preview retains only live references and a chosen cast resol
   lib.worldBooks=[{id:0,name:'Harbor',entries:[{id:0,comment:'Bell',content:'Two tones'}]}];
   const ref={characterId:0,bookId:0,entryIds:[0]};
   const plan={operations:[{path:['quickReplySets'],value:{workSource:ref}}]};
-  assert.equal(assist.quickSourcesAvailable(plan),true);lib.worldBooks[0].entries=[];assert.equal(assist.quickSourcesAvailable(plan),false);
+  assert.equal(assist.quickSourcesAvailable(plan),true);
+  assert.ok(env.TAStore.hasReplySources(lib,{characterId:'0',bookId:'0',entryIds:['0']}));
+  assert.equal(env.TAStore.hasReplySources(lib,{entryIds:[0]}),false);
+  assert.equal(env.TAStore.hasReplySources(lib,{bookId:0,entryIds:'0'}),false);
+  lib.worldBooks[0].entries=[];assert.equal(assist.quickSourcesAvailable(plan),false);
   env.TAUI.state.scriptCastIds=[0,'b'];
   const ctx=assist.context('script',null,'A foggy harbor'),A=env.NIJANAI;
   const script=speaker=>({script:{name:'Crossing',beats:[{speaker,line:'Wait.'}]}});

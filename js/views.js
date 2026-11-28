@@ -1103,9 +1103,9 @@
       ['主题', lib.themes.length],
     ];
     stage.innerHTML = `<div class="toolbar">
-      <button type="button" class="btn btn-primary" id="save-backup">导出整库</button>
-      <button type="button" class="btn" id="load-backup">从备份恢复</button>
-      <button type="button" class="btn" id="restore-work">恢复单件作品</button>
+      <button type="button" class="btn btn-primary" id="save-backup" data-current-library>导出整库</button>
+      <button type="button" class="btn" id="load-backup" data-current-library>从备份恢复</button>
+      <button type="button" class="btn" id="restore-work" data-current-library>恢复单件作品</button>
       ${Store.hasMigrationBackup ? '<button type="button" class="btn" id="migration-backup">'+UI.esc(UI.t('下载迁移前存档'))+'</button>' : ''}
       <button type="button" class="btn" id="backup-demo">载入示例</button>
       <button type="button" class="btn btn-danger" id="backup-clear">清空库</button>

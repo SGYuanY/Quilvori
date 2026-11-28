@@ -34,7 +34,7 @@ const context = vm.createContext({
   },
 });
 context.globalThis = context;
-for (const name of ["png", "formats", "store", "creative-dialogue", "ai-tasks", "creation-output", "model"])
+for (const name of ["png", "formats", "store", "library-actions", "creative-dialogue", "ai-tasks", "creation-output", "model"])
   vm.runInContext(
     fs.readFileSync(new URL(`../js/${name}.js`, import.meta.url), "utf8"),
     context,
@@ -617,6 +617,52 @@ test("undoing a new character refuses to break subsequent references", () => {
   const before = JSON.stringify(library);
   assert.throws(() => A.undo(library, receipt, plan), /后续引用/);
   assert.equal(JSON.stringify(library), before);
+});
+test("undo checks only the surviving links and keeps both receipt and proposal intact on failure", () => {
+  const library=Store.emptyLibrary();
+  const card={id:0,name:"Linked pilot",source:{embeddedBookId:"old"}};
+  library.characters.push(card);
+  const book={id:7,name:"Light register",entries:[]};
+  const plan={id:"batch",operations:[
+    {key:"new-book",kind:"add",path:["worldBooks"],value:book},
+    {key:"attach",kind:"set",path:["characters"],id:0,field:"source",before:{embeddedBookId:"old"},after:{embeddedBookId:"7"}},
+    {key:"new-set",kind:"add",path:["quickReplySets"],value:{id:"companion",workSource:{bookId:"7"},replies:[]}},
+  ]};
+  const receipt=A.commit(library,plan);
+  library.quickReplySets.push({id:"later",name:"Lantern replies",workSource:{bookId:"7"},replies:[]});
+  const before=JSON.stringify([library,receipt,plan]);
+  assert.throws(()=>A.undo(library,receipt,plan),error=>error.code==="work-in-use" &&
+    error.references.length===1 && error.references[0].type==="replyBook" && error.message.includes("Lantern replies"));
+  assert.equal(JSON.stringify([library,receipt,plan]),before);
+  library.quickReplySets.pop();
+  A.undo(library,receipt,plan);
+  assert.deepEqual(native(card.source),{embeddedBookId:"old"});
+  assert.equal(library.worldBooks.length,0);assert.equal(library.quickReplySets.length,0);
+});
+test("restoring a receipt field cannot resurrect a link to another work removed in the same undo", () => {
+  const library=Store.emptyLibrary();
+  const card={id:0,name:"Referenced pilot",embeddedBookId:"w"},book={id:"w",name:"Harbor",entries:[]};
+  library.characters.push(card);
+  const plan={id:"batch",operations:[
+    {key:"add",kind:"add",path:["worldBooks"],value:book},
+    {key:"unlink",kind:"set",path:["characters"],id:0,field:"embeddedBookId",before:"w",after:""},
+  ]};
+  const receipt=A.commit(library,plan);
+  assert.throws(()=>A.undo(library,receipt,plan),error=>error.code==="work-in-use" && error.references[0].type==="embedded");
+  assert.equal(card.embeddedBookId,"");assert.equal(library.worldBooks.length,1);
+});
+test("undo protects later graph edges and journal links to numeric zero", () => {
+  const library=Store.emptyLibrary(),node={id:0,label:"Dock"},chat={id:0,name:"Harbor log",messages:[]};
+  const plan={id:"batch",operations:[
+    {key:"node",kind:"add",path:["graph","nodes"],value:node},
+    {key:"chat",kind:"add",path:["chats"],value:chat},
+  ]};
+  const receipt=A.commit(library,plan);
+  library.graph.edges.push({id:"later",label:"Later edge",from:"0",to:"0"});
+  library.timeline.notes.push({id:0,title:"Later note",chatId:"0"});
+  assert.throws(()=>A.undo(library,receipt,plan),error=>error.code==="work-in-use" &&
+    error.message.includes("Later edge") && error.message.includes("Later note"));
+  assert.equal(library.graph.nodes.length,1);assert.equal(library.chats.length,1);
 });
 test("large-book references preserve complete relevant entries and state the omitted scope", () => {
   const book = {

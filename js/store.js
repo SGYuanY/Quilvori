@@ -380,12 +380,31 @@
   const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value) &&
     Object.prototype.toString.call(value) === '[object Object]';
   const validId = value => (typeof value === 'string' && !!value.trim()) || Number.isSafeInteger(value);
+  const idKey = value => validId(value) ? String(value) : undefined;
+  function sameId(left,right) {
+    const key=idKey(left);
+    return key!==undefined && key===idKey(right);
+  }
   // HTML controls and URLs carry strings. Collections already reject numbered and
   // string IDs with the same spelling, so resolve the stored record before using its ID.
   function byId(list,id) {
-    if(!validId(id))return null;
-    const key=String(id);
-    return list?.find(item=>String(item.id)===key) || null;
+    const key=idKey(id);
+    if(key===undefined)return null;
+    return list?.find(item=>idKey(item.id)===key) || null;
+  }
+  function hasReplySources(library, source) {
+    if (source == null) return true;
+    if (!isRecord(source)) return false;
+    const selected = id => id != null && id !== '';
+    if (selected(source.characterId) && !byId(library.characters,source.characterId)) return false;
+    const book = byId(library.worldBooks,source.bookId);
+    if (selected(source.bookId) && !book) return false;
+    if (source.entryIds == null) return true;
+    if (!Array.isArray(source.entryIds)) return false;
+    if (!source.entryIds.length) return true;
+    if (!book) return false;
+    const entries = new Set((book.entries || []).map(entry => idKey(entry.id)));
+    return source.entryIds.every(id => validId(id) && entries.has(idKey(id)));
   }
   const own = (value, field) => Object.hasOwn(value, field);
   function invalid(path, message = '存档结构无效') {
@@ -412,9 +431,10 @@
       // ID-less messages, bookmarks and expression images existed in early libraries.
       if (idField || (path === 'chats.bookmarks' && own(row,'id'))) {
         const field = idField || 'id', id = row[field];
-        if (!own(row,field) || !validId(id) || seen.has(String(id)))
+        const key=idKey(id);
+        if (!own(row,field) || key===undefined || seen.has(key))
           invalid(location + '.' + field, '编号缺失或重复，无法合并这份备份。');
-        seen.add(String(id));
+        seen.add(key);
       }
       for (const field of rule.text || []) {
         if (own(row,field) && typeof row[field] !== 'string') invalid(location + '.' + field);
@@ -572,6 +592,96 @@
     return json.length;
   }
 
+  // Shared with the conflict preview, including its paths back into the original
+  // backup. Extension-defined records retain the identity semantics of their data.
+  function mergeKeyType(path) {
+    if(path==='chats.bookmarks')return 'bookmark';
+    if(path==='stickerPacks.stickers')return 'name';
+    if(!own(rowTypes,path))return 'extensionId';
+    const rule=rowTypes[path];
+    return own(rule,'key') ? rule.key : 'id';
+  }
+  function mergeRowKey(row,by) {
+    if(!isRecord(row))return undefined;
+    if(by==='bookmark'){
+      if(own(row,'id'))return JSON.stringify(['id',idKey(row.id)]);
+      return Number.isSafeInteger(row.index) ? JSON.stringify(['excerpt',row.index,row.excerpt,row.note]) : undefined;
+    }
+    if(by==='name')return typeof row.name==='string' && row.name.trim() ? row.name : undefined;
+    if(by==='extensionId')return own(row,'id') && validId(row.id) ? row.id : undefined;
+    return own(row,by) ? idKey(row[by]) : undefined;
+  }
+
+  // A merge keeps existing links on their original works. Links brought in by
+  // the backup use the actual destination ID, including a newly chosen copy.
+  function remapBackupReferences(result,original,copies) {
+    const indexes=new WeakMap();
+    function record(rows,id,field='id') {
+      const key=idKey(id);
+      if(!rows || key===undefined)return undefined;
+      let index=indexes.get(rows);
+      if(!index){
+        index=new Map(rows.map(row=>[idKey(row[field]),row]));
+        indexes.set(rows,index);
+      }
+      return index.get(key);
+    }
+    function destination(bucket,value,oldValue) {
+      if(value===oldValue || idKey(value)===undefined)return value;
+      if(sameId(value,oldValue))return oldValue;
+      const rows=bucket==='graph.nodes' ? result.graph.nodes : result[bucket];
+      return copies?.get(bucket)?.get(idKey(value)) ?? record(rows,value)?.id ?? value;
+    }
+    function link(row,old,key,bucket) {
+      if(row && row[key]!=null)row[key]=destination(bucket,row[key],old?.[key]);
+    }
+    for(const card of result.characters){
+      const old=record(original.characters,card.id);
+      link(card,old,'embeddedBookId','worldBooks');
+      link(card.source,old?.source,'embeddedBookId','worldBooks');
+      link(card,old,'avatarAssetId','assets');link(card,old,'stickerPackId','stickerPacks');
+      const previous=new Map((old?.expressionAssetIds || []).map(id=>[idKey(id),id]));
+      card.expressionAssetIds=card.expressionAssetIds.map(id=>destination('assets',id,previous.get(idKey(id))));
+    }
+    for(const book of result.worldBooks){
+      const old=record(original.worldBooks,book.id);
+      link(book,old,'coverAssetId','assets');link(book,old,'stickerPackId','stickerPacks');
+    }
+    for(const set of result.quickReplySets){
+      const ref=set.workSource,old=record(original.quickReplySets,set.id)?.workSource;
+      link(ref,old,'characterId','characters');link(ref,old,'bookId','worldBooks');
+      if(Array.isArray(ref?.entryIds)){
+        const book=record(result.worldBooks,ref.bookId);
+        if(book){
+          const prior=sameId(ref.bookId,old?.bookId) && Array.isArray(old?.entryIds) ? old.entryIds : [];
+          const previous=new Map(prior.map(id=>[idKey(id),id]));
+          ref.entryIds=ref.entryIds.map(id=>idKey(id)===undefined ? id : previous.get(idKey(id)) ?? record(book.entries,id)?.id ?? id);
+        }
+      }
+    }
+    for(const group of result.groups){
+      const old=record(original.groups,group.id);
+      for(const member of group.members)link(member,record(old?.members,member.characterId,'characterId'),'characterId','characters');
+    }
+    for(const script of result.scripts){
+      const old=record(original.scripts,script.id);
+      for(const beat of script.beats)if(beat.speaker && beat.speaker!=='narrator')
+        beat.speaker=String(destination('characters',beat.speaker,record(old?.beats,beat.id)?.speaker));
+    }
+    for(const node of result.graph.nodes)link(node,record(original.graph.nodes,node.id),'characterId','characters');
+    for(const edge of result.graph.edges){
+      const old=record(original.graph.edges,edge.id);
+      for(const key of ['from','to'])link(edge,old,key,'graph.nodes');
+    }
+    for(const kind of ['notes','beats'])for(const note of result.timeline[kind])link(note,record(original.timeline[kind],note.id),'chatId','chats');
+    for(const theme of result.themes)link(theme,record(original.themes,theme.id),'backgroundAssetId','assets');
+    link(result.settings,original.settings,'chatBackgroundAssetId','assets');link(result,original,'activeThemeId','themes');
+    const folderCollections={cards:'characters',worlds:'worldBooks',chats:'chats'};
+    for(const [key,source] of Object.entries(result.settings.folderImports || {})){
+      if(own(folderCollections,source?.kind))link(source,original.settings.folderImports?.[key],'id',folderCollections[source.kind]);
+    }
+  }
+
   function merge(base, incoming, review) {
     // Check both inputs, but merge the *supplied* fields. Defaults in an old backup must never erase a local edit.
     const local = verify(base);
@@ -581,20 +691,28 @@
     const imageConflict = '表情包中有同名但内容不同的图片，无法自动合并。';
     const idConflict = '编号缺失或重复，无法合并这份备份。';
     const hasId = (row,key) => isRecord(row) && own(row,key) && validId(row[key]);
-    function indexed(rows, identify, path) {
+    function indexed(rows, by, path) {
       const items = new Map();
       for (const row of rows) {
-        const id = identify(row);
+        const id = mergeRowKey(row,by);
         if (id === undefined || items.has(id)) invalid(path, idConflict);
         items.set(id, row);
       }
       return items;
     }
-    function byKey(active, backup, path, identify) {
-      const old = indexed(active,identify,path), incoming = indexed(backup,identify,path);
+    function byKey(active, backup, path, by) {
+      const old = indexed(active,by,path), incoming = indexed(backup,by,path);
       // Keep the shelf order; use the backup order within books, presets, packs and other works.
       const ids = path.includes('.') ? new Set([...incoming.keys(),...old.keys()]) : new Set([...old.keys(),...incoming.keys()]);
-      return Array.from(ids, id => incoming.has(id) ? combine(old.get(id),incoming.get(id),path) : structuredClone(old.get(id)));
+      return Array.from(ids, id => {
+        const local=old.get(id);
+        if(!incoming.has(id))return structuredClone(local);
+        const row=combine(local,incoming.get(id),path);
+        // History, selection and file bindings still use the local persisted type.
+        if(local && (by==='id' || by==='characterId'))row[by]=local[by];
+        if(local && by==='bookmark' && own(local,'id'))row.id=local.id;
+        return row;
+      });
     }
     function sameValue(a,b) {
       if (a === b) return true;
@@ -604,7 +722,10 @@
     }
     function messageIdCounts(rows) {
       const counts = new Map();
-      for (const row of rows) if (hasId(row,'id')) counts.set(row.id,(counts.get(row.id) || 0) + 1);
+      for (const row of rows) if (hasId(row,'id')) {
+        const key=idKey(row.id);
+        counts.set(key,(counts.get(key) || 0)+1);
+      }
       return counts;
     }
     function messages(active,backup,path) {
@@ -614,11 +735,13 @@
       for (let i=0; i<overlap; i++) {
         const a = active[i], b = backup[i];
         // Imported JSONL usually has no IDs. Identical text and compatible speaker/time identify a shared prefix.
-        const identified = localIds.get(a.id) === 1 && backupIds.get(b.id) === 1;
-        const sameMessage = identified ? a.id === b.id : (typeof a.mes === 'string' && a.mes === b.mes &&
+        const identified = localIds.get(idKey(a.id)) === 1 && backupIds.get(idKey(b.id)) === 1;
+        const sameMessage = identified ? sameId(a.id,b.id) : (typeof a.mes === 'string' && a.mes === b.mes &&
           ['name','send_date','is_user','is_system'].every(field => !own(a,field) || !own(b,field) || a[field] === b[field]));
         if (!sameMessage && !sameValue(a,b)) throw Object.assign(new Error((root.TAI18n?.t(chatConflict) || chatConflict)+' ('+path+'['+i+'])'),{code:'chat-branch'});
-        result.push(combine(a,b,path));
+        const row=combine(a,b,path);
+        if(sameId(a.id,b.id))row.id=a.id;
+        result.push(row);
       }
       const longer = active.length > backup.length ? active : backup;
       return result.concat(structuredClone(longer.slice(overlap)));
@@ -632,20 +755,11 @@
           throw Object.assign(new Error((root.TAI18n?.t(chatConflict) || chatConflict)+' ('+path+')'),{code:'chat-branch'});
         return structuredClone(active.length > backup.length ? active : backup);
       }
-      if (path === 'chats.bookmarks') {
-        // Older bookmarks lack IDs. Preserve independent excerpts even when they point to the same floor.
-        return byKey(active,backup,path,row => hasId(row,'id') ? JSON.stringify(['id',row.id]) :
-          Number.isSafeInteger(row.index) ? JSON.stringify(['excerpt',row.index,row.excerpt,row.note]) : undefined);
-      }
-      if (path === 'stickerPacks.stickers') {
-        if (!active.length || !backup.length) return structuredClone(active.length ? active : backup);
-        return byKey(active,backup,path,row => typeof row.name === 'string' && row.name.trim() ? row.name : undefined);
-      }
-      const rule = own(rowTypes,path) ? rowTypes[path] : null;
-      const key = rule && own(rule,'key') ? rule.key : 'id';
-      const identified = rule || ((active.length || backup.length) && active.every(row => hasId(row,key)) && backup.every(row => hasId(row,key)));
-      if (!identified) return structuredClone(backup);
-      return byKey(active,backup,path,row => hasId(row,key) ? row[key] : undefined);
+      const by=mergeKeyType(path);
+      if(by==='name' && (!active.length || !backup.length))return structuredClone(active.length ? active : backup);
+      if(by==='extensionId' && (!active.every(row=>hasId(row,'id')) || !backup.every(row=>hasId(row,'id'))))
+        return structuredClone(backup);
+      return byKey(active,backup,path,by);
     }
     function combine(current, backup, path) {
       if (Array.isArray(backup)) return mergeList(current,backup,path);
@@ -680,7 +794,9 @@
     }
     const out = combine(local,incoming,'');
     if (!review && local.memoryHtml.trim()) out.memoryHtml = local.memoryHtml;
-    return verify(out);
+    const result=verify(out);
+    remapBackupReferences(result,local);
+    return result;
   }
 
   function erase(library) {
@@ -697,7 +813,8 @@
   }
 
   root.TAStore = {
-    collections: Object.freeze(topRows), byId,
+    collections: Object.freeze(topRows), byId, idKey, sameId, hasReplySources, mergeKeyType, mergeRowKey, remapBackupReferences,
     KEY, databaseMarker, databaseRedirect, uid, emptyLibrary, demoLibrary, normalize, verify, load, recover, save, erase, merge, bytes, storageOk,
   };
+  if(typeof module!=='undefined' && module.exports)module.exports=root.TAStore;
 })(typeof globalThis !== 'undefined' ? globalThis : window);

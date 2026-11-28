@@ -43,8 +43,11 @@
   }
   function guardWorkEvent(event) {
     if (!boundWork || boundWork.library === state.lib) return;
+    // These actions read the current library when invoked and revalidate after
+    // their picker/dialog completes. Their page can safely survive a replacement.
+    if(event.type==='click' && event.target.closest?.('[data-current-library]'))return;
     const {collection,item,library} = boundWork;
-    if (library[collection] === state.lib[collection] && (!item || TAStore.byId(state.lib[collection],item.id) === item)) {
+    if (collection && library[collection] === state.lib[collection] && (!item || TAStore.byId(state.lib[collection],item.id) === item)) {
       boundWork.library = state.lib;
       return;
     }
@@ -92,6 +95,7 @@
     const duration = options.duration || Math.min(15000, Math.max(options.action ? 10000 : 5600, value.length * 65));
     const dismiss = (immediate = false) => {
       if (leaving) return; leaving = true;
+      node.inert = true;
       progress.cancel(); node.classList.add('toast-leaving');
       const remove = () => { const prior = positions(); node.remove(); shift(prior); };
       if (immediate || matchMedia('(prefers-reduced-motion: reduce)').matches) remove(); else setTimeout(remove, 200);
@@ -100,7 +104,12 @@
     node.querySelector('.toast-close').onclick = () => dismiss();
     if (options.action?.label && typeof options.action.onClick === 'function') {
       const action = document.createElement('button'); action.type = 'button'; action.className = 'toast-action'; action.textContent = options.action.label;
-      action.onclick = () => { try { options.action.onClick(); } finally { dismiss(); } }; actions.appendChild(action);
+      action.onclick = () => {
+        if (leaving) return;
+        dismiss();
+        options.action.onClick();
+      };
+      actions.appendChild(action);
     }
     if (value.length > 96) {
       const expand = document.createElement('button'); expand.type = 'button'; expand.className = 'toast-expand'; expand.textContent = t('展开'); expand.setAttribute('aria-expanded', 'false');
@@ -367,14 +376,22 @@
     const map = { saved: tr(state.persistent ? '已保存到本机' : '仅本次打开可用'), dirty: tr('待写入'), saving: tr('正在写入…'), error: tr('未能写入') };
     pill.className = `pill${state.save === 'error' ? ' err' : state.save === 'saved' && state.persistent ? '' : ' dirty'}`;
     pill.innerHTML = `<i></i>${esc(map[state.save] || map.saved)}`;
+    const review=document.getElementById('review-window-edits');
+    if(review){
+      review.hidden=!(revisionConflict && state.save==='error');
+      review.textContent=tr('editConflict.open');
+      review.onclick=()=>reviewWindowEdits(true);
+    }
   }
 
   let editVersion = 0, replacing = false, pendingSave = null;
   const dirtyScopes = new Map();
   let dirtyWholeLibrary = false;
+  let revisionConflict = false, reviewingWindow = false;
   function resetDirty() {
     dirtyScopes.clear();
     dirtyWholeLibrary = false;
+    revisionConflict = false;
   }
   function markDirty(field, id, mode) {
     if (typeof field !== 'string') dirtyWholeLibrary = true;
@@ -393,6 +410,69 @@
     state.timer = setTimeout(flush, 320);
   }
 
+  // A replacement can invalidate every mounted record. Keep the active text
+  // field and caret when the same editor is still visible after refreshing.
+  function refreshBoundStage() {
+    const stage=document.getElementById('stage'), field=document.activeElement;
+    const scroll=stage.scrollTop;
+    let selector='', start=null, end=null;
+    if(stage.contains(field) && field.matches('input,textarea')){
+      const attr=['data-field','data-book-field','data-k'].find(name=>field.hasAttribute(name));
+      const parent=field.parentElement?.closest('[data-id],[id]');
+      const anchor=parent?.id ? '#'+CSS.escape(parent.id) :
+        parent?.hasAttribute('data-id') ? '[data-id="'+CSS.escape(parent.dataset.id)+'"]' : '';
+      selector=field.id ? '#'+CSS.escape(field.id) : attr ? (anchor?anchor+' ':'')+'['+attr+'="'+CSS.escape(field.getAttribute(attr))+'"]' : '';
+      start=field.selectionStart;end=field.selectionEnd;
+    }
+    renderStage();
+    const fields=selector?stage.querySelectorAll(selector):[];
+    if(fields.length===1){
+      fields[0].focus({preventScroll:true});
+      if(start!=null && fields[0].selectionStart!=null)fields[0].setSelectionRange(start,end);
+    }
+    stage.scrollTop=scroll;
+  }
+  async function reviewWindowEdits(interactive,version=editVersion) {
+    if(reviewingWindow || replacing)return false;
+    reviewingWindow=true;
+    try {
+      const db=root.TALibraryDB;
+      const review=!dirtyWholeLibrary && await db.reviewEdits(state.lib,[...dirtyScopes.values()],state.replyReference);
+      if(version!==editVersion || replacing)return false;
+      if(!review){
+        if(interactive){
+          go('backup');
+          toast(root.TAI18n.t('editConflict.structural'),{kind:'warning'});
+        }
+        return false;
+      }
+      let selected=new Set();
+      if(review.changes.some(change=>change.review)){
+        if(!interactive)return false;
+        selected=await root.TARecordEditReview.choose(review.changes);
+        if(!selected)return false;
+      }
+      if(version!==editVersion || replacing)throw new Error('资料库已变化，请重新打开。');
+      const app=document.getElementById('app'), wasInert=app.inert;
+      replacing=true;app.inert=true;
+      try {
+        state.lib=await db.applyReviewedEdits(review,selected,()=>version===editVersion,state.replyReference);
+        resetDirty();state.save='saved';
+        root.TASearch?.invalidate();
+      }finally{
+        replacing=false;app.inert=wasInert;
+        if(version!==editVersion && state.save==='dirty'){
+          clearTimeout(state.timer);state.timer=setTimeout(flush,0);
+        }
+      }
+      refreshBoundStage();
+      return true;
+    }catch(error){
+      if(interactive)toast(root.TAI18n.t(error.message),{kind:'error'});
+      return false;
+    }finally{reviewingWindow=false;paintSave();}
+  }
+
   async function flush() {
     clearTimeout(state.timer);
     if (replacing) return false;
@@ -408,7 +488,14 @@
         resetDirty();
         state.save = 'saved'; return true;
       } catch (error) {
-        if (version === editVersion) { state.save = 'error'; toast(root.TAI18n.t(error.message),{kind:'error'}); }
+        if (version === editVersion) {
+          if(error.code==='library-revision'){
+            if(!revisionConflict && !replacing && await reviewWindowEdits(false,version))return true;
+            if(version!==editVersion)return false;
+            revisionConflict=true;
+          }
+          state.save = 'error'; toast(root.TAI18n.t(error.message),{kind:'error'});
+        }
         return false;
       } finally { paintSave(); }
     })();
@@ -437,6 +524,14 @@
       const warning = clearVersions ? await TAStore.erase(candidate,guard) : await TAStore.save(candidate,guard,snapshots,draft,scopes,options.restore,transfer,imports,fileBinding);
       if (version !== editVersion) throw new Error('资料库已变化，请重新打开。');
       state.lib = candidate; state.save = 'saved';
+      const rendered=boundWork;
+      if(rendered && !rendered.collection && rendered.library!==candidate){
+        // Let the initiating action finish its own focus or navigation first.
+        // Otherwise refresh closures on the still-mounted page after a background write.
+        setTimeout(()=>{
+          if(boundWork===rendered && rendered.library!==state.lib && !replacing)refreshBoundStage();
+        },0);
+      }
       resetDirty();
       if(draft)root.TAStudioDrafts.committed(draft);
       if(transfer){
@@ -584,7 +679,7 @@
   }
 
   function renderStage() {
-    boundWork = null;
+    boundWork = {library:state.lib};
     const stage = document.getElementById('stage');
     paintChrome();
     paintSave();
@@ -594,6 +689,11 @@
     stage.ondrop = null;
     try {
       closeSelect();
+      if (activeAddress?.route === state.route) {
+        const wasMissing = state.missingAttachment;
+        state.missingAttachment = !addressAvailable(activeAddress);
+        if (wasMissing && !state.missingAttachment) selectAddress(activeAddress);
+      }
       if(state.missingAttachment){
         stage.append(empty(root.TAI18n.t('workPage.missing'),'',root.TAI18n.t(routeMeta().label),()=>go(state.route)));
       }else view(stage);
@@ -654,6 +754,8 @@
   }
 
   let folderPaths = null, folderReadPromise = null, triedAutoRead = false;
+  let folderChoice = Promise.resolve();
+  const folderRevisions = { cards: 0, worlds: 0 };
 
   function paintFolders() {
     const host = document.getElementById('folders');
@@ -686,16 +788,26 @@
       }
     };
     if (folderPaths) { draw(folderPaths); return; }
-    if (root.nijanDesktop) root.nijanDesktop.getPaths().then(draw);
+    if (root.nijanDesktop) root.nijanDesktop.getPaths().then(paths => draw(folderPaths || paths));
     else draw(saved);
   }
 
   async function pickFolder(kind) {
     if (root.nijanDesktop) {
-      const paths = await root.nijanDesktop.pick(kind);
-      localStorage.setItem('nijan-folders', JSON.stringify(paths));
-      folderPaths = paths;
-      paintFolders();
+      const choice = folderChoice.then(async () => {
+        const paths = await root.nijanDesktop.pick(kind);
+        if (folderPaths) {
+          for (const key of ['cards', 'worlds']) {
+            if ((folderPaths[key] || '') !== (paths[key] || '')) folderRevisions[key]++;
+          }
+        }
+        folderPaths = paths;
+        // The desktop picker has already persisted these paths in the private profile.
+        try { localStorage.setItem('nijan-folders', JSON.stringify(paths)); } catch (_) {}
+        paintFolders();
+      });
+      folderChoice = choice.catch(() => {});
+      try { await choice; } catch (error) { toast(error.message, { kind: 'error' }); }
       return;
     }
     toast('文件夹读写在桌面版里。运行 npm start。');
@@ -704,20 +816,42 @@
   async function readFolders(paths, options = {}) {
     if (folderReadPromise) return folderReadPromise;
     if (!options.adapter && !root.nijanDesktop) { toast('请用桌面版读取已设置的文件夹，或点击“导入角色卡”选择文件。'); return; }
-    const sourcePaths = paths || folderPaths || await root.nijanDesktop.getPaths();
+    const sourcePaths = { ...(paths || folderPaths || await root.nijanDesktop.getPaths()) };
     if (folderReadPromise) return folderReadPromise;
     if (!sourcePaths.cards && !sourcePaths.worlds && !sourcePaths.chats) { toast('先设置角色卡或世界书的文件夹。'); return; }
     const button = document.querySelector('#read-folders');
     if (button) button.disabled = true;
     const task = (async () => {
       toast('正在读取文件夹，读完就会出现在列表里。', { id: 'folder-import', kind: 'info', duration: 15000 });
-      const snapshot = (value) => JSON.stringify(Object.assign({}, value, { meta: Object.assign({}, value.meta, { updatedAt: undefined }) }));
-      const before = snapshot(state.lib);
-      const makeAvatar=root.TAFolderImport.makeAvatar;
-      const result = await root.TAFolderImport.importAll(state.lib, sourcePaths, options.adapter || root.nijanDesktop, Object.assign({ makeAvatar, avatarBudget:TAStore.backend === 'indexedDB' ? Infinity : 750000 }, options));
-      // Wait for importing to finish without replacing edits made in the meantime.
-      if (snapshot(state.lib) !== before) throw new Error('读取期间稿子有变化。请再点一次读取，当前改动已保留。');
-      const commit = () => commitLibrary(result.library);
+      const original = state.lib, started = { ...folderRevisions };
+      let expectedVersion = editVersion;
+      const watched = options.adapter ? [] : ['cards', 'worlds'].filter(kind => sourcePaths[kind] && (kind === 'cards' || !options.cardsOnly));
+      function checkSelection(current) {
+        if (watched.some(kind => started[kind] !== folderRevisions[kind] || (current && current[kind] !== sourcePaths[kind]))) {
+          throw new Error('读取期间更改了文件夹。请重新读取所选文件夹。');
+        }
+      }
+      const scanOptions = { makeAvatar: root.TAFolderImport.makeAvatar, avatarBudget: TAStore.backend === 'indexedDB' ? Infinity : 750000, ...options };
+      if (watched.length) scanOptions.onProgress = report => { checkSelection(); options.onProgress?.(report); };
+      const result = await root.TAFolderImport.importAll(original, sourcePaths, options.adapter || root.nijanDesktop, scanOptions);
+      const commit = async () => {
+        if (watched.length) {
+          let choice, current;
+          do {
+            choice = folderChoice;
+            await choice;
+            current = await root.nijanDesktop.getPaths();
+          } while (choice !== folderChoice);
+          checkSelection(current);
+        }
+        if (state.lib !== original || editVersion !== expectedVersion || replacing) {
+          throw new Error('读取期间稿子有变化。请再点一次读取，当前改动已保留。');
+        }
+        const saving = commitLibrary(result.library);
+        // The commit claims its version synchronously, including when a quota error requires an avatar-free retry.
+        expectedVersion = editVersion;
+        return saving;
+      };
       try { await commit(); }
       catch (error) {
         if (error.name !== 'QuotaExceededError' && error.code !== 22 && error.code !== 'quota') throw error;
@@ -760,10 +894,17 @@
   }
 
   let lastAddress = '';
+  let activeAddress;
   function saveShelfPosition() {
     const stage=document.getElementById('stage');
     if(!state.collectionView || !stage?.querySelector('.collection-home'))return;
     state.collectionView.scroll=stage.scrollTop;
+  }
+  function rememberShelf() {
+    if (!state.collectionView || state.collectionWork || state.route !== 'home' || !root.history) return;
+    if(lastAddress!==location.href || !document.getElementById('stage')?.querySelector('.collection-home'))return;
+    saveShelfPosition();
+    root.history.replaceState({shelf:{...state.collectionView}},'',location.href);
   }
   function setAddress(value, push = true) {
     const url = new URL(value, location.href);
@@ -779,15 +920,14 @@
     // the path of a file: URL with pushState is forbidden in several browsers.
     const fragment = '/' + route + (stateParams.size ? '?' + stateParams : '');
     if (push && here.hash.slice(1) !== fragment) {
-      if(state.route==='home' && !state.collectionWork && state.collectionView){
-        saveShelfPosition();
-        history.replaceState({shelf:{...state.collectionView}},'',location.href);
-      }
-      const origin=route==='home' && url.searchParams.has('work') && state.collectionView;
-      history.pushState(origin?{originShelf:{...origin}}:null,'','#' + fragment);
+      rememberShelf();
+      const shelf = route === 'home' && state.collectionView;
+      const entry = shelf ? {[url.searchParams.has('work') ? 'originShelf' : 'shelf']:{...shelf}} : null;
+      history.pushState(entry,'','#' + fragment);
     }
     lastAddress = location.href;
-    return {url,route};
+    activeAddress={url,route};
+    return activeAddress;
   }
   function openAddress(value, push = true) {
     const address=setAddress(value,push);
@@ -795,16 +935,26 @@
     visitAddress(address.route,address.url);
     return true;
   }
+  function attachmentAt(route,url) {
+    let id;
+    try { id=decodeURIComponent(url.hash.slice(1)); } catch { return null; }
+    return TAStore.byId(state.lib[route==='assets'?'assets':'quickReplySets'],id);
+  }
+  function addressAvailable({route,url}) {
+    if(!url?.hash)return true;
+    if(route==='assets' || route==='quick')return !!attachmentAt(route,url);
+    return root.TASearch?.hasAddress?.(route,url)!==false;
+  }
+  function selectAddress({route,url}) {
+    if (!url?.hash) return;
+    if (route==='assets' || route==='quick') {
+      const item=attachmentAt(route,url);
+      if (item) { state.sel[route==='assets'?'asset':'qr']=item.id; if(route==='assets')state.assetKind='all'; }
+    } else root.TASearch?.restoreAddress(route,url);
+  }
   function visitAddress(route,url) {
-    if(url?.hash){
-      if(route==='assets' || route==='quick'){
-        const asset=route==='assets',key=asset?'asset':'qr';
-        let id;try{id=decodeURIComponent(url.hash.slice(1));}catch{id=null;}
-        const item=TAStore.byId(state.lib[asset?'assets':'quickReplySets'],id);
-        if(!item){show(route,null,true);return;}
-        state.sel[key]=item.id;if(asset)state.assetKind='all';
-      }else root.TASearch?.restoreAddress(route,url);
-    }
+    activeAddress={route,url};
+    selectAddress(activeAddress);
     const work=root.TAWorkPage?.readAddress(route,url);
     show(route,work);
     const part=url?.searchParams.get('part');
@@ -835,13 +985,13 @@
     return openAddress(pageHref(next));
   }
 
-  function show(id,work=null,missingAttachment=false) {
+  function show(id,work=null) {
     saveShelfPosition();
     if (state.route !== id) root.NIJANOrganizePanel?.hideForNavigation();
     state.route = ROUTES.some((route) => route.id === id) ? id : 'home';
-    state.missingAttachment=missingAttachment;
+    state.missingAttachment=false;
     state.collectionWork=state.route==='home'?work:null;
-    if(work && !state.collectionView && root.history?.state?.originShelf)state.collectionView={...root.history.state.originShelf};
+    if(work && root.history?.state?.originShelf)state.collectionView={...root.history.state.originShelf};
     if(state.route==='home' && !work && root.history?.state?.shelf)state.collectionView={...root.history.state.shelf};
     state.query = '';
     const search = document.getElementById('search');
@@ -1312,6 +1462,7 @@
             <button type="button" class="ws-icon-button" data-workspace="focus" aria-label="专注模式" title="专注模式" aria-pressed="false">${icon('focus')}</button>
             <button type="button" class="ws-icon-button" data-workspace="settings" aria-label="设置" title="设置">${icon('settings')}</button>
             <span id="save-pill" class="pill"><i></i></span>
+            <button type="button" id="review-window-edits" class="btn btn-small" hidden></button>
           </div>
         </header>
         <details class="workspace-folders"><summary>${icon('backup')}<span>本地文件夹</span></summary><div id="folders" class="folders"></div></details>
@@ -1341,6 +1492,13 @@
     const searchBox = document.getElementById('search');
     const editorStage = document.getElementById('stage');
     for (const type of ['click','keydown','input','change','drop']) editorStage.addEventListener(type,guardWorkEvent,true);
+    editorStage.addEventListener('input',event=>{
+      if(!event.isComposing && event.target.matches('[data-collection-search]'))rememberShelf();
+    });
+    editorStage.addEventListener('click',event=>{
+      if(event.target.closest?.('[data-collection-kind],[data-collection-reset],[data-shelf-pages] button'))rememberShelf();
+    });
+    editorStage.addEventListener('scrollend',rememberShelf);
     searchBox.addEventListener('pointerdown', () => searchBox.classList.add('held'));
     const releaseSearch = () => {
       if (!searchBox.classList.contains('held')) return;
@@ -1377,6 +1535,7 @@
     window.addEventListener('quilvori-drafts',()=>document.getElementById('stage')?.refreshDraftShelf?.());
     window.addEventListener('hashchange',followLocation);
     window.addEventListener('popstate',followLocation);
+    window.addEventListener('pagehide',rememberShelf);
     document.addEventListener?.('click',event=>{
       if (event.defaultPrevented || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
       const link=event.target.closest?.('a[href]');

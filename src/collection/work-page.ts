@@ -6,13 +6,16 @@
   interface Item { id: Id; name?: string; }
   interface Work extends Item {
     embeddedBookId?: Id | null; source?: {embeddedBookId?: Id | null};
-    stickerPackId?: Id | null; expressionAssetIds?: Id[]; creationRecordKeys?: string[];
+    stickerPackId?: Id | null; expressionAssetIds?: Id[];
   }
   interface Reply extends Item {workSource?: {characterId?: Id; bookId?: Id};}
   interface Draft {plan: {id: string; task: string; creationInput?: {cardId?: Id; bookId?: Id};
     operations?: {kind: string; path: unknown[]; value?: Work}[]};}
   interface Library { characters: Work[]; worldBooks: Work[]; assets: Item[]; stickerPacks: Item[]; quickReplySets: Reply[]; }
   const store=(globalThis as unknown as {TAStore:{byId<T extends Item>(items:T[],id?:Id|null):T|null}}).TAStore;
+  const origins=(globalThis as unknown as {TAWorkOutcomes:{
+    companionDrafts(kind:'character'|'world',work:Work,lib:Library,plans:Draft['plan'][],records:unknown[]):ReadonlySet<string>;
+  }}).TAWorkOutcomes;
   const valid=(id: unknown):id is Id => typeof id==='string' ? id.length>0 : Number.isSafeInteger(id);
   const equal=(a: unknown,b: unknown) => valid(a) && valid(b) && String(a)===String(b);
   const attached=(card: Work) => card.embeddedBookId ?? card.source?.embeddedBookId;
@@ -28,18 +31,17 @@
   function readers(lib: Library,bookId: Id):Work[] {
     return lib.characters.filter(card=>equal(attached(card),bookId));
   }
-  function draftsFor(rows: Draft[],kind: Kind,work: Work) {
-    const origins=new Set(work.creationRecordKeys || []);
+  function draftsFor(rows: Draft[],kind: Kind,work: Work,lib: Library,records:unknown[] = []) {
+    const paired=origins.companionDrafts(kind==='book'?'world':'character',work,lib,rows.map(row=>row.plan),records);
     return rows.flatMap(({plan})=>{
       const bucket=plan.task==='create:character'?'characters':plan.task==='create:world'?'worldBooks':null;
       if(!bucket)return [];
-      const value=plan.operations?.find(op=>op.kind==='add' && op.path[0]===bucket)?.value;
+      const value=plan.operations?.find(op=>op?.kind==='add' && op.path?.[0]===bucket)?.value;
       if(!value)return [];
       const reference=kind==='character'?plan.creationInput?.cardId:plan.creationInput?.bookId;
-      const paired=value.creationRecordKeys?.some(key=>origins.has(key));
       const embedded=kind==='character'?bucket==='worldBooks' && equal(attached(work),value.id):
         bucket==='characters' && equal(attached(value),work.id);
-      return equal(reference,work.id) || paired || embedded ? [{id:plan.id,name:value.name,kind:bucket==='characters'?'character':'book'}] : [];
+      return equal(reference,work.id) || paired.has(plan.id) || embedded ? [{id:plan.id,name:value.name,kind:bucket==='characters'?'character':'book'}] : [];
     });
   }
   function related(lib: Library,kind: Kind,id: Id) {

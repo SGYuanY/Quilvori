@@ -6,6 +6,7 @@
   const payloadFields = new Map([['assets','dataUrl'],['chats','messages'],['stickerPacks','stickers']]);
   let activeDatabase, currentRevision = 0, clearEpoch = 0;
   const conflict = () => new Error('资料库已变化，请重新打开。');
+  const staleRevision = () => Object.assign(conflict(),{code:'library-revision'});
   const unavailable = () => new Error('无法打开本机资料库');
   const storageError = error => {
     if (error?.name !== 'QuotaExceededError') return error || unavailable();
@@ -136,6 +137,40 @@
     const [head,rows]=await Promise.all([request(tx.objectStore('library').get(headKey)),request(tx.objectStore(records).getAll())]);
     return {head,rows};
   }
+  function referenceIssue(library,change,replyReference) {
+    if(change.collection==='worldBooks' && change.field==='entries'){
+      const book=root.TAStore.byId(library.worldBooks,change.id);
+      if(root.TAWorkRestore.entryReferenceChanges(library,book,change.local || [],replyReference).length)return 'history.linkedEntries';
+    }
+    if(change.collection==='quickReplySets' && change.field==='workSource' && !root.TAStore.hasReplySources(library,change.local)){
+      return '参考作品或条目已移除。请重新选择参考资料，再生成这套回复。';
+    }
+    return '';
+  }
+  async function reviewEdits(library,scopes,replyReference) {
+    // Only an existing, individually tracked work can be replayed. A bulk
+    // replacement, deletion, older writer or payload edit requires a backup review.
+    const store=root.TAStore, base=currentRevision;
+    if(!scopes?.length || !scopes.every(([field,id,mode])=>store.collections.includes(field) && id!=null &&
+        (!payloadFields.has(field) || mode==='metadata')))return null;
+    const {head,rows}=await loadedState(activeDatabase);
+    if(head?.format!==format || !Number.isSafeInteger(head.scopedSince) || head.scopedSince>base)return null;
+    const saved=new Map(rows.map(row=>[row.key,row]));
+    const local=new Map(changes(library,scopes).rows.map(row=>[row.key,row]));
+    const pairs=[];
+    for(const [field,id] of scopes){
+      const key=keyOf(field,id), before=saved.get(key), proposed=local.get(key);
+      if(!before || !proposed || before.body!==proposed.body)return null;
+      pairs.push({collection:field,id,saved:before.value,local:proposed.value,
+        overlapping:(before.writeSeq ?? head.scopedSince)>base});
+    }
+    const latest=unpack(rows), edits=root.TARecordEdits.compare(pairs);
+    for(const change of edits){
+      change.issue=referenceIssue(latest,change,replyReference);
+      if(change.issue)change.review=true;
+    }
+    return {base,seq:head.seq,library:latest,scopes,changes:edits};
+  }
   const readControl = (db,key,onlyKey=false) => {
     const table=db.transaction('library').objectStore('library');
     return request(onlyKey ? table.getKey(key) : table.get(key));
@@ -227,7 +262,8 @@
       const get=control.get(headKey);
       get.onsuccess=()=>{
         const old=get.result;
-        if ((old?.seq ?? 0)!==expected || (guard && !guard())) { abort(conflict()); return; }
+        if ((old?.seq ?? 0)!==expected) { abort(staleRevision()); return; }
+        if (guard && !guard()) { abort(conflict()); return; }
         if (transfer) {
           const token=control.get('workRevision');
           token.onsuccess=()=>{if((token.result??null)!==transfer.expected)abort(conflict());};
@@ -248,9 +284,10 @@
               control.put({checkpoint:true},undoKey);
             } else if (previous) control.put(previous,undoKey);
             if (batch.full) parts.clear();
-            for (const row of batch.rows) parts.put(row);
+            for (const row of batch.rows) parts.put(batch.full ? row : {...row,writeSeq:expected+1});
             updateBindings(control,batch,options,abort);
-            control.put({seq:expected+1,format},headKey);
+            const boundary=batch.full || transfer || clear || draft || snapshots.length || importSnapshots.length || options.restore || options.fileBinding;
+            control.put({seq:expected+1,format,scopedSince:boundary ? expected+1 : old?.scopedSince ?? expected},headKey);
             if (archive) control.put(archive,archiveKey);
             if (draft) root.TAStudioDrafts.writeTo(tx.objectStore('drafts'),draft,abort);
             if (transfer) restoreWork(tx,transfer);
@@ -368,14 +405,34 @@
     activeDatabase=db; currentRevision=head?.seq ?? 0;
     // Discard startup record copies. Recovery only needs its verified fallback and export text.
     rows=null; head=null;
-    const persist=async (batch,options)=>{
-      try { currentRevision=await commit(db,currentRevision,batch,options); }
+    const write=async (expected,batch,options)=>{
+      try { return await commit(db,expected,batch,options); }
       catch (error) {
         if (error.code!=='quota' || options.undo!=='keep') throw error;
-        currentRevision=await commit(db,currentRevision,batch,{...options,undo:'discard'});
+        return commit(db,expected,batch,{...options,undo:'discard'});
       }
     };
+    const persist=async (batch,options)=>{ currentRevision=await write(currentRevision,batch,options); };
     store.backend='indexedDB';
+    root.TALibraryDB.applyReviewedEdits=(review,selected,guard,replyReference)=>enqueue(async()=>{
+      if(locked || currentRevision!==review.base || !guard())throw staleRevision();
+      const affected=new Set();
+      for(const change of review.changes){
+        if(change.review && !selected.has(change.key))continue;
+        const issue=referenceIssue(review.library,change,replyReference);
+        if(issue)throw new Error(issue);
+        const target=store.byId(review.library[change.collection],change.id);
+        root.TARecordEdits.apply(target,change);
+        affected.add(keyOf(change.collection,change.id));
+      }
+      const scopes=review.scopes.filter(([field,id])=>affected.has(keyOf(field,id)));
+      let revision=review.seq;
+      if(scopes.length)revision=await write(revision,changes(review.library,scopes),{guard,undo:'keep'});
+      else if((await readControl(db,headKey))?.seq!==revision)throw staleRevision();
+      if(!guard())throw staleRevision();
+      currentRevision=revision;
+      return review.library;
+    });
     store.save=(library,guard,snapshots,draft,scopes,restore,transfer,importSnapshots,fileBinding)=>{
       if (locked) throw new Error('请先恢复资料库。');
       let batch;
@@ -433,5 +490,5 @@
     } catch(error) {loaded={unavailable:true,message:error.message};}
     root.TAUI.mount(views,loaded);
   }
-  root.TALibraryDB={start,workingState,replacementGuard,touchWork,workBinding,worldBinding:id=>workBinding('worldBooks',id),database:()=>activeDatabase,revision:()=>currentRevision,clearEpoch:()=>clearEpoch};
+  root.TALibraryDB={start,workingState,reviewEdits,replacementGuard,touchWork,workBinding,worldBinding:id=>workBinding('worldBooks',id),database:()=>activeDatabase,revision:()=>currentRevision,clearEpoch:()=>clearEpoch};
 })(globalThis);

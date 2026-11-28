@@ -1,6 +1,7 @@
 /* Task contracts and atomic, field-scoped changes. No network or storage access. */
 (function (root) {
   "use strict";
+  const libraryActions = typeof module !== "undefined" && module.exports ? require("./library-actions") : root.TALibraryActions;
   const own = (value, key) =>
     Object.prototype.hasOwnProperty.call(value || {}, key);
   const copy = (value) =>
@@ -1198,38 +1199,6 @@
   }
   function undo(lib, receipt, plan) {
     need(receipt && receipt.operations.length, "没有可撤销的修改。");
-    const removed = (path) =>
-      new Set(
-        receipt.operations
-          .filter((op) => op.kind === "add" && same(op.path, path))
-          .map((op) => op.value.id),
-      );
-    const cards = removed(["characters"]),
-      nodes = removed(["graph", "nodes"]);
-    const removedSpeakers=new Set(Array.from(cards,String));
-    const groups = removed(["groups"]),
-      scripts = removed(["scripts"]),
-      edges = removed(["graph", "edges"]);
-    need(
-      !lib.groups.some(
-        (group) =>
-          !groups.has(group.id) &&
-          group.members.some((member) => cards.has(member.characterId)),
-      ) &&
-        !lib.scripts.some(
-          (script) =>
-            !scripts.has(script.id) &&
-            script.beats.some((beat) => removedSpeakers.has(beat.speaker)),
-        ) &&
-        !lib.graph.nodes.some(
-          (node) => !nodes.has(node.id) && cards.has(node.characterId),
-        ) &&
-        !lib.graph.edges.some(
-          (edge) =>
-            !edges.has(edge.id) && (nodes.has(edge.from) || nodes.has(edge.to)),
-        ),
-      "新增内容已有后续引用，请先处理相关群聊、剧本或关系图，再撤销。",
-    );
     receipt.operations.forEach((op) => {
       const dest = destination(lib, op);
       need(
@@ -1243,6 +1212,16 @@
         "应用后内容又有改动，请先处理后续改动，避免撤销覆盖它。",
       );
     });
+    if (receipt.operations.some(op => op.kind === "add")) {
+      const references = libraryActions.undoReferences(lib,receipt.operations);
+      if (references.length) {
+        const tr = key => root.TAI18n?.t(key) || key;
+        const names = [...new Set(references.map(ref => libraryActions.referenceLabel(ref,tr)))];
+        const suffix = names.length > 3 ? " (+" + (names.length - 3) + ")" : "";
+        const message = tr("新增内容已有后续引用，请先解除关联再撤销。") + " " + names.slice(0,3).join(" · ") + suffix;
+        throw Object.assign(fail(message,"work-in-use"),{references});
+      }
+    }
     receipt.operations
       .slice()
       .reverse()

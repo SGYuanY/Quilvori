@@ -73,6 +73,8 @@
       if (!saved || !Object.prototype.hasOwnProperty.call(saved, "bookId"))
         state.bookId =
           UI().state.sel.book ?? lib().worldBooks[0]?.id ?? "";
+      state.cardId=root.TAStore.byId(lib().characters,state.cardId)?.id ?? '';
+      state.bookId=root.TAStore.byId(lib().worldBooks,state.bookId)?.id ?? '';
     }
     return state;
   }
@@ -294,6 +296,7 @@
               "workSource",
               "creationSource",
               "creationRecordKeys",
+              "creationPeerKeys",
               "messageStamp",
               "x",
               "y",
@@ -605,9 +608,9 @@
             collectWorks:root.TACreativeBatch.isWork(module),
           });
         },
-        async deliver(module,result,context,sourceKey,recordId){
+        async deliver(module,result,context,sourceKey,recordId,peerKeys){
           const previous=previousFor(module);
-          const plan=root.TACreativeBatch.plan(virtual,module,result,context,{previous,batchId,inputs,sourceKey,recordId});
+          const plan=root.TACreativeBatch.plan(virtual,module,result,context,{previous,batchId,inputs,sourceKey,recordId,peerKeys});
           created[module]=plan.result[module];
           if(previous)s.plans=s.plans.filter(row=>row.id!==previous.id);
           rememberPlan(plan,plan.result,'create:'+batchId+':'+module);
@@ -846,7 +849,10 @@
       s.receipt = null;
       status("已撤销上一次应用。");
       persist();
-      refresh();
+      // The Undo toast follows the author across pages. Rebind the visible editor
+      // to the committed records before it accepts another edit.
+      if(UI().state.route==='studio')refresh();
+      else UI().renderStage();
     } catch (error) {
       UI().toast(error.message);
     }
@@ -1291,6 +1297,7 @@
     }).join("") || `<p class="help">${esc(UI().t("先选择或导入一份内容。"))}</p>`;
   }
   function render(stage) {
+    UI().bindWork?.();
     const logWasOpen=stage.querySelector('.ai-task-log')?.open || false;
     const oldTargets=stage.querySelector('.ai-target-list');
     const targetScroll=oldTargets?.scrollTop || 0;
@@ -1726,7 +1733,8 @@
     if(shelf.findSaved(batchId,kind))throw new Error('草稿已在另一窗口更新，请重新打开。');
     const inputs={brief:record?.workBrief || '',modules:record?.workKinds || [kind]};
     const recordId=record?.workOrigin || record?.id;
-    const plan=root.TACreativeBatch.plan(structuredClone(lib()),kind,result,{brief:inputs.brief},{batchId,inputs,sourceKey,recordId});
+    const peerKeys=record ? root.TAWorkOutcomes.peerRecordKeys(record,root.NIJANModel.history()) : [];
+    const plan=root.TACreativeBatch.plan(structuredClone(lib()),kind,result,{brief:inputs.brief},{batchId,inputs,sourceKey,recordId,peerKeys});
     await root.TAStudioDrafts.keep(plan,true);
     if(origin)data().plans=data().plans.filter(old=>!(old.task===plan.task && old.draftSaveError && old.operations.some(op=>
       Array.isArray(op.value?.creationRecordKeys) && op.value.creationRecordKeys.includes(origin))));
@@ -1745,9 +1753,10 @@
     if(!controller){
       if(s.creationBatchId!==plan.batchId || !s.brief){
         const input=plan.creationInput || {};
-        const modules=Array.isArray(input.modules) ? input.modules : s.plans.filter(row=>row.batchId===plan.batchId).map(row=>row.task.slice(7));
-        Object.assign(s,{brief:input.brief ?? plan.request ?? '',modules:[...modules],questions:structuredClone(input.questions || []),
-          answers:structuredClone(input.answers || []),ideas:structuredClone(input.ideas || []),cardId:input.cardId ?? '',bookId:input.bookId ?? '',
+        const modules=root.NIJANCreation.modulesForDraft(plan,s.plans);
+        Object.assign(s,{brief:input.brief ?? plan.request ?? '',modules,questions:structuredClone(input.questions || []),
+          answers:structuredClone(input.answers || []),ideas:structuredClone(input.ideas || []),
+          cardId:root.TAStore.byId(lib().characters,input.cardId)?.id ?? '',bookId:root.TAStore.byId(lib().worldBooks,input.bookId)?.id ?? '',
           creationHistory:[],creationMessage:''});
       }
       s.mode="create";s.creationBatchId=plan.batchId;

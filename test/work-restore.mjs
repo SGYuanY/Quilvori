@@ -15,7 +15,7 @@ const asset=(id,name,dataUrl)=>({id,name,kind:'avatar',dataUrl});
 const book=(id,name,cover)=>({id,name,entries:[{id:0,stUid:44,comment:'Harbor',content:'Tide signal',keys:['quay']}],coverAssetId:cover});
 function fixture(){
   const local=S.verify({
-    characters:[{id:0,name:'Revised Keeper',description:'Current manuscript',creationSource:'local source',creationRecordKeys:['local receipt']}],
+    characters:[{id:0,name:'Revised Keeper',description:'Current manuscript',creationSource:'local source',creationRecordKeys:['local receipt'],creationPeerKeys:['local companion']}],
     worldBooks:[book(0,'Current atlas',0)],assets:[asset(0,'Current portrait','current'),asset('shared','Shared illustration','shared'),asset('missing','Unrelated local image','other')],
     stickerPacks:[{id:0,name:'Modern pack',stickers:[]}],
     chats:[{id:0,name:'Local chat',messages:[{mes:'Private local dialogue'}]}],settings:{backupNote:'keep'},
@@ -23,7 +23,7 @@ function fixture(){
   const incoming=S.verify({
     characters:[{id:0,name:'Keeper',description:'Older manuscript',personality:'A careful navigator',avatarAssetId:0,
       expressionAssetIds:['shared','missing'],stickerPackId:0,embeddedBookId:0,source:{embeddedBookId:0,author:'Fixture author'},
-      creationSource:'file source',creationRecordKeys:['file receipt'],folderTextHash:'device hash',extra:{native:true}}],
+      creationSource:'file source',creationRecordKeys:['file receipt'],creationPeerKeys:['file companion'],folderTextHash:'device hash',extra:{native:true}}],
     worldBooks:[book(0,'Old atlas','cover'),book('historic','Lost tides','old-cover')],assets:[
       asset(0,'Old portrait','old'),asset('shared','Shared illustration','shared'),asset('cover','Old cover','cover'),
       asset('old-cover','Past cover','past'),asset('past','Former portrait','earlier'),asset('unrelated','Unused media','outside'),
@@ -58,7 +58,7 @@ test('independent copies remap colliding assets, books, packs, null references a
   assert.equal(previous,null);
   assert.equal(work.backupCopyOf,0);assert.notEqual(work.id,0);
   assert.equal(work.name,'Keeper');assert.equal(work.extra.native,true);assert.equal(work.source.author,'Fixture author');
-  assert.ok(!('creationSource' in work)&&!('creationRecordKeys' in work)&&!('folderTextHash' in work));
+  assert.ok(!('creationSource' in work)&&!('creationRecordKeys' in work)&&!('creationPeerKeys' in work)&&!('folderTextHash' in work));
   assert.equal(candidate.assets.find(a=>a.id===0).dataUrl,'current');
   assert.equal(candidate.assets.find(a=>a.id===work.avatarAssetId).dataUrl,'old');
   assert.deepEqual(Array.from(work.expressionAssetIds),['shared']);
@@ -93,6 +93,7 @@ test('replacing preserves local work identity and rejects a stale review while k
   const result=R.materialize(independent,plan,selected,uid());
   assert.equal(result.work.id,0);assert.equal(result.work.creationSource,'local source');
   assert.deepEqual(Array.from(result.work.creationRecordKeys),['local receipt']);assert.equal(result.work.backupCopyOf,undefined);
+  assert.deepEqual(Array.from(result.work.creationPeerKeys),['local companion']);
   assert.equal(result.importSnapshots[0].value.creationSource,'local source');assert.equal(result.candidate.chats[0].name,'Later chat edit');
   assert.equal(result.previous.description,'Current manuscript');
   local.characters[0].description='Later card edit';
@@ -161,4 +162,64 @@ test('a repeated replacement reuses its unchanged linked works and media without
   const revised=restore(again.candidate);
   assert.equal(revised.changed,true);assert.notEqual(revised.work.embeddedBookId,localBook.id);
   assert.equal(revised.candidate.worldBooks.find(b=>b.id===localBook.id).description,'Revised after restore');
+});
+test('local snapshot rollback reviews each missing link and applies only the confirmed choices',()=>{
+  const {local}=fixture(), current=local.characters[0];
+  Object.assign(current,{avatarAssetId:0,expressionAssetIds:['shared','0','absent'],source:{embeddedBookId:'0'},stickerPackId:0});
+  const saved={...current,avatarAssetId:'lost',expressionAssetIds:['lost','shared','lost'],stickerPackId:'lost',
+    embeddedBookId:'missing book',source:{embeddedBookId:'former source',author:'Original credit'}};
+  const before=JSON.stringify([local,saved]);
+  const {missing}=R.snapshotReview(local,'characters',saved,current);
+  const options=new Map(missing.map(link=>[link.field,link]));
+  assert.deepEqual(plain(options.get('embeddedBookId').currentIds),[0]);
+  assert.deepEqual(plain(options.get('expressionAssetIds').currentIds),['shared',0]);
+  assert.equal(missing.length,5);
+  const decisions=new Map(missing.map(link=>[link.key,{mode:'unlink'}]));
+  for(const field of ['expressionAssetIds','embeddedBookId']) {
+    const link=options.get(field);decisions.set(link.key,{mode:'keep',ids:link.currentIds});
+  }
+  decisions.set(options.get('avatarAssetId').key,{mode:'replace',id:'0'});
+  assert.throws(()=>R.restoreSnapshot(local,'characters',saved,current),/history.reviewLinks/);
+  const next=R.restoreSnapshot(local,'characters',saved,current,decisions);
+  assert.equal(next.avatarAssetId,0);assert.equal(next.embeddedBookId,0);
+  assert.deepEqual(plain(next.expressionAssetIds),['shared',0]);assert.equal(next.stickerPackId,null);
+  assert.deepEqual(next.source,{author:'Original credit'});
+  assert.equal(JSON.stringify([local,saved]),before);
+  const missingTarget=structuredClone(local);missingTarget.assets=missingTarget.assets.filter(r=>r.id!==0);
+  assert.throws(()=>R.restoreSnapshot(missingTarget,'characters',saved,current,decisions),/history.reviewLinks/);
+  local.worldBooks.push(book('missing book','Restored elsewhere'));
+  assert.throws(()=>R.restoreSnapshot(local,'characters',saved,current,decisions),/history.reviewLinks/);
+});
+test('unlinking the effective legacy book leaves the original attribution and no fallback to the missing ID',()=>{
+  const {local}=fixture(),current=local.characters[0],saved={...current,source:{embeddedBookId:'missing book',credit:'studio'}};
+  const {missing}=R.snapshotReview(local,'characters',saved,current);
+  assert.equal(missing.length,1);
+  const next=R.restoreSnapshot(local,'characters',saved,current,new Map([[missing[0].key,{mode:'unlink'}]]));
+  assert.equal(next.embeddedBookId,'');assert.deepEqual(next.source,{credit:'studio'});
+});
+test('local world-book rollback resolves missing covers and packs and preserves live quick-reply entry links',()=>{
+  const {local}=fixture(),current=local.worldBooks[0];
+  const saved={...current,coverAssetId:'former-cover',stickerPackId:'former-pack'};
+  const {missing}=R.snapshotReview(local,'worldBooks',saved,current);
+  assert.deepEqual(Array.from(missing,link=>link.field),['coverAssetId','stickerPackId']);
+  const options=new Map(missing.map(link=>[link.key,{mode:'replace',id:'0'}]));
+  const next=R.restoreSnapshot(local,'worldBooks',saved,current,options);
+  assert.equal(next.coverAssetId,0);assert.equal(next.stickerPackId,0);
+  local.quickReplySets.push({workSource:{bookId:'0',entryIds:['0']}});
+  assert.throws(()=>R.restoreSnapshot(local,'worldBooks',{...saved,entries:[]},current,options),/history.linkedEntries/);
+  assert.throws(()=>R.restoreSnapshot(local,'worldBooks',{...saved,entries:[{...saved.entries[0],stUid:11}]},current,options),/history.linkedEntries/);
+});
+test('entry changes identify only affected saved sets and active choices, including zero IDs',()=>{
+  const current={id:0,entries:[{id:0,stUid:3},{id:'active',stUid:4},{id:2,stUid:5}]};
+  const set={id:0,name:'Dock replies',workSource:{bookId:'0',entryIds:['0',0,'broken',2]}};
+  const lib={quickReplySets:[set,{id:1,workSource:{bookId:1,entryIds:[0]}}]};
+  const selection={bookId:0,entryIds:['active'],scope:'selected'};
+  const proposed=[{id:'active',stUid:9},{id:2,stUid:5,content:'Edited text'}];
+  const before=JSON.stringify([lib,current,proposed,selection]);
+  assert.deepEqual(plain(R.entryReferenceChanges(lib,current,proposed,selection)),[
+    {set,entryIds:[0]},{set:null,entryIds:['active']},
+  ]);
+  assert.equal(R.entryReferenceChanges(lib,current,proposed,{...selection,scope:'relevant'}).length,1);
+  assert.equal(R.entryReferenceChanges(lib,current,current.entries,selection).length,0);
+  assert.equal(JSON.stringify([lib,current,proposed,selection]),before);
 });

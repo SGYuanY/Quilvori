@@ -4,6 +4,7 @@
   const isWork=kind=>kind==='character' || kind==='world';
   async function run({modules,contextFor,request,deliver,active}){
     const remaining=new Set(modules),issues=[],delivered=[];
+    let previousWorkReceipt;
     const issue=(kind,reason)=>{issues.push({kind,reason});};
     for(const kind of modules){
       if(!active() || !remaining.has(kind))continue;
@@ -25,18 +26,20 @@
       }
       // A service may provide both requested works in its first response.
       const handled=offered.filter(item=>item===kind || response.present.includes(item));
+      const origin=root.TAWorkOutcomes.recordKey({id:response.recordId,sourceKey:response.sourceKey});
       for(const item of handled){
         if(!active())break;
         remaining.delete(item);
         const result=response.results[item];
         if(!result){issue(item,response.errors[item]);continue;}
-        await deliver(item,result,item===kind?context:contextFor(item),response.sourceKey,response.recordId);
-        delivered.push(item);
+        const peerKeys=previousWorkReceipt && previousWorkReceipt!==origin ? [previousWorkReceipt] : [];
+        await deliver(item,result,item===kind?context:contextFor(item),response.sourceKey,response.recordId,peerKeys);
+        delivered.push(item);previousWorkReceipt=origin;
       }
     }
     return {delivered,issues};
   }
-  function plan(virtual,kind,result,context,{previous,batchId,inputs,sourceKey,recordId}){
+  function plan(virtual,kind,result,context,{previous,batchId,inputs,sourceKey,recordId,peerKeys}){
     const merged=root.NIJANCreation.mergeResult(previous?.result,result);
     root.NIJANCreation.withdraw(virtual,previous);
     const proposal=root.NIJANAI.proposal(virtual,'create:'+kind,merged,context);
@@ -50,7 +53,7 @@
       const collection=kind==='character'?'characters':'worldBooks';
       const value=proposal.operations.find(op=>op.kind==='add' && op.path[0]===collection)?.value;
       const earlier=previous?.operations.find(op=>op.kind==='add' && op.path[0]===collection)?.value;
-      if(value)root.TAWorkOutcomes.stamp(value,earlier,recordId,sourceKey);
+      if(value)root.TAWorkOutcomes.stamp(value,earlier,recordId,sourceKey,peerKeys);
     }
     if(proposal.operations.length)root.NIJANAI.commit(virtual,structuredClone(proposal));
     return proposal;

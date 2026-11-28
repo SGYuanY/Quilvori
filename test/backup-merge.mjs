@@ -144,3 +144,73 @@ for (const badIndex of [-1,0,3,'2']) {
   assert.throws(()=>ctx.TAFormats.readBackup(invalid),/requestsWithoutOutput/);
 }
 console.log('Backups keep legacy v2 response rows readable and restore terminal notices in order.');
+
+vm.runInContext(fs.readFileSync(new URL('../js/backup-review.js',import.meta.url),'utf8'),ctx);
+const plain=value=>JSON.parse(JSON.stringify(value));
+const emptyState=()=>({drafts:[],versions:[],limits:[],records:[]});
+for(const [localId,backupId] of [[7,'7'],['0',0]]){
+  const local=store.verify({
+    characters:[{id:localId,name:'Pilot',description:'Local draft',embeddedBookId:localId}],
+    worldBooks:[{id:localId,name:'Register',entries:[{id:localId,content:'Local entry'},{id:'tail',content:'Local only'}]}],
+    chats:[{id:'log',messages:[{id:localId,mes:'Local text'}],bookmarks:[{id:localId,index:0,note:'Local bookmark'}]}],
+    groups:[{id:0,members:[{characterId:localId,talkativeness:0.5}]}],
+    settings:{vendorRows:[{id:0,text:'Numeric vendor ID'}]},
+  });
+  const incoming={
+    characters:[{id:backupId,name:'Pilot',description:'Backup draft',embeddedBookId:backupId},{id:'07',name:'Distinct spelling'}],
+    worldBooks:[{id:backupId,name:'Register',entries:[{id:backupId,content:'Backup entry'}]}],
+    groups:[{id:'0',members:[{characterId:backupId,talkativeness:1}]},{id:'imported-group',members:[{characterId:backupId}]}],
+    chats:[{id:'log',messages:[{id:backupId,mes:'Backup text'}],bookmarks:[{id:backupId,index:0,note:'Backup bookmark'}]}],
+    quickReplySets:[{id:'new-set',workSource:{characterId:backupId,bookId:backupId,entryIds:[backupId]}}],
+    settings:{vendorRows:[{id:'0',text:'String vendor ID'}]},
+  };
+  const serialized=[local,incoming].map(v=>JSON.stringify(v));
+  const preview=ctx.TABackupReview.plan(local,incoming);
+  assert.ok(preview.conflicts.every(c=>c.path.at(-1)!=='id' && c.path.at(-1)!=='characterId' && c.path.at(-1)!=='embeddedBookId'),
+    'equivalent workshop IDs have no field conflict');
+  assert.ok(preview.conflicts.some(c=>c.path.at(-1)==='note') && preview.conflicts.some(c=>c.path.at(-1)==='mes'));
+  assert.ok(preview.conflicts.every(c=>c.kind!=='chat'),'a uniquely identified message remains on its branch');
+  const accepted=ctx.TABackupReview.apply(preview,new Map(preview.conflicts.map(c=>[c.key,'backup'])));
+  assert.deepEqual(plain(accepted.characters.map(c=>c.id)),[localId,'07']);
+  assert.equal(accepted.characters[0].description,'Backup draft');
+  assert.equal(accepted.characters[0].embeddedBookId,localId);
+  assert.equal(accepted.worldBooks[0].entries[0].id,localId);
+  assert.equal(accepted.groups[0].members[0].characterId,localId);
+  assert.equal(accepted.chats[0].messages[0].id,localId);assert.equal(accepted.chats[0].bookmarks[0].id,localId);
+  assert.equal(accepted.chats[0].bookmarks[0].note,'Backup bookmark');
+  assert.deepEqual(new Set(plain(accepted.settings.vendorRows.map(row=>row.id))),new Set([0,'0']),'vendor ID types remain independent');
+  assert.equal(ctx.TABackupReview.apply(preview,new Map()).characters[0].description,'Local draft');
+
+  const copies=new Map();
+  const split=ctx.TABackupReview.apply(preview,new Map(preview.conflicts.map(c=>[c.key,
+    ['description','content'].includes(c.path.at(-1))?'copy':'keep'])),local,copies);
+  const copiedCard=split.characters.find(row=>row.backupCopyOf===localId),copiedBook=split.worldBooks.find(row=>row.backupCopyOf===localId);
+  assert.equal(copiedCard.embeddedBookId,copiedBook.id);assert.equal(copiedCard.description,'Backup draft');
+  assert.equal(split.groups[0].members[0].characterId,localId);assert.equal(split.groups[1].members[0].characterId,copiedCard.id);
+  assert.equal(split.quickReplySets[0].workSource.bookId,copiedBook.id);
+  assert.deepEqual(plain(split.quickReplySets[0].workSource.entryIds),[backupId]);
+  assert.deepEqual(plain(split.worldBooks[0].entries.map(e=>e.id)),[localId,'tail']);
+  assert.deepEqual(plain(copiedBook.entries.map(e=>e.id)),[backupId]);
+
+  const working=(id,tag)=>({...emptyState(),versions:[
+    {kind:'characters',id,time:1,reason:'snapshot',label:tag,value:{id,name:tag,embeddedBookId:id}},
+    {kind:'worldBooks',id,time:2,reason:'snapshot',label:tag,value:{id,name:tag,entries:[{id,content:tag}]}}],
+    limits:[{kind:'characters',id,keep:3}]});
+  const original=working(localId,'Local'),imported=working(backupId,'Backup');
+  const merged=ctx.TAWorkBackup.merge(original,imported,accepted).state;
+  assert.ok(merged.versions.every(row=>row.id===localId && row.value.id===localId));
+  assert.ok(merged.versions.filter(row=>row.kind==='worldBooks').every(row=>row.value.entries[0].id===localId));
+  assert.deepEqual(plain(merged.limits),[{kind:'characters',id:localId,keep:3}]);
+  assert.equal(ctx.TAWorkBackup.merge(merged,imported,accepted).state.versions.length,4,'same backup is idempotent');
+  const branched=ctx.TAWorkBackup.merge(original,imported,split,copies).state;
+  assert.equal(branched.versions.find(v=>v.kind==='characters' && v.label==='Local').value.embeddedBookId,localId);
+  const importedCard=branched.versions.find(v=>v.kind==='characters' && v.label==='Backup');
+  assert.equal(importedCard.id,copiedCard.id);assert.equal(importedCard.value.embeddedBookId,copiedBook.id);
+  assert.equal(branched.versions.find(v=>v.kind==='worldBooks' && v.label==='Backup').value.entries[0].id,backupId);
+  assert.deepEqual(plain(branched.limits.map(v=>v.id)),[localId,copiedCard.id]);
+  assert.deepEqual([local,incoming].map(v=>JSON.stringify(v)),serialized);
+  assert.throws(()=>ctx.TABackupReview.plan(local,{characters:[{id:localId},{id:backupId}]}),/编号/);
+  assert.throws(()=>ctx.TABackupReview.plan(local,{worldBooks:[{id:backupId,entries:[{id:localId},{id:backupId}]}]}),/编号/);
+  assert.throws(()=>ctx.TAWorkBackup.normalize({...emptyState(),limits:[{kind:'characters',id:localId,keep:1},{kind:'characters',id:backupId,keep:2}]}),/limits/);
+}
+console.log('Mixed ID representations preserve the local work, nested records, copy links, snapshot ownership and retention.');

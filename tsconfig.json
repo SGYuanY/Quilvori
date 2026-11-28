@@ -14,6 +14,7 @@
     "src/formats/card-world.ts",
     "src/formats/portrait-image.ts",
     "src/collection/work-page.ts",
+    "src/storage/record-edits.ts",
     "src/restore/work-restore.ts",
     "src/creation/work-outcomes.ts",
     "src/sync/world-sync.ts",

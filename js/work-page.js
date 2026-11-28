@@ -4,6 +4,7 @@
 // identify the same item within one collection, including ID zero.
 (() => {
     const store = globalThis.TAStore;
+    const origins = globalThis.TAWorkOutcomes;
     const valid = (id) => typeof id === 'string' ? id.length > 0 : Number.isSafeInteger(id);
     const equal = (a, b) => valid(a) && valid(b) && String(a) === String(b);
     const attached = (card) => card.embeddedBookId ?? card.source?.embeddedBookId;
@@ -21,20 +22,19 @@
     function readers(lib, bookId) {
         return lib.characters.filter(card => equal(attached(card), bookId));
     }
-    function draftsFor(rows, kind, work) {
-        const origins = new Set(work.creationRecordKeys || []);
+    function draftsFor(rows, kind, work, lib, records = []) {
+        const paired = origins.companionDrafts(kind === 'book' ? 'world' : 'character', work, lib, rows.map(row => row.plan), records);
         return rows.flatMap(({ plan }) => {
             const bucket = plan.task === 'create:character' ? 'characters' : plan.task === 'create:world' ? 'worldBooks' : null;
             if (!bucket)
                 return [];
-            const value = plan.operations?.find(op => op.kind === 'add' && op.path[0] === bucket)?.value;
+            const value = plan.operations?.find(op => op?.kind === 'add' && op.path?.[0] === bucket)?.value;
             if (!value)
                 return [];
             const reference = kind === 'character' ? plan.creationInput?.cardId : plan.creationInput?.bookId;
-            const paired = value.creationRecordKeys?.some(key => origins.has(key));
             const embedded = kind === 'character' ? bucket === 'worldBooks' && equal(attached(work), value.id) :
                 bucket === 'characters' && equal(attached(value), work.id);
-            return equal(reference, work.id) || paired || embedded ? [{ id: plan.id, name: value.name, kind: bucket === 'characters' ? 'character' : 'book' }] : [];
+            return equal(reference, work.id) || paired.has(plan.id) || embedded ? [{ id: plan.id, name: value.name, kind: bucket === 'characters' ? 'character' : 'book' }] : [];
         });
     }
     function related(lib, kind, id) {
@@ -191,7 +191,7 @@
     section.append(details);
   }
   function drafts(block,kind,work) {
-    const rows=root.TAWorkRelations.draftsFor(root.TAStudioDrafts.pending(),kind,work);
+    const rows=root.TAWorkRelations.draftsFor(root.TAStudioDrafts.pending(),kind,work,ui().state.lib,root.NIJANModel.history());
     const list=el('div',null,'work-page-list');
     if(!rows.length)list.append(el('p',tr('workPage.noDrafts'),'help'));
     for(const row of rows){

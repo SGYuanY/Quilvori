@@ -1,7 +1,6 @@
 /* Public-link normalization, bounded downloads and additive card/book imports. */
 (function (root) {
   'use strict';
-  const libraryActions = typeof module !== 'undefined' && module.exports ? require('./library-actions') : root.TALibraryActions;
   const MAX_BYTES = 12 * 1024 * 1024, TIMEOUT = 30000;
   const CARD_FIELDS = ['name','description','personality','scenario','first_mes','mes_example','creator_notes','system_prompt','post_history_instructions','alternate_greetings','tags','creator','character_version','talkativeness'];
   const object = (value) => value && typeof value === 'object' && !Array.isArray(value);
@@ -181,18 +180,11 @@
     return { id: root.TAStore.uid('proposal'), task: 'import:link', bookId:book.id,createdAt: new Date().toISOString(), operations: [{ key: root.TAStore.uid('op'), kind: 'add', path: ['worldBooks'], value: book, label: name }] };
   }
   function undo(library,receipt) {
-    // Inspect the state that would survive this receipt. An imported card may
-    // own an imported avatar and book, or a pre-existing card may regain its old source.
-    const surviving={...library},added=receipt.operations.filter(op=>op.kind==='add');
-    for(const op of [...receipt.operations].reverse()) {
-      const [field]=op.path;
-      if(op.kind==='add')surviving[field]=surviving[field].filter(row=>row.id!==op.value.id);
-      else if(op.kind==='set')surviving[field]=surviving[field].map(row=>row.id===op.id?{...row,[op.field]:op.before}:row);
+    try {root.NIJANAI.undo(library,receipt);}
+    catch(cause) {
+      if(cause.code==='work-in-use')throw Object.assign(error('import-in-use'),{references:cause.references});
+      throw cause;
     }
-    const references=added.flatMap(op=>libraryActions.dependencies(surviving,op.path[0],op.value.id)).filter(ref=>ref.active);
-    if(references.length)throw Object.assign(error('import-in-use'),{references});
-    // The normal receipt validator also protects imported or linked fields edited since the import.
-    root.NIJANAI.undo(library,receipt);
   }
   const api = { MAX_BYTES, TIMEOUT, error, normalizeUrl, safeUrl, filename, download, downloadBrowser, readResponse, prepare, findExisting, plan, signature, cardSignature, undo };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

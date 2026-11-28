@@ -1,10 +1,14 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import vm from 'node:vm';
+import { webcrypto } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { createRequire } from 'node:module';
+import { tmpdir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import {syncEntryScripts} from '../scripts/entry-scripts.mjs';
 
 const mainEntry = new URL('../electron/main.js', import.meta.url);
 const mainRequire = createRequire(mainEntry);
@@ -25,10 +29,64 @@ function contents(url = local('index.html')) {
 
 await test('all shipped app pages retain local navigation including entity hashes and query parameters', () => {
   const pages = fs.readdirSync(appRoot).filter(name => name.endsWith('.html'));
+  assert.deepEqual(pages.sort(), [...policy.appPages].sort());
+  syncEntryScripts(appRoot, {check:true});
   assert.ok(pages.includes('resources.html') && pages.includes('characters.html'));
   for (const page of pages) {
     assert.equal(policy.isTrustedLocalUrl(local(page), appRoot), true, page);
     assert.equal(policy.isTrustedLocalUrl(`${local(page)}?entry=entry_1#book_1`, appRoot), true, page);
+  }
+});
+
+
+await test('the build repairs only the marked scripts and checks the resulting order without writing', () => {
+  const temp = fs.realpathSync(tmpdir());
+  const root = fs.mkdtempSync(path.join(temp, 'quilvori-entry-scripts-'));
+  const file = name => path.join(root, name);
+  const read = name => fs.readFileSync(file(name), 'utf8');
+  const tags = ['one', 'two'].map(name => '  <script src="js/'+name+'.js"></script>');
+  const entry = (name, scripts) => [
+    '<!DOCTYPE html>', '<title>'+name+'</title>', '<body data-page="'+name+'">',
+    '  <a href="lore.html?entry=sample#book">Open book</a>',
+    '  <!-- Shared scripts (source: index.html) -->', ...scripts, '  <!-- End shared scripts -->',
+    '  <script src="js/local.js"></script>', '</body>', '',
+  ].join(name === 'index.html' ? '\n' : '\r\n');
+  try {
+    fs.mkdirSync(file('js'));
+    for (const name of ['one', 'two', 'local']) fs.writeFileSync(file('js/'+name+'.js'), '');
+    for (const name of policy.appPages) {
+      fs.writeFileSync(file(name), entry(name, name === 'lore.html' ? tags.toReversed() : tags));
+    }
+
+    assert.throws(() => syncEntryScripts(root, {check:true}), /stale in lore\.html/);
+    assert.equal(read('lore.html'), entry('lore.html', tags.toReversed()));
+    syncEntryScripts(root);
+    for (const name of policy.appPages) assert.equal(read(name), entry(name, tags), name);
+    const stableTime = new Date(2000, 0, 1);
+    fs.utimesSync(file('lore.html'), stableTime, stableTime);
+    syncEntryScripts(root);
+    syncEntryScripts(root, {check:true});
+    assert.equal(fs.statSync(file('lore.html')).mtimeMs, stableTime.getTime());
+
+    fs.writeFileSync(file('index.html'), entry('index.html', [tags[0], tags[0]]));
+    assert.throws(() => syncEntryScripts(root), /Duplicate shared script.*one\.js/);
+    fs.writeFileSync(file('index.html'), entry('index.html', [...tags, '  <script src="js/missing.js"></script>']));
+    assert.throws(() => syncEntryScripts(root, {check:true}), /index\.html.*missing script.*missing\.js/);
+    fs.writeFileSync(file('index.html'), entry('index.html', tags));
+
+    fs.writeFileSync(file('lore.html'), entry('lore.html', tags.toReversed()));
+    fs.writeFileSync(file('tutorial.html'), entry('tutorial.html', ['  <p>Keep this content</p>']));
+    assert.throws(() => syncEntryScripts(root), /tutorial\.html.*unexpected content/);
+    assert.equal(read('lore.html'), entry('lore.html', tags.toReversed()), 'preflight the other pages before writing');
+    fs.writeFileSync(file('tutorial.html'), entry('tutorial.html', tags).replace('js/local.js', 'js/absent.js?rev=1'));
+    assert.throws(() => syncEntryScripts(root, {check:true}), /tutorial\.html.*missing script.*absent\.js/);
+    fs.writeFileSync(file('tutorial.html'), entry('tutorial.html', tags).replace('js/local.js', './js/one.js?rev=1'));
+    assert.throws(() => syncEntryScripts(root), /tutorial\.html.*outside its block/);
+    fs.unlinkSync(file('tutorial.html'));
+    assert.throws(() => syncEntryScripts(root, {check:true}), /ENOENT.*tutorial\.html/);
+  } finally {
+    assert.equal(path.dirname(fs.realpathSync(root)), temp);
+    fs.rmSync(root, {recursive:true, force:true});
   }
 });
 
@@ -98,12 +156,8 @@ function mainEnvironment(options = {}) {
   const paths = { appData, userData: options.profile || path.join(appData, 'Quilvori'), sessionData: options.profile || path.join(appData, 'Quilvori') };
   const lifecycle = { ready: false, quits: 0, lockedProfiles: [], readyCallbacks: [] };
   const fakeFs = {
-    readFileSync(file) { calls.push('read'); return String(file).endsWith('folders.json') ? JSON.stringify(configured) : Buffer.from('sample'); },
-    writeFileSync() { calls.push('write'); }, mkdirSync() { calls.push('mkdir'); },
-    existsSync() { calls.push('exists'); return true; }, statSync() { calls.push('stat'); return { isDirectory: () => true }; },
-    lstatSync(file) { calls.push('lstat'); if (String(file).endsWith('happy.png')) throw Object.assign(new Error('missing'), { code: 'ENOENT' }); return { isDirectory: () => true }; },
-    realpathSync(file) { calls.push('realpath'); return path.resolve(file); },
-    readdirSync() { calls.push('list'); return ['card.png', 'book.json', 'unrelated.txt'].map(name => ({ name, isFile: () => true })); },
+    mkdirSync() { calls.push('mkdir'); },
+    promises: options.folderIO || { readFile: async () => JSON.stringify(configured) },
   };
   const app = new EventEmitter();
   Object.assign(app, { getName: () => 'Quilvori', getLocale: ()=>'en-US', getPath: name => paths[name], setPath: (name, value) => { paths[name] = value; },
@@ -159,7 +213,7 @@ function mainEnvironment(options = {}) {
         calls.push('expression-plan');
         const directory=path.join(payload.folder,payload.character,'expressions');
         if(options.conflictingExpression && !await confirm({directory,names:['happy.png'],count:payload.files.length}))return {canceled:true};
-        assert.equal(allowed(),true);
+        assert.equal(await allowed(),true);
         calls.push('expression-write');return directory;
       },
     };
@@ -230,18 +284,87 @@ await test('trusted main-frame folder workflows and bounded link downloads keep 
   const env = mainEnvironment(), window = env.windows[0], web = window.webContents;
   const event = { sender: web, senderFrame: web.mainFrame }, call = (channel, value) => env.handlers.get(channel)(event, value);
   assert.equal(window.loaded, path.join(appRoot, 'index.html')); assert.equal(typeof web.openWindow, 'function');
-  assert.deepEqual(native(call('folders:get')), env.configured);
-  assert.deepEqual(native(await call('folders:pick', 'cards')), env.configured);
-  assert.deepEqual(native(call('folders:list', env.configured.cards)).map(item => item.name), ['card.png', 'book.json']);
-  assert.equal(call('folders:read', path.join(env.configured.cards, 'card.png')).toString(), 'sample');
+  assert.deepEqual(native(await call('folders:get')), env.configured);
   assert.equal(await call('folders:writeExpressions', { folder: env.configured.cards, character: 'Example', files: [{ name: 'happy.png', dataUrl: 'data:image/png;base64,AA==' }] }), path.join(env.configured.cards, 'Example', 'expressions'));
   assert.equal((await call('links:download', { id: 'request_1', url: 'https://example.com/file.json' })).ok, true);
   assert.doesNotThrow(() => call('links:cancel', 'request_1'));
   assert.equal(web.listenerCount('destroyed'), 0);
-  assert.ok(env.calls.includes('write') && env.calls.includes('download'));
+  assert.ok(env.calls.includes('expression-write') && env.calls.includes('download'));
   const beforeInstall = env.calls.length;
   assert.deepEqual(native(await call('bundles:install', [])), { ok:true, directory:env.configured.cards, count:0 });
   assert.deepEqual(env.calls.slice(beforeInstall), ['pick','install']);
+});
+
+await test('native folder choices persist together and import the selected cards and world books through the renderer adapter', async () => {
+  const io = fs.promises, tempParent = await io.realpath(os.tmpdir());
+  const temp = await io.mkdtemp(path.join(tempParent, 'quilvori-native-folders-'));
+  const profile = path.join(temp, 'profile'), cards = path.join(temp, 'My cards'), worlds = path.join(temp, 'My worlds');
+  const replacement = path.join(temp, 'Another collection'), nested = path.join(cards, 'More');
+  try {
+    await Promise.all([profile, worlds, replacement, nested].map(directory => io.mkdir(directory, { recursive: true })));
+    const settings = path.join(profile, 'folders.json'), existing = { cards: '', worlds: '', extra: 'preserved setting' };
+    await io.writeFile(settings, JSON.stringify(existing));
+    const renderer = vm.createContext({ console, JSON, TextEncoder, TextDecoder, Uint8Array, Uint32Array, DataView, URL,
+      crypto: webcrypto, structuredClone, btoa, atob });
+    for (const module of ['resource-source', 'png', 'formats', 'store', 'folder-import']) {
+      vm.runInContext(await io.readFile(path.join(appRoot, 'js', module + '.js'), 'utf8'), renderer);
+    }
+    const card = name => JSON.stringify({ spec: 'chara_card_v2', data: { name, description: 'A test pilot' } });
+    const pixel = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aZlsAAAAASUVORK5CYII=', 'base64');
+    const image = renderer.TAPng.embedChara(pixel, card('Illustrated Pilot'));
+    const atlas = JSON.stringify({ name: 'Tide Atlas', entries: { 1: { uid: 1, comment: 'Harbor', key: ['sea'], content: 'Open at dawn' } } });
+    await Promise.all([
+      io.writeFile(path.join(cards, 'Pilot.JSON'), card('Pilot')), io.writeFile(path.join(cards, '画片.PNG'), image),
+      io.writeFile(path.join(cards, 'notes.txt'), 'Notes'), io.writeFile(path.join(nested, 'Nested.json'), card('Nested')),
+      io.writeFile(path.join(worlds, 'Atlas.json'), atlas), io.writeFile(path.join(worlds, 'cover.png'), pixel),
+    ]);
+    const choices = [cards, worlds, replacement];
+    let changeAfterListing;
+    const folderIO = Object.assign(Object.create(io), { readdir: async (...args) => {
+      const entries = await io.readdir(...args);
+      if (changeAfterListing) await changeAfterListing();
+      return entries;
+    } });
+    const env = mainEnvironment({ profile, folderIO, syncPick: (owner, picker) => {
+      assert.equal(owner, env.windows[0]); assert.deepEqual(native(picker.properties), ['openDirectory']);
+      const folder = choices.shift();
+      return { canceled: !folder, filePaths: folder ? [folder] : [] };
+    } });
+    const callIn = main => {
+      const sender = main.windows[0].webContents, event = { sender, senderFrame: sender.mainFrame };
+      return (channel, value) => main.handlers.get('folders:' + channel)(event, value);
+    };
+    const call = callIn(env);
+    assert.deepEqual(await call('get'), existing);
+    await Promise.all([call('pick', 'cards'), call('pick', 'worlds')]);
+    const selected = { ...existing, cards, worlds };
+    assert.deepEqual(await call('get'), selected);
+    assert.deepEqual((await call('list', cards)).map(f => f.name).sort(), ['Pilot.JSON', '画片.PNG']);
+    assert.deepEqual(await call('list', worlds), [{ name: 'Atlas.json', full: path.join(worlds, 'Atlas.json') }]);
+    assert.deepEqual(await call('read', path.join(cards, '画片.PNG')), Buffer.from(image));
+    await assert.rejects(call('read', path.join(worlds, 'cover.png')), /文件类型/);
+    const adapter = { list: folder => call('list', folder), read: file => call('read', file) };
+    const scan = library => renderer.TAFolderImport.importAll(library, selected, adapter);
+    const imported = await scan(renderer.TAStore.emptyLibrary());
+    assert.deepEqual([imported.report.cards, imported.report.books, imported.report.failed.length], [2, 1, 0]);
+    assert.equal((await scan(imported.library)).report.unchanged, 3);
+    assert.equal(await io.readFile(path.join(worlds, 'Atlas.json'), 'utf8'), atlas);
+    changeAfterListing = async () => {
+      assert.deepEqual(await call('pick', 'cards'), { ...selected, cards: replacement });
+      changeAfterListing = null;
+    };
+    await assert.rejects(call('list', cards), /选择/);
+    await assert.rejects(call('list', cards), /选择/);
+    await assert.rejects(call('read', path.join(cards, 'Pilot.JSON')), /选择/);
+    assert.deepEqual(await call('pick', 'cards'), { ...selected, cards: replacement });
+    assert.deepEqual(await callIn(mainEnvironment({ profile, folderIO: io }))('get'), { ...selected, cards: replacement });
+    assert.deepEqual(await io.readdir(profile), ['folders.json']);
+  } finally {
+    const owned = await io.realpath(temp);
+    assert.equal(path.dirname(owned), tempParent);
+    assert.ok(path.basename(owned).startsWith('quilvori-native-folders-'));
+    await io.rm(owned, { recursive: true, force: true });
+  }
 });
 
 await test('expression IPC binds approval and publication to the actual owner window and its currently configured cards folder',async()=>{

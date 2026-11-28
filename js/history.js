@@ -220,13 +220,14 @@
     for (const op of receipt.operations) plan.operations.find(row=>row.key===op.key).applied = true;
     return receipt;
   }
-  async function restore(row, expected) {
+  async function restore(row, expected, choices) {
     if (!collections.has(row.kind) || row.value?.id !== row.id) throw new Error('请选择要保存的作品');
-    const current = () => root.TAUI.state.lib[row.kind].find(e=>e.id===row.id);
-    if (!same(current(),expected)) throw new Error('资料库已变化，请重新打开。');
     const library=root.TAUI.state.lib;
-    const next={...library,[row.kind]:library[row.kind].map(item=>item.id===row.id ? structuredClone(row.value) : item)};
-    await commitWorks(next,[[row.kind,expected]],{reason:'回滚前',historyRequired:true,
+    const current=root.TAStore.byId(library[row.kind],row.id);
+    if (!current || current.id!==row.id || !same(current,expected)) throw conflict();
+    const restored=root.TAWorkRestore.restoreSnapshot(library,row.kind,row.value,current,choices,root.TAUI.state.replyReference);
+    const next={...library,[row.kind]:library[row.kind].map(item=>item===current ? restored : item)};
+    await commitWorks(next,[[row.kind,expected]],{reason:'回滚前',historyRequired:true,recordChanges:true,
       scopes:[[row.kind,row.id]],restore:{seq:row.seq,entity:row.entity}});
   }
   root.TAHistory = {tables,summary,append,importedRows,appendImported,list,inventory,overview,cleanupPlan,clean,diff,apply,restore,commitWorks,

@@ -139,7 +139,12 @@
   }
   function restoreAddress(route, url = new URL(root.location.href)) {
     const target = address(route, url);
-    if (target && !choose(target)) root.TAUI.toast(root.TAUI.t('搜索目标已不存在'));
+    pending = undefined;
+    if (target) return choose(target);
+    return !url?.hash || !Object.hasOwn(routes,route);
+  }
+  function hasAddress(route,url) {
+    return !url?.hash || !Object.hasOwn(routes,route) || !!resolve(root.TAUI.state.lib,address(route,url));
   }
   async function open(target) {
     const ui = root.TAUI;
@@ -175,5 +180,5 @@
     node.scrollIntoView({ block: 'center', inline: 'nearest' });
   }
 
-  root.TASearch = { matches, page, describe, types, invalidate, href, address, open, restoreAddress, focus };
+  root.TASearch = { matches, page, describe, types, invalidate, href, address, open, restoreAddress, hasAddress, focus };
 })(globalThis);

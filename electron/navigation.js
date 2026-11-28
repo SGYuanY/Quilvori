@@ -59,4 +59,4 @@ function installNavigationPolicy(webContents, appRoot, openExternal) {
   // is installed here, so the application's download attributes keep working.
 }
 
-module.exports = { isTrustedLocalUrl, isTrustedSender, safeExternalUrl, installNavigationPolicy };
+module.exports = { appPages: Object.freeze([...APP_PAGES]), isTrustedLocalUrl, isTrustedSender, safeExternalUrl, installNavigationPolicy };
