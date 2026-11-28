@@ -3,8 +3,8 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import { webcrypto } from 'node:crypto';
 import { deflateSync } from 'node:zlib';
-const ctx=vm.createContext({ console, JSON, TextEncoder, TextDecoder, Uint8Array, Uint32Array, DataView, crypto:webcrypto, structuredClone, btoa, atob, Date, Map, Set });
-for(const file of ['png','formats','store','folder-import']) vm.runInContext(fs.readFileSync(new URL(`../js/${file}.js`,import.meta.url),'utf8'),ctx,{filename:file});
+const ctx=vm.createContext({ console, JSON, URL, TextEncoder, TextDecoder, Uint8Array, Uint32Array, DataView, crypto:webcrypto, structuredClone, btoa, atob, Date, Map, Set });
+for(const file of ['resource-source','png','formats','store','folder-import']) vm.runInContext(fs.readFileSync(new URL(`../js/${file}.js`,import.meta.url),'utf8'),ctx,{filename:file});
 const S=ctx.TAStore, I=ctx.TAFolderImport, encoder=new TextEncoder();
 const pixel=Uint8Array.from(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aZlsAAAAASUVORK5CYII=','base64'));
 const card=(name,description='内容')=>({spec:'chara_card_v2',data:{name,description,personality:'',scenario:'',first_mes:'',mes_example:''}});
@@ -50,6 +50,49 @@ await test('shared embedded books are imported once even with different internal
  assert.equal(report.cards,2);assert.equal(report.books,2);assert.equal(library.worldBooks.filter(book=>book.name==='店里的规矩').length,1);
  assert.equal(library.worldBooks.find(book=>book.name==='book').entries[0].content,'门常开。');
 });
+await test('authors, original links and standalone native identities survive scans and legacy shared receipts',async()=>{
+ const source=name=>({author:{name},postUrl:'https://example.com/posts/'+name});
+ const world=(name,uid)=>({name:'Harbor',entries:{[uid]:{uid,comment:'Quay',content:'The harbor opens.'}},extensions:{quilvori_source:source(name)}});
+ const distinctCard=name=>{const value=card('Twin edition','Same text');value.data.extensions={quilvori_source:source(name)};return value;};
+ const files={'/worlds/a.json':json(world('A',0)),'/worlds/b.json':json(world('B',0)),'/worlds/c.json':json(world('A',7)),
+   '/cards/a.json':json(distinctCard('A')),'/cards/b.json':json(distinctCard('B'))};
+ const scan=lib=>I.importAll(lib,{worlds:'/worlds',cards:'/cards'},adapter(files));
+ const first=await scan(S.emptyLibrary());
+ const editions=lib=>Array.from(lib.worldBooks,b=>[b.source.author.name,b.source.postUrl,b.entries[0].stUid]);
+ assert.deepEqual(editions(first.library),[['A',source('A').postUrl,0],['B',source('B').postUrl,0],['A',source('A').postUrl,7]]);
+ assert.deepEqual(Array.from(first.library.characters,c=>c.source.author.name),['A','B']);
+ const legacy=first.library;legacy.worldBooks.splice(1);legacy.characters.splice(1);
+ const originalWorld=legacy.worldBooks[0],originalCard=legacy.characters[0];
+ originalWorld.entries[0].content='My revised world';originalCard.description='My revised card';
+ for(const receipt of Object.values(legacy.settings.folderImports)){
+   delete receipt.identityVersion;receipt.id=receipt.kind==='worlds' ? originalWorld.id : originalCard.id;
+ }
+ const repaired=await scan(legacy);
+ assert.deepEqual([repaired.report.books,repaired.report.cards],[2,1]);
+ assert.deepEqual(editions(repaired.library),[['A',source('A').postUrl,0],['B',source('B').postUrl,0],['A',source('A').postUrl,7]]);
+ assert.equal(repaired.library.worldBooks[0].entries[0].content,'My revised world');
+ assert.equal(repaired.library.characters[0].description,'My revised card');
+ assert.deepEqual(Array.from(repaired.library.characters,c=>c.source.author.name),['A','B']);
+ assert.equal((await scan(repaired.library)).report.unchanged,5);
+});
+await test('case-distinct files survive rescans and recovery of legacy lowercase source paths',async()=>{
+ const bytes=json({entries:{0:{content:'Same original text'}}});
+ const scan=(lib,paths)=>I.importAll(lib,{worlds:'/worlds'},adapter(Object.fromEntries(paths.map(path=>['/worlds/'+path+'.json',bytes]))));
+ const first=await scan(S.emptyLibrary(),['Harbor']);
+ const records=first.library.settings.folderImports,upper='/worlds/Harbor.json',lower='/worlds/harbor.json';
+ records[lower]=records[upper];delete records[upper];delete records[lower].identityVersion;
+ first.library.worldBooks[0].entries[0].content='My edited uppercase copy';
+ const promoted=await scan(first.library,['Harbor']);
+ assert.deepEqual(Object.keys(promoted.library.settings.folderImports),[upper]);
+ for(const paths of [['Harbor','harbor'],['harbor','Harbor']]){
+   const repaired=await scan(first.library,paths),items=repaired.library.settings.folderImports;
+   assert.equal(repaired.library.worldBooks.length,2);assert.notEqual(items[upper].id,items[lower].id);
+   assert.equal(items[upper].id,first.library.worldBooks[0].id);
+   assert.equal(repaired.library.worldBooks.find(b=>b.id===items[upper].id).entries[0].content,'My edited uppercase copy');
+   assert.equal(repaired.library.worldBooks.find(b=>b.id===items[lower].id).entries[0].content,'Same original text');
+   assert.equal((await scan(repaired.library,paths)).report.unchanged,2);
+ }
+});
 await test('PNG and JSON copies are deduplicated while different cards with the same name survive',async()=>{
  const item=card('同名角色');
  const a=adapter({'/cards/a.json':json(item),'/cards/b.png':ctx.TAPng.embedChara(pixel,JSON.stringify(item)),'/cards/c.json':json(card('同名角色','另一张卡'))});
@@ -61,6 +104,7 @@ await test('a portrait-only revision keeps both editions and matches the right c
  const contents=card('Studio fixture'), red=[230,16,20], blue=[10,24,210], key='/cards/card.png';
  const files={[key]:portrait(red,contents)}, scan=(lib)=>I.importAll(lib,{cards:'/cards'},adapter(files));
  const first=await scan(S.emptyLibrary()), old=first.library.characters[0];
+ assert.equal(first.library.assets[0].folderPortraitPreview,undefined);
  old.description='Manually edited first edition';
  files[key]=portrait(blue,contents);
  const second=await scan(first.library), fresh=second.library.characters[1];
@@ -139,6 +183,7 @@ await test('avatar thumbnails stay within a bounded local storage budget',async(
  const files={};for(let n=0;n<8;n++)files[`/cards/${n}.png`]=ctx.TAPng.embedChara(pixel,JSON.stringify(card(`角色${n}`)));
  const result=await I.importAll(S.emptyLibrary(),{cards:'/cards'},adapter(files),{makeAvatar:async()=>({dataUrl:'data:image/jpeg;base64,AA==',mime:'image/jpeg',bytes:240000})});
  assert.equal(result.report.cards,8);assert.ok(result.library.assets.reduce((sum,asset)=>sum+asset.bytes,0)<=750000);assert.equal(result.library.assets[0].mime,'image/jpeg');
+ assert.equal(result.library.assets[0].folderPortraitPreview,true);
 });
 await test('multiple cards in one JSON or PNG are refused while batch siblings import normally',async()=>{
  const multi=[card('First'),card('Second')], png=ctx.TAPng.embedChara(pixel,JSON.stringify(multi));

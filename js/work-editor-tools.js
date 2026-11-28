@@ -182,7 +182,7 @@
         if (kind === 'card') {
           const {card} = root.TAFolderImport.parseCard({name:'card.json'},new TextEncoder().encode(raw));
           if (card.book) {
-            const companion = root.TAFolderImport.makeBook(card.book,card.name+' · '+UI.t('世界书'));
+            const companion = root.TAFolderImport.makeBook(card.book,card.name+' · '+UI.t('世界书'),true);
             next.worldBooks = [companion,...lib.worldBooks]; card.embeddedBookId = companion.id;
             scopes = undefined;
           }

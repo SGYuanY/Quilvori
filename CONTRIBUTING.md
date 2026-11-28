@@ -49,7 +49,8 @@ Use a separate browser profile or port for manual tests with sample data. Each b
 | `js/character-editor.js`, `js/world-editor.js`, `js/work-editor-tools.js` | Character and world-book pages, including their shared JSON, media and AI controls. |
 | `src/formats/card-world.ts`, `src/formats/workshop.js` | Typed card and world-book conversion, and the remaining workshop format implementations. |
 | `src/restore/work-restore.ts`, `src/creation/work-outcomes.ts` | Planning a single-work restore and locating the works from a generation in the current draft shelf or library. |
-| `src/sync/`, `electron/world-sync.js` | Comparing standalone World Info by entry UID, reviewing field choices, and verifying desktop file writes. |
+| `src/sync/` | Three-way comparison of character cards and standalone World Info, per-field choices, portraits, and device-local file links. |
+| `electron/sync-file.js`, `electron/card-sync.js`, `electron/world-sync.js` | Desktop file selection, format validation, checked replacement, recovery receipts, and restoration of the original bytes. |
 | `js/store.js`, `js/history.js`, `js/png.js` | Library storage, work edits and revision history, and card PNG data. |
 | `js/model.js`, `js/ai-tasks.js`, `js/studio.js`, `js/creation.js` | Model transport, typed tasks, editing proposals, and creation sessions. |
 | `js/organize*.js`, `js/review.js` | Lossless organization and readable review reports. |
@@ -80,9 +81,13 @@ npm run typecheck
 npm test
 ```
 
+To measure editor performance on a fixed synthetic library, run `node scripts/benchmark-library.mjs`. The benchmark uses a temporary Electron profile and reports median and 95th-percentile times. Use the same device and fixture when comparing releases.
+
 Edit card and world-book conversions in `src/formats/card-world.ts`. Incoming files enter as `unknown`. Library records and native exports have separate types, including fields for third-party metadata. Prompt preset conversion uses checked JSDoc in `js/prompt-presets.js`.
 
-Run `npm run build:formats` after editing sources under `src/`. Commit the affected generated scripts alongside the sources. The web and desktop editions load `js/formats.js`, `js/work-restore.js`, `js/work-outcomes.js` and `js/world-sync.js` directly. The sync bundle includes its review UI and translations. Both packaging commands regenerate these files. Validation checks their contents and strict TypeScript diagnostics.
+Run `npm run build:formats` after editing sources under `src/`. Commit the affected generated scripts alongside the sources. Both editions load `js/formats.js`, `js/work-restore.js`, `js/work-outcomes.js`, `js/world-sync.js` and `js/card-sync.js` directly. The shared file-sync helpers and comparison panel load with the world-book bundle before the card bundle. Both packaging commands regenerate these files. Validation checks their contents and strict TypeScript diagnostics.
+
+Exercise file-sync changes with a disposable profile and synthetic PNG and JSON files. Cover independent edits, a field edited on both sides, and a second comparison after applying a choice. For PNGs, check the original portrait, embedded world-book entry IDs, and v2/v3 text records. On desktop, verify that the selected filename still opens the existing character, the saved bytes can be read back, and restoration recovers the original file. On the web, test both reselecting the installed download and selecting a different revision while the download is awaiting verification.
 
 Use `TAHistory.commitWorks` for a discrete replacement of an existing card or book. Pass the expected work and snapshot reason so the edit and its prior version are saved in one transaction. Ordinary field typing uses the existing debounced, per-work save.
 
@@ -108,7 +113,7 @@ For the browser edition, run `npm run build:web` and `npm run test:web-download`
 
 The Desktop packages workflow builds and tests the browser ZIP, Windows x64, Apple silicon and Intel Mac downloads for `release/**` branches, version tags and manual runs. Each edition has its own downloadable Actions artifact. Package publication is a separate release step.
 
-To test a package against SillyTavern, run `npm run test:desktop -- --st-source <checkout>` or `npm run test:web-download -- --st-source <checkout>`. This optional test uses an installed SillyTavern checkout, Chrome, `git` and `tar`. It exports the committed server into a temporary directory, copies dependencies, and starts a loopback server with fresh settings and a test user. It opens the merged book in the real World Info editor and verifies the restored original bytes on desktop. The editor checks have been exercised with SillyTavern 1.18.0.
+To test a package against SillyTavern, run `npm run test:desktop -- --st-source <checkout>` or `npm run test:web-download -- --st-source <checkout>`. This optional test uses an installed SillyTavern checkout, Chrome, `git` and `tar`. It exports the committed server into a temporary directory, copies dependencies, and starts a loopback server with fresh settings and a test user. It opens the merged book in World Info, updates one of two same-name cards, and continues an existing conversation in the SillyTavern editor. Desktop tests also verify the restored original bytes. The editor checks have been exercised with SillyTavern 1.18.0.
 
 ## Preserve authored data and compatibility
 

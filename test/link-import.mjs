@@ -30,10 +30,12 @@ await test('entry arrays, nested book data, Unicode filenames and single-entry o
  const noTitle=world();delete noTitle.name;const data=await L.prepare({...file(noTitle),filename:'江雾城.json'});assert.equal(data.book.name,'江雾城');
 });
 await test('embedded books in JSON and PNG cards import only the book',async()=>{
- const card={spec:'chara_card_v2',data:{name:'店主',description:'人物资料',character_book:{name:'店内设定',entries:[entry]}}};
+ const literal='{"content":"quoted example","key":["inside the example"]}';
+ const card={spec:'chara_card_v2',data:{name:'店主',description:'人物资料',character_book:{name:'店内设定',entries:[entry,{id:9,keys:[],content:literal}]}}};
  const pixel=Uint8Array.from(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aZlsAAAAASUVORK5CYII=','base64'));
  for(const bytes of [encode(card),context.TAPng.embedChara(pixel,JSON.stringify(card))]){
   const prepared=await L.prepare({url:'https://example.com/card.png',filename:'card.png',bytes});assert.equal(prepared.kind,'embedded');assert.equal(prepared.book.name,'店内设定');
+  assert.equal(prepared.book.entries[1].content,literal);assert.deepEqual(native(prepared.book.entries[1].keys),[]);
   const library=S.emptyLibrary();A.commit(library,L.plan(library,prepared,'店内设定'));assert.equal(library.worldBooks.length,1);assert.equal(library.characters.length,0);assert.equal(library.assets.length,0);
  }
  await assert.rejects(()=>L.prepare({...file(null),bytes:pixel}),err=>err.code==='no-card-data');delete card.data.character_book;await assert.rejects(()=>L.prepare(file(card)),err=>err.code==='no-embedded-book');

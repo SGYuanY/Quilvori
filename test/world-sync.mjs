@@ -205,6 +205,63 @@ test('existing native aliases track local edits without erasing their neighbors'
   assert.equal(sync.hasLocalChanges(result.document,result.book,filename),false);
 });
 
+test('native authored JSON stays literal across import, pull, a local edit and the next comparison',()=>{
+  const base=raw(),local=library(base),disk=structuredClone(base);
+  const literal='{"content":"quoted example","key":["sample"]}';
+  disk.entries[0].content=literal;disk.entries[0].key=[];
+  const plan=review(base,local,disk);
+  assert.ok(plan.rows.some(row=>row.field==='content' && row.kind==='disk'));
+  const out=solve(plan);
+  assert.equal(out.book.entries[0].content,literal);assert.deepEqual(out.book.entries[0].keys,[]);
+  assert.equal(out.document.entries[0].content,literal);assert.deepEqual(out.document.entries[0].key,[]);
+  assert.deepEqual(keys(review(out.document,out.book,out.document)),[]);
+  out.book.entries[0].content='{"正文":"another example"}';
+  const outgoing=solve(review(out.document,out.book,out.document));
+  assert.equal(outgoing.document.entries[0].content,out.book.entries[0].content);
+  assert.equal(outgoing.book.entries[0].content,out.book.entries[0].content);
+  const characterBook={name:'Guide',entries:[{id:0,keys:[],content:literal}]};
+  assert.equal(formats.worldInfoToBook(characterBook,'',true).entries[0].content,literal);
+  assert.equal(formats.worldInfoToBook({data:{character_book:characterBook}},'').entries[0].content,literal);
+});
+
+test('native text, cleared labels, keywords and injection position take precedence over stale aliases',()=>{
+  const base=raw(),row=base.entries[0];
+  Object.assign(row,{body:row.content,条目名:row.comment,触发关键词:row.key,position:0,outletName:'rail',extensions:{position:0,outlet_name:'rail',vendor:'keep'}});
+  const work=library(base),disk=structuredClone(base);
+  Object.assign(disk.entries[0],{content:'New from disk',comment:'',key:[],position:4,outletName:''});
+  const plan=review(base,work,disk);
+  assert.deepEqual(keys(plan).sort(),['comment','content','key','outletName','position'].map(field=>[0,field,'disk']).sort());
+  const out=solve(plan),entry=out.book.entries[0];
+  assert.deepEqual([entry.content,entry.comment,entry.keys,entry.position,entry.outletName],['New from disk','',[],'at_depth','']);
+  assert.deepEqual(out.document,disk);assert.equal(sync.hasLocalChanges(out.document,out.book,filename),false);
+  const embedded={entries:[{id:0,content:'Field',position:'after_char',insertion_order:90,extensions:{position:5}}]};
+  assert.equal(formats.worldInfoToBook(embedded,'',true).entries[0].position,'before_em');
+});
+
+test('upgrading a previously matched legacy manuscript requests a choice before overwriting the native file',async()=>{
+  const disk=raw(),literal='{"content":"quoted example","key":["sample"]}';
+  Object.assign(disk.entries[0],{content:literal,key:[]});
+  const before=library(disk);
+  Object.assign(before.entries[0],{content:'quoted example',keys:['sample']});
+  const oldLink={mode:'web',name:filename,base:disk,stamp:'0.6.0',needsVerify:false};
+  const session=vm.createContext({structuredClone});
+  for(const name of ['resource-source','formats','store','world-sync']){
+    vm.runInContext(readFileSync(new URL('../js/'+name+'.js',import.meta.url),'utf8'),session);
+  }
+  session.TAUI={state:{lib:{worldBooks:[before]}},flush:async()=>true,
+    pickFile:async()=>({name:filename,size:200,text:async()=>JSON.stringify(disk)})};
+  session.TALibraryDB={worldBinding:async()=>oldLink};
+  for(const pending of [false,true]){
+    oldLink.needsVerify=pending;
+    const preview=await session.TAWorldSyncSession.inspect(before.id);
+    assert.deepEqual(keys(preview.plan),[[0,'content','conflict'],[0,'key','conflict']]);
+    assert.throws(()=>session.TAWorldSync.resolve(preview.plan,{}),error('sync.unresolved'));
+    const chosen=plain(session.TAWorldSync.resolve(preview.plan,choices(preview.plan,'disk')));
+    assert.equal(chosen.book.entries[0].content,literal);assert.deepEqual(chosen.book.entries[0].keys,[]);
+    assert.deepEqual(chosen.document,disk);
+  }
+});
+
 test('independent vendor changes in embedded copies compare by UID and field rather than replacing an array',()=>{
   const base=raw();base.originalData={name:'Harbor',entries:[
     {id:0,comment:'Dock',content:'High tide.',keys:['pier'],secondary_keys:[],insertion_order:100,vendor:{tone:'cool',scale:1}},

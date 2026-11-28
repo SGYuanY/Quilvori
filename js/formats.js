@@ -348,7 +348,7 @@ function createCardWorldFormats(resourceSource) {
             throw invalidEntries();
         return number;
     }
-    function worldInfoToEntries(json) {
+    function worldInfoToEntries(json, fromCharacterBook = false) {
         if (!isRecord(json) && !Array.isArray(json))
             throw new Error('世界书不是 JSON 对象');
         let source;
@@ -373,13 +373,16 @@ function createCardWorldFormats(resourceSource) {
         if (!isRecord(source) && !Array.isArray(source))
             throw invalidEntries();
         const rows = Object.entries(source);
+        const standalone = isRecord(source) && rows.every(([key]) => /^(0|[1-9]\d*)$/.test(key));
         return rows.map(([key, raw]) => {
             if (!looksLikeEntry(raw))
                 throw invalidEntries();
-            const entry = unwrapEntry(!Array.isArray(source) && raw.uid == null && /^(0|[1-9]\d*)$/.test(key) ? { ...raw, uid: Number(key) } : raw);
+            const embedded = !standalone && (fromCharacterBook || Object.hasOwn(raw, 'insertion_order') || Object.hasOwn(raw, 'secondary_keys'));
+            // World Info and character-book content is authored text, even when it is valid JSON.
+            // Only loose, generic imports use the legacy stringified-entry convention.
+            const entry = standalone || embedded ? raw : unwrapEntry(raw);
             const nativeExtensions = fields(entry.extensions);
-            const content = entry['正文'] ?? entry.body ?? entry.content ?? '';
-            const embedded = Object.hasOwn(entry, 'insertion_order') || Object.hasOwn(entry, 'secondary_keys');
+            const content = ((standalone || embedded) ? entry.content : undefined) ?? entry['正文'] ?? entry.body ?? entry.content ?? '';
             const extras = otherFields(entry, ['uid', 'id', 'comment', 'name', 'content', 'body', 'key', 'keys', 'keysecondary', 'secondary_keys', 'secondaryKeys', 'constant', 'selective', 'order', 'insertion_order', 'position', 'enabled', 'disable', 'depth', 'outletName', 'selectiveLogic', 'caseSensitive', 'matchWholeWords', 'category', 'extensions', '条目名', '触发关键词', '正文']);
             const extensions = otherFields(nativeExtensions, ['position', 'depth', 'outlet_name', 'selectiveLogic', 'realmweave_category', 'case_sensitive', 'match_whole_words']);
             const settings = embedded ? {} : extras;
@@ -387,23 +390,24 @@ function createCardWorldFormats(resourceSource) {
                 if (!['caseSensitive', 'matchWholeWords', 'outletName'].includes(key) && nativeExtensions[alias] !== undefined && settings[key] === undefined)
                     settings[key] = nativeExtensions[alias];
             }
-            const uid = entry.uid ?? entry.id;
+            const sourceUid = entry.uid ?? (standalone ? key : entry.id);
+            const uid = typeof sourceUid === 'string' && /^(0|[1-9]\d*)$/.test(sourceUid) ? Number(sourceUid) : sourceUid;
             return {
                 ...(typeof uid === 'number' && Number.isSafeInteger(uid) ? { stUid: uid } : {}),
                 ...(Object.keys(settings).length ? { stSettings: settings } : {}),
                 ...(embedded && Object.keys(extras).length ? { stEmbedded: extras } : {}),
                 ...(Object.keys(extensions).length ? { stExtensions: extensions } : {}),
-                comment: entryText(entry['条目名'] || entry.comment || entry.name),
+                comment: entryText(((standalone || embedded) ? entry.comment : undefined) ?? (entry['条目名'] || entry.comment || entry.name)),
                 content: typeof content === 'string' ? content : (content == null ? '' : JSON.stringify(content)),
-                keys: asArray(entry['触发关键词'] || entry.key || entry.keys || []),
+                keys: asArray((standalone ? entry.key : embedded ? entry.keys : undefined) ?? (entry['触发关键词'] || entry.key || entry.keys || [])),
                 secondaryKeys: asArray(entry.keysecondary || entry.secondary_keys || entry.secondaryKeys || []),
                 constant: optionalSwitch(entry.constant) ?? false,
                 selective: optionalSwitch(entry.selective) ?? false,
                 order: entryNumber(entry.order ?? entry.insertion_order, 100),
-                position: positionFromSt(nativeExtensions.position ?? entry.position),
+                position: positionFromSt(standalone ? (entry.position ?? nativeExtensions.position) : (nativeExtensions.position ?? entry.position)),
                 enabled: entry.disable !== undefined ? !optionalSwitch(entry.disable) : optionalSwitch(entry.enabled) ?? true,
                 depth: entryNumber(entry.depth ?? nativeExtensions.depth, 4),
-                outletName: entryText(entry.outletName || nativeExtensions.outlet_name),
+                outletName: entryText(entry.outletName ?? nativeExtensions.outlet_name),
                 selectiveLogic: entryNumber(entry.selectiveLogic ?? nativeExtensions.selectiveLogic, 0),
                 caseSensitive: optionalSwitch(entry.caseSensitive ?? nativeExtensions.case_sensitive),
                 matchWholeWords: optionalSwitch(entry.matchWholeWords ?? nativeExtensions.match_whole_words),
@@ -411,7 +415,7 @@ function createCardWorldFormats(resourceSource) {
             };
         });
     }
-    function worldInfoToBook(json, fallbackName = '') {
+    function worldInfoToBook(json, fallbackName = '', fromCharacterBook = false) {
         const first = Array.isArray(json) && json.length === 1 ? fields(json[0]) : {};
         const input = fields(first.data).character_book || fields(first.character).data ? first : json;
         const character = fields(fields(input).character);
@@ -427,9 +431,9 @@ function createCardWorldFormats(resourceSource) {
             || (!embedded ? resourceSource(fields(wrapped.extensions).quilvori_source) : null);
         const candidate = fields(spec.originalData);
         const original = Array.isArray(candidate.entries) ? candidate : null;
-        const entries = worldInfoToEntries(file);
+        const entries = worldInfoToEntries(file, Boolean(embedded) || fromCharacterBook);
         if (original) {
-            const companions = new Map(worldInfoToEntries(original).map((entry, index) => [entry.stUid ?? index, entry]));
+            const companions = new Map(worldInfoToEntries(original, true).map((entry, index) => [entry.stUid ?? index, entry]));
             for (const entry of entries) {
                 const companion = entry.stUid === undefined ? undefined : companions.get(entry.stUid);
                 if (!companion)

@@ -142,7 +142,7 @@
     let spec = json, kind = 'world';
     if (isCard) { spec = data?.character_book; kind = 'embedded'; if (!spec?.entries) throw error('no-embedded-book'); }
     let parsedBook, entries;
-    try { parsedBook = root.TAFormats.worldInfoToBook(spec); entries = parsedBook.entries; }
+    try { parsedBook = root.TAFormats.worldInfoToBook(spec,'',kind==='embedded'); entries = parsedBook.entries; }
     catch (failure) { if (failure.code === 'invalid-entries') throw failure; throw error('not-world-book'); }
     const declaredEntries = spec?.entries ?? spec?.data?.entries;
     if (!entries.length && (!declaredEntries || typeof declaredEntries !== 'object')) throw error('empty-book');

@@ -267,6 +267,14 @@ Use **Open original post** to read the author's instructions and obtain the curr
 
 An “unknown” usage status is not permission to redistribute. Public visibility does not place a work under this repository's GPLv3 license. Follow the original creator's terms and support them in the original post's comments if you enjoy their work; Quilvori does not post messages or comments on your behalf.
 
+## Sync an existing SillyTavern character card
+
+Open the character in Quilvori and compare it with its installed PNG in SillyTavern’s `data/<profile>/characters/` folder. You can also select a card JSON for exchange. The review shows changes to card fields and embedded world-book entries. If another character shares that book, accepting an incoming edit links this character to its own revised copy. For PNGs, you can also review portrait changes. If the PNG’s v2 and v3 records disagree, choose which text to use, then resolve any remaining conflicts.
+
+On desktop, confirm the comparison to update the selected file under its existing name. Keeping the installed PNG’s filename preserves SillyTavern’s association with the character’s chats. Refresh SillyTavern and reopen the character. **Restore previous file** recovers the original file bytes. To recover the Quilvori manuscript, open its **Version history**.
+
+In a browser, confirmation offers the merged PNG or JSON for download when the selected file needs changes. To keep an existing character’s chats, replace its installed PNG with the downloaded PNG under the same filename. Select that installed file again in Quilvori to verify it. Until verification, Quilvori asks you to review differences if either copy changes again.
+
 ## Sync a standalone SillyTavern world book
 
 In the world-book editor, choose **Compare a SillyTavern file** and select its World Info JSON. Check the names on first link. Later comparisons use the last common version and the native entry UID, including UID 0. Expand a field to read the common, local and file values. Resolve conflicting changes, then confirm.
@@ -324,7 +332,7 @@ Restart the desktop app or refresh the web page. Web-only users do not need `npm
 
 **Storage is full.** Export a backup before reducing large images. Do not clear browser data unless you have verified that your backup can restore the library.
 
-**How do I use an edited card or world book in SillyTavern?** “Saved locally” refers to your Quilvori library. Export the updated card as PNG or JSON. In SillyTavern, open the existing character and choose **More → Replace / Update → Replace with File**. For a new character, import the card under **Character Management**. For a standalone world book, import the exported JSON under **World Info** using its original filename and confirm replacement. To update an embedded book, select it in Quilvori's character editor before exporting the card again.
+**How do I use an edited card or world book in SillyTavern?** “Saved locally” refers to your Quilvori library. In the character or world-book editor, select the installed file, compare the changes and confirm. The desktop app updates the selected file. In a browser, replace it with the merged download, then select the installed file again to verify it. For a manual card export, open the existing character in SillyTavern and choose **More → Replace / Update → Replace with File**. Import new characters under **Character Management** and standalone books under **World Info**. Choose the desired embedded book in Quilvori’s character editor before syncing or exporting its card.
 
 ## Tests and source layout
 

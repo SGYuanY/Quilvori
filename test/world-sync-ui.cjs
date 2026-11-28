@@ -34,8 +34,23 @@ suite('world-sync',async({open,run,click,wait,file,download,win})=>{
   assert.equal(merged.entries[0].content,'Edited in Quilvori');assert.deepEqual(merged.entries[0].key,['tide']);
   assert.deepEqual(merged.entries[0].extensions,{otherTool:{rank:8}});
   assert.equal((await record()).needsVerify,true);
+  assert.deepEqual((await record()).base,base,'a download retains the last verified common edition');
+  assert.match((await record()).downloadHash,/^[a-f0-9]{64}$/);
+  await edit(other.entries[0].content);
+  const unverified=structuredClone(other);unverified.entries[0].content='Another disk revision';
+  await file(unverified,name);await click(on);await modal();
+  assert.ok(await run(()=>!!document.querySelector('[data-sync-kind=conflict]') && document.querySelector('[data-act="sync-apply"]').disabled),
+    'a new local edit matching the previously selected input must not be silently replaced');
+  await click('[data-act=no]');await done();
+  assert.equal(await run(()=>TAUI.state.lib.worldBooks[0].entries[0].content),other.entries[0].content);
+  await edit('A newer local revision');await file(merged,name);await click(on);await modal();
+  assert.ok(await run(()=>!!document.querySelector('[data-sync-kind=local]') && !document.querySelector('[data-sync-kind=conflict]')),
+    'reselecting the actual download verifies its contents and retains intervening local edits');
+  await click('[data-act=no]');await done();
+  await edit('Edited in Quilvori');
   await file(merged,name);await click(on);await modal();await click(confirm);await done();
-  assert.equal((await record()).needsVerify,false);assert.equal(await run(()=>TAUI.state.lib.worldBooks[0].entries[0].id),0);
+  assert.equal((await record()).needsVerify,false);assert.equal((await record()).downloadHash,undefined);
+  assert.equal(await run(()=>TAUI.state.lib.worldBooks[0].entries[0].id),0);
   await run(async()=>{const set={id:'reply',name:'Source',replies:[],workSource:{bookId:0,entryIds:[0]}};
     const lib=TAUI.state.lib;await TAUI.commitLibrary({...lib,quickReplySets:[set]});});
   await file({name:'Harbor',entries:{}},name);await click(on);await modal();await click(confirm);await done();

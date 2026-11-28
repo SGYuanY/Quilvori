@@ -699,7 +699,7 @@ async function verifyRestart() {
       colors.push([edition.description,stored.mime,r>b?'red':'blue']);
     }
     return {imported:changed.cards,omitted:changed.avatarsOmitted,retried:recovered.cards,repeated:repeated.cards,colors,
-      latest:lib.settings.folderImports[key.toLowerCase()].id===editions[1].id};
+      latest:lib.settings.folderImports[key].id===editions[1].id};
   });
   assert.deepEqual(portraits,{imported:1,omitted:1,retried:0,repeated:0,latest:true,
     colors:[['Edited on this device','image/jpeg','red'],['Source edition','image/jpeg','blue']]});

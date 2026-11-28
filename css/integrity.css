@@ -76,6 +76,12 @@
 .world-sync-toolbar button { white-space: normal; }
 .world-sync-review { display: grid; gap: .7rem; }
 .world-sync-review > p { margin: 0; }
+.card-sync-toolbar { flex-basis: 100%; }
+.card-sync-images { grid-template-columns: repeat(2,minmax(0,1fr)); }
+.card-sync-images img { display: block; width: 100%; height: 11rem; object-fit: contain; margin-block: .4rem; background: var(--paper-2); border-radius: .4rem; }
+.card-variant-list { display: grid; gap: .5rem; max-height: 52vh; overflow: auto; }
+.card-variant-list details { min-width: 0; padding: .5rem; overflow-wrap: anywhere; }
+.card-variant-list summary { cursor: pointer; }
 .world-sync-pair { font-weight: 600; overflow-wrap: anywhere; }
 .world-sync-rows { display: grid; gap: .5rem; min-width: 0; }
 .world-sync-row { display: grid; grid-template-columns: minmax(0,1fr) minmax(7rem,12rem); align-items: start; gap: .65rem;

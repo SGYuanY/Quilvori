@@ -43,6 +43,17 @@ test('picking an exact file issues an opaque per-profile grant, reusable across 
   assert.notEqual((await service.bind(other)).target,first.target);
 });
 
+test('an initial pick returns the current file if another editor saves while the grant is stored',async t=>{
+  const {profile,file}=await fixture(t),external=JSON.stringify(sample('saved during the picker'));
+  const service=createWorldSync(profile,{...fs,rename:async(from,to)=>{
+    await fs.rename(from,to);
+    if(path.dirname(to)===path.join(profile,'world-sync') && to.endsWith('.json'))await fs.writeFile(file,external);
+  }});
+  const found=await service.bind(file);
+  assert.equal(found.hash,hash(external));assert.deepEqual(found.document,sample('saved during the picker'));
+  assert.equal(found.receipt,null);assert.equal(found.canRestore,false);
+});
+
 test('a confirmed write and its retry preserve native fields and formatting; restore returns the exact previous bytes',async t=>{
   const {profile,worlds,file,service}=await fixture(t), bound=await service.bind(file);
   const next=await service.write(bound.target,bound.hash,sample('high tide'),'op1');
@@ -121,6 +132,49 @@ test('a same-byte replacement requires a fresh preview; a subsequent external sa
   assert.equal(actual.hash,hash(external));assert.notEqual(actual.hash,actual.receipt.hash);
   assert.equal(actual.canRestore,false);assert.equal(await fs.readFile(file,'utf8'),external);
 });
+
+for(const kind of ['write','restore']){
+  test('an external save during final '+kind+' receipt persistence cannot be reported as our revision',async t=>{
+    const {profile,file,service}=await fixture(t),bound=await service.bind(file);
+    const first=await service.write(bound.target,bound.hash,sample('first revision'),'first');
+    const meta=path.join(profile,'world-sync',bound.target+'.json');
+    const external=JSON.stringify(sample('newer external save'));
+    const interrupted=createWorldSync(profile,{...fs,rename:async(from,to)=>{
+      await fs.rename(from,to);
+      if(to!==meta)return;
+      const receipt=JSON.parse(await fs.readFile(meta,'utf8'));
+      if(!receipt.pending && receipt.receipt?.operationId==='reviewed')await fs.writeFile(file,external);
+    }});
+    const result=kind==='write'
+      ?interrupted.write(bound.target,first.hash,sample('confirmed local edit'),'reviewed')
+      :interrupted.restore(bound.target,first.hash,'reviewed');
+    await assert.rejects(result,{code:'world-sync-changed'});
+    const actual=await service.read(bound.target);
+    assert.equal(actual.hash,hash(external));assert.notEqual(actual.hash,actual.receipt.hash);
+    assert.equal(actual.canRestore,false);assert.equal(await fs.readFile(file,'utf8'),external);
+  });
+}
+
+for(const action of ['read','bind']){
+  test(action+' after an interruption observes changes made during receipt recovery',async t=>{
+    const {profile,file,service}=await fixture(t),bound=await service.bind(file);
+    const interrupted=createWorldSync(profile,{...fs,rename:async(from,to)=>{
+      await fs.rename(from,to);
+      if(to===file)throw Object.assign(new Error('Stop after publishing the file'),{code:'EIO'});
+    }});
+    await assert.rejects(interrupted.write(bound.target,bound.hash,sample('published revision'),'interrupted'),{code:'EIO'});
+    const record=path.join(profile,'world-sync',bound.target+'.json');
+    const external=JSON.stringify(sample('new external edit'));
+    const recovery=createWorldSync(profile,{...fs,rename:async(from,to)=>{
+      await fs.rename(from,to);
+      if(to===record)await fs.writeFile(file,external);
+    }});
+    const found=action==='read'?await recovery.read(bound.target):await recovery.bind(file);
+    assert.equal(found.target,bound.target);assert.equal(found.hash,hash(external));
+    assert.equal(found.receipt.operationId,'interrupted');assert.notEqual(found.receipt.hash,found.hash);
+    assert.equal(found.canRestore,false);assert.deepEqual(found.document,sample('new external edit'));
+  });
+}
 
 test('invalid data, oversize files, aliases and multiply linked files are rejected while preserving the source',async t=>{
   const {temp,profile,worlds,file,service}=await fixture(t),bound=await service.bind(file);

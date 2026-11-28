@@ -14,6 +14,7 @@ import { promisify } from 'node:util';
 import { unzipSync } from 'fflate';
 import { generateAndRestore, verifyWorkDestinations } from './smoke-work-recovery.mjs';
 import { worldSyncFixture } from './smoke-world-sync.mjs';
+import { cardSyncFixture } from './smoke-card-sync.mjs';
 import { startTestTavern, verifyTavernEditor } from './smoke-test-tavern.mjs';
 
 const run = promisify(execFile);
@@ -29,6 +30,7 @@ assert.equal((await readFile(artifact+'.sha256','utf8')).trim(),digest.digest('h
 
 const scratch = await mkdtemp(path.join(os.tmpdir(), 'quilvori-desktop-test-'));
 const profile = path.join(scratch, 'library profile');
+const downloads = path.join(scratch, 'downloads');
 const mount = path.join(scratch, 'image');
 const application = path.join(scratch, 'Quilvori.app');
 const chrome = process.env.CHROME_BIN || (process.platform==='win32'
@@ -36,7 +38,7 @@ const chrome = process.env.CHROME_BIN || (process.platform==='win32'
   : mac ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' : 'google-chrome');
 const appExe = web ? chrome : mac ? path.join(application,'Contents','MacOS','Quilvori') : artifact;
 const nativeMacKeychain = mac && !web && process.env.GITHUB_ACTIONS === 'true' && process.env.QUILVORI_HOSTED_RUNNER === 'github-hosted';
-let webServer, webUrl, syncFixture, testTavern;
+let webServer, webUrl, syncFixture, cardFixture, testTavern;
 const fixtures = {
   card:'Dawn Courier', text:'Takes a ferry to the old beacon at dawn.',
   book:'Glass Harbor', entry:'The shore lights mark the eastern channel.',
@@ -46,8 +48,13 @@ const fixtures = {
 async function until(check, description, timeout = 30000) {
   const end = Date.now()+timeout;
   do {
-    const result = await check();
-    if (result) return result;
+    try {
+      const result = await check();
+      if (result) return result;
+    } catch(error) {
+      // Chromium can expose a target before the first document's execution context exists.
+      if(!/Cannot find (?:default execution context|context with specified id)|Execution context was destroyed/i.test(error.message))throw error;
+    }
     await sleep(120);
   } while (Date.now()<end);
   throw new Error('Timed out waiting for '+description);
@@ -134,6 +141,7 @@ async function exercise(mode) {
       return items.find(item=>item.type==='page' && (web ? item.url===webUrl : /^file:/.test(item.url) && /[/\\]app\.asar[/\\]index\.html$/.test(decodeURI(item.url))));
     },'the shipped main entry point',75000);
     page=await client(target.webSocketDebuggerUrl);
+    if(web)await page.send('Browser.setDownloadBehavior',{behavior:'allow',downloadPath:downloads});
     const read=page.evaluate;
     await until(()=>read(()=>!!window.TAUI?.state.lib && !!document.querySelector('.collection-home')),'the collection');
     assert.equal(await read(()=>TAStore.backend),'indexedDB');
@@ -159,6 +167,10 @@ async function exercise(mode) {
     const click=(selector)=>read(s=>{const el=document.querySelector(s);if(!el||el.disabled)throw new Error('Unavailable: '+s);el.click();},selector);
     const edit=(selector,value)=>read((s,v)=>{const el=document.querySelector(s);if(!el)throw new Error('Missing editor: '+s);el.value=v;el.dispatchEvent(new Event('input',{bubbles:true}));},selector,value);
     const waitFor=(selector)=>until(()=>read(s=>!!document.querySelector(s),selector),selector);
+    const download=filename=>until(async()=>{
+      try{return await readFile(path.join(downloads,filename));}
+      catch(error){if(error.code==='ENOENT')return null;throw error;}
+    },'the completed browser download '+filename);
 
     if(mode==='edit') {
       await click('[data-nav="characters"]');await waitFor('[data-act="new"]');
@@ -177,6 +189,7 @@ async function exercise(mode) {
       assert.equal(await read(()=>TAUI.flush()),true);
       await generateAndRestore({read,click,edit,waitFor,until});
       await syncFixture.exercise({read,click,waitFor,until});
+      await cardFixture.exercise({read,click,edit,waitFor,until,download});
     } else {
       const restored=await read(({card,book})=>({
         description:TAUI.state.lib.characters.find(item=>item.name===card)?.description,
@@ -189,6 +202,7 @@ async function exercise(mode) {
       }),[fixtures.book,'true']);
       await verifyWorkDestinations({read,click,waitFor,until});
       await syncFixture.reopen({read,click,waitFor,until});
+      await cardFixture.reopen({read,click,waitFor,until});
       const damaged='{"profiles":';
       await read(async raw=>{
         localStorage.setItem('nijan-model',raw);
@@ -245,6 +259,7 @@ function keychainPaths(text) {
 }
 try {
   if(web) {
+    await mkdir(downloads);
     // Serve only the exact files from the finished ZIP, so missing dependencies fail this test.
     const contents=unzipSync(new Uint8Array(await readFile(artifact)));
     const types={'.html':'text/html','.js':'text/javascript','.css':'text/css','.svg':'image/svg+xml','.png':'image/png','.webp':'image/webp','.woff2':'font/woff2'};
@@ -283,13 +298,18 @@ try {
     testTavern=await startTestTavern(process.argv[stOption+1],scratch);
   }
   syncFixture=await worldSyncFixture({scratch,profile,web,tavern:testTavern});
+  cardFixture=await cardSyncFixture({scratch,profile,web,tavern:testTavern});
   await exercise('edit');
   const browserTools={chrome,scratch,debugPort,client,until};
-  if(testTavern)await verifyTavernEditor(testTavern,syncFixture.combined,browserTools);
+  if(testTavern){
+    await verifyTavernEditor(testTavern,syncFixture.combined,browserTools,cardFixture.afterWrite());
+    await cardFixture.continued();
+  }
   await exercise('reopen');
-  if(testTavern && !web)await verifyTavernEditor(testTavern,syncFixture.other,browserTools);
+  if(testTavern)await verifyTavernEditor(testTavern,web?syncFixture.combined:syncFixture.other,browserTools,cardFixture.afterReopen());
   console.log('Verified world-book sync, independent field changes, unknown metadata and restart'+(web?' with browser reimport.':' with byte-for-byte file restoration.'));
-  if(testTavern)console.log('Verified against the isolated SillyTavern World Info edit and get endpoints.');
+  console.log('Verified character PNG sync, original filename, updated full-resolution portrait, new embedded entry, unchanged same-name character and two existing conversations.');
+  if(testTavern)console.log('Verified against the isolated SillyTavern World Info, character and chat endpoints.');
   console.log('Passed '+(web?'web ZIP':'desktop package')+' startup, editing, protected model settings, single-work restore, partial generation, and opening the correct saved work after restart on '+process.platform+'/'+process.arch+'.');
   if(nativeMacKeychain)console.log('Used a dedicated, unlocked system Keychain on the hosted macOS runner.');
 } finally {

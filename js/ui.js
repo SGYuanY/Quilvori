@@ -354,6 +354,7 @@
     state.save = 'dirty';
     paintSave();
     if(field==='worldBooks')root.dispatchEvent(new CustomEvent('quilvori-world-edited',{detail:id}));
+    if(field==='characters')root.dispatchEvent(new CustomEvent('quilvori-card-edited',{detail:id}));
     clearTimeout(state.timer);
     state.timer = setTimeout(flush, 320);
   }
@@ -393,12 +394,13 @@
       const scopes=options.scopes && !dirtyWholeLibrary && (prior==='saved' || dirtyScopes.size) ?
         [...dirtyScopes.values(),...options.scopes] : undefined;
       const transfer=options.transfer;
-      if((transfer || options.importSnapshots?.length || options.worldSync?.id!=null) && !root.TALibraryDB?.database())throw new Error('完整工作状态需要 IndexedDB');
+      const fileBinding=options.fileBinding ?? options.worldSync;
+      if((transfer || options.importSnapshots?.length || fileBinding?.id!=null) && !root.TALibraryDB?.database())throw new Error('完整工作状态需要 IndexedDB');
       if(transfer && (root.NIJANStudio?.running() || root.TATaskActivity?.pending() || root.NIJANOrganizePanel?.running())) {
         throw new Error('请先结束正在运行的任务，再恢复工作状态。');
       }
       const imports=options.importSnapshots?.length ? root.TAHistory.importedRows(candidate,options.importSnapshots) : undefined;
-      const warning = clearVersions ? await TAStore.erase(candidate,guard) : await TAStore.save(candidate,guard,snapshots,draft,scopes,options.restore,transfer,imports,options.worldSync);
+      const warning = clearVersions ? await TAStore.erase(candidate,guard) : await TAStore.save(candidate,guard,snapshots,draft,scopes,options.restore,transfer,imports,fileBinding);
       if (version !== editVersion) throw new Error('资料库已变化，请重新打开。');
       state.lib = candidate; state.save = 'saved';
       resetDirty();
@@ -665,16 +667,7 @@
       toast('正在读取文件夹，读完就会出现在列表里。', { id: 'folder-import', kind: 'info', duration: 15000 });
       const snapshot = (value) => JSON.stringify(Object.assign({}, value, { meta: Object.assign({}, value.meta, { updatedAt: undefined }) }));
       const before = snapshot(state.lib);
-      const makeAvatar = async (bytes) => {
-        const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/png' }));
-        try {
-          const ratio = Math.min(1, 192 / bitmap.width, 256 / bitmap.height);
-          const canvas = document.createElement('canvas'); canvas.width = Math.max(1, Math.round(bitmap.width * ratio)); canvas.height = Math.max(1, Math.round(bitmap.height * ratio));
-          const context = canvas.getContext('2d'); context.fillStyle = '#212420'; context.fillRect(0, 0, canvas.width, canvas.height); context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-          const dataUrl = canvas.toDataURL('image/jpeg', .8);
-          return { dataUrl, mime: 'image/jpeg', bytes: Math.ceil(dataUrl.length * .75) };
-        } finally { bitmap.close(); }
-      };
+      const makeAvatar=root.TAFolderImport.makeAvatar;
       const result = await root.TAFolderImport.importAll(state.lib, sourcePaths, options.adapter || root.nijanDesktop, Object.assign({ makeAvatar, avatarBudget:TAStore.backend === 'indexedDB' ? Infinity : 750000 }, options));
       // Wait for importing to finish without replacing edits made in the meantime.
       if (snapshot(state.lib) !== before) throw new Error('读取期间稿子有变化。请再点一次读取，当前改动已保留。');

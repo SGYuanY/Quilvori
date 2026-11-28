@@ -50,19 +50,24 @@ export async function startTestTavern(checkout,scratch) {
     }
     assert.ok(token,'isolated SillyTavern CSRF session');
     const post=async(route,body)=>{
-      const response=await fetch(origin+'/api/worldinfo/'+route,{method:'POST',
+      const response=await fetch(origin+'/api/'+route,{method:'POST',
         headers:{'Content-Type':'application/json','X-CSRF-Token':token,Cookie:cookie},
         body:JSON.stringify(body),signal:AbortSignal.timeout(8000)});
       assert.equal(response.status,200,'isolated SillyTavern '+route);
       return response.json();
     };
-    return {close,origin,worlds:path.join(data,'default-user','worlds'),
-      write:(name,document)=>post('edit',{name,data:document}),read:name=>post('get',{name})};
+    const user=path.join(data,'default-user');
+    return {close,origin,worlds:path.join(user,'worlds'),cards:path.join(user,'characters'),chats:path.join(user,'chats'),
+      write:(name,document)=>post('worldinfo/edit',{name,data:document}),read:name=>post('worldinfo/get',{name}),
+      readCard:avatar=>post('characters/get',{avatar_url:avatar}),
+      listChats:avatar=>post('characters/chats',{avatar_url:avatar,simple:true}),
+      writeChat:(avatar,name,chat)=>post('chats/save',{avatar_url:avatar,file_name:name,chat}),
+      readChat:(avatar,name)=>post('chats/get',{avatar_url:avatar,file_name:name})};
   }catch(error){await close();throw error;}
 }
 
 // Opening a fresh browser matters: the live World Info editor caches loaded books.
-export async function verifyTavernEditor(server,document,{chrome,scratch,debugPort,client,until}) {
+export async function verifyTavernEditor(server,document,{chrome,scratch,debugPort,client,until},card) {
   const settings=path.join(path.dirname(server.worlds),'settings.json');
   const prefs=JSON.parse(await readFile(settings,'utf8'));
   prefs.firstRun=false;await writeFile(settings,JSON.stringify(prefs));
@@ -101,6 +106,40 @@ export async function verifyTavernEditor(server,document,{chrome,scratch,debugPo
     },selector),'the text and keywords in the World Info editor');
     assert.deepEqual(result,{comment:entry.comment,content:entry.content,keys:entry.key.join(', ')});
     console.log('Reopened the expected text and keywords in the real SillyTavern World Info editor.');
+    if(card){
+      const index=await until(()=>tab.evaluate(filename=>{
+        const ctx=window.SillyTavern?.getContext?.();
+        const index=ctx?.characters?.findIndex(ch=>ch?.avatar===filename);
+        return typeof ctx?.selectCharacterById==='function' && index>=0 ? {index} : null;
+      },card.filename),'the original character slot in the SillyTavern character manager',55000);
+      await tab.evaluate(id=>window.SillyTavern.getContext().selectCharacterById(id.index),index);
+      const visible=await until(()=>tab.evaluate(filename=>{
+        const ctx=window.SillyTavern.getContext(),active=ctx.characters[ctx.characterId];
+        const description=window.document.querySelector('#description_textarea')?.value;
+        if(active?.avatar!==filename || !description || !ctx.chat?.length)return null;
+        return {name:window.document.querySelector('#character_name_pole').value,description,
+          scenario:window.document.querySelector('#scenario_pole').value,chat:ctx.chat.map(message=>message.mes)};
+      },card.filename),'selected character fields and the existing conversation');
+      assert.deepEqual(visible,{name:card.name,description:card.description,scenario:card.scenario,chat:card.messages});
+      if(card.append){
+        // The standard /send command stores a user message without requesting a model response.
+        await tab.evaluate(async message=>{
+          const ctx=window.SillyTavern.getContext();
+          const result=await ctx.executeSlashCommandsWithOptions('/send '+message);
+          if(result?.isError)throw Error('The test conversation could not be continued.');
+          await ctx.reloadCurrentChat();
+        },card.append);
+        const expected=[...card.messages,card.append];
+        const shown=await until(()=>tab.evaluate(length=>{
+          const ctx=window.SillyTavern.getContext();
+          return ctx.chat.length===length && ctx.chat.map(row=>row.mes);
+        },expected.length),'continued conversation after reopening it in the SillyTavern editor');
+        assert.deepEqual(shown,expected);
+        assert.deepEqual((await server.readChat(card.filename,card.chat)).slice(1).map(row=>row.mes),expected);
+        console.log('Continued the existing SillyTavern conversation and reopened the saved user message.');
+      }
+      console.log('Opened the original character slot, expected fields and existing conversation in the real SillyTavern editor.');
+    }
   }finally{
     if(tab){await tab.send('Browser.close').catch(()=>{});tab.socket.close();}
     else if(browser.exitCode==null)browser.kill();

@@ -7,6 +7,7 @@ const { isTrustedSender, installNavigationPolicy } = require('./navigation');
 const { exportExpressions, overwriteOptions } = require('./expression-export');
 const { installBundle } = require('./st-bundle');
 const worldFiles = require('./world-sync');
+const cardFiles = require('./card-sync');
 const themeInstall = require('./theme-install');
 const themeCatalog = require('../js/theme-catalog');
 const { MAX_BYTES: themeLimit } = require('../js/theme-format');
@@ -15,7 +16,6 @@ const linkRequests = new Map();
 const modelVault = require('./model-credentials').credentialVault(safeStorage);
 
 preserveLegacyProfile(app);
-const worldSync = worldFiles.createWorldSync(app.getPath('userData'));
 // Electron scopes this lock to userData, including explicit isolated QA profiles.
 const primaryInstance = app.requestSingleInstanceLock();
 let mainWindow = null;
@@ -88,28 +88,40 @@ function handleTrusted(channel, handler) {
 handleTrusted('folders:get', () => readPaths());
 // Electron's rejected invoke promises discard custom properties. Send the public
 // error code explicitly so that the renderer can offer the appropriate recovery.
-function worldHandler(channel,operation) {
-  handleTrusted('world-sync:'+channel,async(event,...args)=>{
-    if (!mainWindow || mainWindow.isDestroyed() || event.sender!==mainWindow.webContents) return {ok:false,code:'world-sync-unsafe'};
-    try { return {ok:true,value:await operation(event,...args)}; }
-    catch(error) { return {ok:false,code:worldFiles.publicError(error)}; }
-  });
-}
-worldHandler('pick',async event=>{
-  const worlds=readPaths().worlds;
-  const options={properties:['openFile'],filters:[{name:'SillyTavern World Info',extensions:['json']}]};
-  if (typeof worlds==='string' && path.isAbsolute(worlds)) options.defaultPath=worlds;
-  const owner=mainWindow;
-  const result=await dialog.showOpenDialog(owner,options);
-  if (result.canceled || !result.filePaths[0]) return null;
-  if (owner!==mainWindow || owner.isDestroyed() || !isTrustedSender(event,appRoot)) {
-    throw Object.assign(new Error('world-sync-unsafe'),{code:'world-sync-unsafe'});
+function registerSync(kind,{service,publicError,folder,label,extensions}) {
+  const namespace=kind+'-sync:';
+  function handle(channel,operation) {
+    handleTrusted(namespace+channel,async(event,...args)=>{
+      if (!mainWindow || mainWindow.isDestroyed() || event.sender!==mainWindow.webContents) {
+        return {ok:false,code:kind+'-sync-unsafe'};
+      }
+      try { return {ok:true,value:await operation(event,...args)}; }
+      catch(error) { return {ok:false,code:publicError(error)}; }
+    });
   }
-  return worldSync.bind(result.filePaths[0]);
+  handle('pick',async event=>{
+    const suggested=readPaths()[folder],owner=mainWindow;
+    const options={properties:['openFile'],filters:[{name:label,extensions}]};
+    if (typeof suggested==='string' && path.isAbsolute(suggested)) options.defaultPath=suggested;
+    const result=await dialog.showOpenDialog(owner,options);
+    if (result.canceled || !result.filePaths[0]) return null;
+    if (owner!==mainWindow || owner.isDestroyed() || !isTrustedSender(event,appRoot)) {
+      throw Object.assign(new Error('Picker window changed'),{code:kind+'-sync-unsafe'});
+    }
+    return service.bind(result.filePaths[0]);
+  });
+  handle('read',(_event,target)=>service.read(target));
+  handle('write',(_event,target,hash,payload,operationId)=>service.write(target,hash,payload,operationId));
+  handle('restore',(_event,target,hash,operationId)=>service.restore(target,hash,operationId));
+}
+registerSync('world',{
+  service:worldFiles.createWorldSync(app.getPath('userData')),publicError:worldFiles.publicError,
+  folder:'worlds',label:'SillyTavern World Info',extensions:['json'],
 });
-worldHandler('read',(_event,target)=>worldSync.read(target));
-worldHandler('write',(_event,target,hash,document,operationId)=>worldSync.write(target,hash,document,operationId));
-worldHandler('restore',(_event,target,hash,operationId)=>worldSync.restore(target,hash,operationId));
+registerSync('card',{
+  service:cardFiles.createCardSync(app.getPath('userData')),publicError:cardFiles.publicError,
+  folder:'cards',label:'SillyTavern character cards',extensions:['png','json'],
+});
 handleTrusted('model-key:seal', (_event,id,key) => modelVault.seal(id,key));
 handleTrusted('model-key:open', (_event,id,blob) => modelVault.open(id,blob));
 handleTrusted('folders:pick', async (event, kind) => {

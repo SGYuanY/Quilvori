@@ -16,7 +16,7 @@
     filename: string; library: Book; local: World; disk: World; rows: Row[];
   }
   interface Formats {
-    worldInfoToBook(document: Obj, fallback: string): Book;
+    worldInfoToBook(document: Obj, fallback: string, fromCharacterBook?: boolean): Book;
     bookToWorldInfo(book: Book): World;
     bookToCharacterBook(book: Book): Book;
   }
@@ -203,7 +203,7 @@
       if (from && !to) continue;
       let normalized = from;
       if (!from && to) {
-        const retained = formats().worldInfoToBook({entries:[{...value,id:uid,uid}]},'');
+        const retained = formats().worldInfoToBook({entries:[{...value,id:uid,uid}]},'',true);
         normalized = formats().bookToCharacterBook(retained).entries[0];
       }
       const row = (to && normalized ? overlay(value,normalized,to) : value) as Obj;

@@ -166,6 +166,7 @@
     stage.querySelector('[data-act="dup"]').onclick = () => duplicateCharacter(character);
     stage.querySelector('[data-act="del"]').onclick = () => root.TAIntegrityPanel.remove('characters',character,'这张卡会从本机库里拿走。已经导出的文件还在。');
     root.TAHistoryPanel.mount(stage.querySelector('.toolbar'), 'characters', character);
+    if(!galleryOn)root.TACardSyncPanel.mount(stage.querySelector('.toolbar'),character);
     const bookOf = () => Store.byId(lib.worldBooks,stage.querySelector('#attach-book').value);
     root.TAStBundle.mount(stage, character, bookOf, makeCardPng);
     const attached = character.embeddedBookId ?? character.source?.embeddedBookId;

@@ -9,14 +9,7 @@
   const live=id=>root.TAStore.byId(ui().state.lib.worldBooks,id);
   const binding=id=>db().worldBinding(id);
   const limit=32*1024*1024;
-  const active=new Map();
-
-  function withBook(id,task) {
-    if(root.navigator?.locks?.request)return navigator.locks.request('quilvori-world-sync-'+JSON.stringify(id),task);
-    const job=(active.get(id) || Promise.resolve()).catch(()=>{}).then(task);
-    active.set(id,job);
-    return job.finally(()=>{if(active.get(id)===job)active.delete(id);});
-  }
+  const withBook=(id,task)=>root.TAFileSync.withWork('world',id,task);
 
   function agreed(before) {
     const current=live(before.id);
@@ -36,13 +29,9 @@
   }
   // Include the local-only entry IDs and links in the restart guard. IndexedDB readers
   // may return object fields in a different order from the original editor.
-  async function workHash(book) {
+  function workHash(book) {
     const normalized=root.TAStore.verify({worldBooks:[book]}).worldBooks[0];
-    const sorted=(_key,value)=>value && typeof value==='object' && !Array.isArray(value)
-      ? Object.fromEntries(Object.keys(value).sort().map(key=>[key,value[key]])) : value;
-    const bytes=new TextEncoder().encode(JSON.stringify(normalized,sorted));
-    const digest=await crypto.subtle.digest('SHA-256',bytes);
-    return Array.from(new Uint8Array(digest),byte=>byte.toString(16).padStart(2,'0')).join('');
+    return root.TAFileSync.jsonHash(normalized);
   }
   async function save(before,old,value,updated,reason,fileChanges=[]) {
     const current=agreed(before), lib=ui().state.lib;
@@ -75,10 +64,17 @@
   function context(record,file) {
     return {mode:file.target?'desktop':'web',name:file.name,target:file.target ?? null,
       base:record?.base ?? null,hash:record?.hash ?? null,checkedAt:record?.checkedAt ?? null,
-      lastWrite:record?.lastWrite ?? null,needsVerify:record?.needsVerify ?? false};
+      lastWrite:record?.lastWrite ?? null,needsVerify:record?.needsVerify ?? false,nativeFields:record?.nativeFields===true};
   }
   function confirmed(record,file) {
-    return {...context(record,file),base:file.document,hash:file.hash ?? null,checkedAt:Date.now(),needsVerify:false};
+    return {...context(record,file),base:file.document,hash:file.hash ?? null,checkedAt:Date.now(),needsVerify:false,nativeFields:true};
+  }
+  function usesLegacyAliases(document) {
+    return Object.values(document?.entries || {}).some(entry=>
+      typeof entry.content==='string' && entry.content.trimStart().startsWith('{') ||
+      ['body','正文','条目名','触发关键词','name','secondary_keys','insertion_order'].some(key=>Object.hasOwn(entry,key)) ||
+      entry.extensions && (entry.position!=null && entry.extensions.position!=null ||
+        entry.outletName!=null && entry.extensions.outlet_name!=null));
   }
   async function flush() {
     if(!await ui().flush())throw fault('sync.staleWork');
@@ -98,9 +94,16 @@
     }
     return preview(before,record,file,'');
   }
-  function preview(before,record,file,message) {
+  async function preview(before,record,file,message) {
+    let base=record?.base ?? null;
+    if(record?.needsVerify){
+      // Browsers cannot observe whether a download was installed. Older pending links
+      // lack a fingerprint and must also ask the user about divergent fields.
+      const matches=record.downloadHash && record.downloadHash===await root.TAFileSync.jsonHash(file.document);
+      base=matches ? file.document : null;
+    }else if(record && !record.nativeFields && usesLegacyAliases(base))base=null;
     agreed(before);
-    return {before,record,file,message,plan:core().review(record?.base ?? null,before,file.document,file.name)};
+    return {before,record,file,message,plan:core().review(base,before,file.document,file.name),base};
   }
   async function apply(view,choices) {
     const {before,record,file,plan}=view;
@@ -115,7 +118,9 @@
       return 'sync.downloadOnly';
     }
     if(!file.target){
-      const next={...confirmed(record,file),needsVerify:changedFile};
+      const lastCommon=view.base ?? (record?.downloadHash ? record.base : null);
+      const next=changedFile ? {...context(record,file),base:lastCommon,needsVerify:true,nativeFields:true,
+        downloadHash:await root.TAFileSync.jsonHash(result.document)} : confirmed(record,file);
       await save(before,record,next,result.book,'同步世界书前');
       if(changedFile)ui().downloadJson(file.name,result.document);
       return changedFile?'sync.exported':'sync.matched';
@@ -131,7 +136,7 @@
       ...(row.diskPresent?{before:row.disk}:{}),...(row.localPresent?{after:row.local}:{}),
     }));
     const pending={operationId:crypto.randomUUID(),kind:'write',expectedWork:await workHash(before),book:result.book,fileChanges};
-    const staged=await save(before,record,{...context(record,file),pending});
+    const staged=await save(before,record,{...context(record,file),base:view.base,nativeFields:true,pending});
     const readback=await native().worldSyncWrite(file.target,file.hash,result.document,pending.operationId);
     if(!core().same(readback.document,result.document))throw fault('world-sync-recovery');
     const outcome=await recover(before,staged,readback);
@@ -151,6 +156,7 @@
       return {finished:true,message:'sync.restored'};
     }
     let compatible=applied && await workHash(before)===job.expectedWork;
+    if(compatible && !record.nativeFields && usesLegacyAliases(file.document) && core().hasLocalChanges(file.document,job.book,file.name))compatible=false;
     if(compatible){
       try {keepReferences(before,job.book);}
       catch(error){if(error.code!=='sync.referenced')throw error;compatible=false;}

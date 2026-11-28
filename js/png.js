@@ -65,12 +65,7 @@
 
   function keywordOf(chunk) {
     const data = chunk.data;
-    if (chunk.type === 'tEXt') {
-      const zero = data.indexOf(0);
-      if (zero < 0) return '';
-      return new TextDecoder().decode(data.subarray(0, zero));
-    }
-    if (chunk.type === 'iTXt') {
+    if (['tEXt','iTXt','zTXt'].includes(chunk.type)) {
       const zero = data.indexOf(0);
       if (zero < 0) return '';
       return new TextDecoder().decode(data.subarray(0, zero));
@@ -117,11 +112,11 @@
     return out;
   }
 
-  function charaPayload(jsonText) {
+  function charaPayload(jsonText, keywordName) {
     const b64 = utf8ToB64(jsonText);
     let name = 'chara';
     try { if (JSON.parse(jsonText).spec === 'chara_card_v3') name = 'ccv3'; } catch (_) {}
-    const keyword = new TextEncoder().encode(name);
+    const keyword = new TextEncoder().encode(keywordName || name);
     const text = new TextEncoder().encode(b64);
     const data = new Uint8Array(keyword.length + 1 + text.length);
     data.set(keyword, 0);
@@ -134,8 +129,8 @@
     const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
     const chunks = parseChunks(bytes);
     const texts = chunks.filter((chunk) => chunk.type === 'tEXt' || chunk.type === 'iTXt');
-    const preferred = texts.find((chunk) => keywordOf(chunk) === 'ccv3')
-      || texts.find((chunk) => keywordOf(chunk) === 'chara');
+    const preferred = texts.find((chunk) => keywordOf(chunk).toLowerCase() === 'ccv3')
+      || texts.find((chunk) => keywordOf(chunk).toLowerCase() === 'chara');
     if (!preferred) return null;
     const raw = textOf(preferred).trim();
     if (!raw) return null;
@@ -156,7 +151,7 @@
     const parts = [new Uint8Array(SIG)];
     chunks.forEach((chunk) => {
       if (chunk.type === 'IEND') return;
-      if ((chunk.type === 'tEXt' || chunk.type === 'iTXt') && (keywordOf(chunk) === 'chara' || keywordOf(chunk) === 'ccv3')) return;
+      if (cardKeyword(chunk)) return;
       parts.push(chunk.raw);
     });
     parts.push(makeChunk('tEXt', charaPayload(jsonText)));
@@ -171,5 +166,110 @@
     return out;
   }
 
-  root.TAPng = { crc32, parseChunks, readChara, embedChara, utf8ToB64, b64ToUtf8 };
+  function cardKeyword(chunk) {
+    const name = keywordOf(chunk).toLowerCase();
+    return name === 'chara' || name === 'ccv3' ? name : '';
+  }
+  function pngError(code = 'card.png') {
+    throw Object.assign(new Error(code === 'card.variant' ? 'Duplicate PNG card metadata.' : 'Invalid PNG or character metadata.'), {code});
+  }
+  function checkedChunks(bytes) {
+    let chunks;
+    try { chunks = parseChunks(bytes); } catch { return pngError(); }
+    const header = chunks[0], end = chunks.at(-1);
+    if (header?.type !== 'IHDR' || header.data.length !== 13 || !u32(header.data,0) || !u32(header.data,4) ||
+        end?.type !== 'IEND' || end.data.length || !chunks.some(chunk => chunk.type === 'IDAT')) return pngError();
+    for (const [index,chunk] of chunks.entries()) {
+      if (index && chunk.type === 'IHDR' || crc32(chunk.raw.subarray(4,-4)) !== u32(chunk.raw,chunk.raw.length - 4)) return pngError();
+    }
+    return chunks;
+  }
+  function concat(parts) {
+    const out = new Uint8Array(parts.reduce((size,part) => size + part.length,0));
+    let offset = 0;
+    for (const part of parts) { out.set(part,offset); offset += part.length; }
+    return out;
+  }
+  function cardVariants(bytes) {
+    const variants = {};
+    for (const chunk of checkedChunks(bytes)) {
+      const name = cardKeyword(chunk);
+      if (!name) continue;
+      if (Object.hasOwn(variants,name)) return pngError('card.variant');
+      // ST stores base64 in tEXt. Also accept uncompressed iTXt from other editors.
+      // Do not silently drop an unreadable secondary representation when rewriting a card.
+      try {
+        const binary = atob(textOf(chunk).trim());
+        const payload = Uint8Array.from(binary, char => char.charCodeAt(0));
+        variants[name] = JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(payload));
+      } catch { return pngError(); }
+    }
+    return variants;
+  }
+  function trailer(bytes,chunks) {
+    const end = chunks.at(-1).raw;
+    return bytes.subarray(end.byteOffset - bytes.byteOffset + end.length);
+  }
+  function portraitBytes(bytes) {
+    const chunks = checkedChunks(bytes);
+    return concat([bytes.subarray(0,8),...chunks.filter(chunk => !cardKeyword(chunk)).map(chunk => chunk.raw)]);
+  }
+  async function portraitFingerprint(bytes) {
+    const chunks = checkedChunks(bytes).filter(chunk => !['tEXt','iTXt','zTXt','tIME'].includes(chunk.type));
+    const digest = await root.crypto.subtle.digest('SHA-256',concat(chunks.map(chunk => chunk.raw)));
+    return Array.from(new Uint8Array(digest),value => value.toString(16).padStart(2,'0')).join('');
+  }
+  function writeCardVariants(bytes,updates,replacement) {
+    const original = checkedChunks(bytes);
+    const parts = [bytes.subarray(0,8)], metadata = [], written = new Set();
+    const emit = (name, keyword = name) => {
+      written.add(name);
+      return makeChunk('tEXt',charaPayload(JSON.stringify(updates[name]),keyword));
+    };
+    const cardChunk = (chunk,name) => {
+      if (Object.hasOwn(updates,name)) return emit(name,keywordOf(chunk));
+      // The ST PNG reader itself only decodes tEXt. On an actual write, preserve
+      // unmodified JSON/base64 from iTXt but give both editions a readable container.
+      if (chunk.type === 'iTXt') return makeChunk('tEXt',new TextEncoder().encode(keywordOf(chunk)+'\0'+textOf(chunk)));
+      return chunk.raw;
+    };
+    const body = replacement ? checkedChunks(replacement) : original;
+    if (replacement) {
+      // The new image owns its palette, color profile and other image-dependent chunks.
+      // Keep the target's text and safe-to-copy vendor chunks when they are missing from it.
+      const retained = new Set(body.map(chunk => chunk.type + '/' + keywordOf(chunk)));
+      for (const chunk of original) {
+        const name = cardKeyword(chunk);
+        if (name) metadata.push(cardChunk(chunk,name));
+        else if ((keywordOf(chunk) || /^[a-z][a-z][A-Z][a-z]$/.test(chunk.type)) &&
+                 !retained.has(chunk.type + '/' + keywordOf(chunk))) metadata.push(chunk.raw);
+      }
+    }
+    for (const chunk of body) {
+      if (chunk.type === 'IEND') {
+        for (const name of Object.keys(updates)) if (!written.has(name)) metadata.push(emit(name));
+        parts.push(...metadata,chunk.raw);
+        break;
+      }
+      const name = cardKeyword(chunk);
+      if (!name) parts.push(chunk.raw);
+      else if (!replacement) parts.push(cardChunk(chunk,name));
+    }
+    parts.push(trailer(bytes,original));
+    return concat(parts);
+  }
+  function readJsonBytes(bytes) {
+    return JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(bytes));
+  }
+  function writeJsonBytes(bytes,document) {
+    const original = new TextDecoder().decode(bytes);
+    const indent = original.match(/\n([\t ]+)"/)?.[1] || '';
+    const newline = original.includes('\r\n') ? '\r\n' : '\n';
+    const json = JSON.stringify(document,null,indent).replace(/\n/g,newline);
+    const leading = original.match(/^\s*/)[0], trailing = original.match(/\s*$/)[0];
+    const bom = bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf ? '\uFEFF' : '';
+    return new TextEncoder().encode(bom + leading + json + trailing);
+  }
+  root.TAPng = {crc32,parseChunks,readChara,embedChara,utf8ToB64,b64ToUtf8,
+    cardVariants,writeCardVariants,portraitBytes,portraitFingerprint,readJsonBytes,writeJsonBytes};
 })(typeof globalThis !== 'undefined' ? globalThis : window);

@@ -127,7 +127,7 @@ function mainEnvironment(options = {}) {
     dialog: {
       showOpenDialog: async (owner,picker) => {
         calls.push('pick');
-        if (options.worldPick) return options.worldPick(owner,picker);
+        if (options.syncPick) return options.syncPick(owner,picker);
         return {canceled:false,filePaths:[configured.cards]};
       },
       showMessageBox: async (win,prompt) => {
@@ -147,6 +147,10 @@ function mainEnvironment(options = {}) {
     if (name === './navigation') return policy;
     if (name === './world-sync' && options.worldService) return {
       createWorldSync:()=>options.worldService,
+      publicError:mainRequire(name).publicError,
+    };
+    if (name === './card-sync' && options.cardService) return {
+      createCardSync:()=>options.cardService,
       publicError:mainRequire(name).publicError,
     };
     if (name === './expression-export') return {
@@ -176,6 +180,7 @@ await test('every registered privileged IPC rejects remote and subframe callers 
     'folders:get','folders:pick','folders:list','folders:read','folders:writeExpressions','bundles:install',
     'links:download','links:cancel','themes:pick','themes:inspect','themes:read','themes:activate','themes:install','themes:sample',
     'world-sync:pick','world-sync:read','world-sync:write','world-sync:restore',
+    'card-sync:pick','card-sync:read','card-sync:write','card-sync:restore',
   ].sort());
   for (const kind of ['remote', 'iframe', 'unknown-local']) {
     const web = contents(kind === 'remote' ? 'https://example.com' : kind === 'unknown-local' ? local('unknown.html') : local('index.html'));
@@ -189,32 +194,37 @@ await test('every registered privileged IPC rejects remote and subframe callers 
   }
 });
 
-await test('world sync binds only the native picker selection and exposes stable errors without file paths',async()=>{
-  const selected=path.join(appRoot,'test-worlds','Chosen.json'),grant='confirmed-file';
+for (const kind of ['card','world']) {
+await test(kind+' sync binds only the native picker selection and exposes stable errors without file paths',async()=>{
+  const folder=kind==='world'?'worlds':'cards', filename=kind==='world'?'Chosen.json':'Chosen.png';
+  const selected=path.join(appRoot,'test-'+folder,filename),grant='confirmed-file';
   let cancel=false,navigate=false;
   const operations=[];
-  const env=mainEnvironment({worldPick:async(owner,picker)=>{
+  const env=mainEnvironment({syncPick:async(owner,picker)=>{
     assert.equal(owner,env.windows[0]);assert.deepEqual(native(picker.properties),['openFile']);
-    assert.deepEqual(native(picker.filters[0].extensions),['json']);assert.equal(picker.defaultPath,env.configured.worlds);
+    assert.deepEqual(native(picker.filters[0].extensions),kind==='world'?['json']:['png','json']);
+    assert.equal(picker.defaultPath,env.configured[folder]);
     if(navigate)owner.webContents.mainFrame.url='https://example.com';
     return {canceled:cancel,filePaths:cancel?[]:[selected]};
-  },worldService:{
+  },[kind+'Service']:{
     bind:async file=>{operations.push(['pick',file]);return {target:grant};},
     read:async target=>{operations.push(['read',target]);throw Object.assign(new Error(selected),{code:'ENOENT'});},
     write:async(...args)=>{operations.push(['write',...args]);return {target:grant};},
     restore:async(...args)=>{operations.push(['restore',...args]);return {target:grant};},
   }});
   const sender=env.windows[0].webContents,event={sender,senderFrame:sender.mainFrame};
-  const call=(channel,...args)=>env.handlers.get('world-sync:'+channel)(event,...args);
+  const prefix=kind+'-sync';
+  const call=(channel,...args)=>env.handlers.get(prefix+':'+channel)(event,...args);
   assert.deepEqual(native(await call('pick','unselected.json')),{ok:true,value:{target:grant}});
-  const document={entries:{}};
+  const document=kind==='world'?{entries:{}}:new Uint8Array([1,2,3]);
   await call('write',grant,'reviewed',document,'op1');await call('restore',grant,'written','op2');
-  assert.deepEqual(native(await call('read',grant)),{ok:false,code:'world-sync-io'});
+  assert.deepEqual(native(await call('read',grant)),{ok:false,code:prefix+'-io'});
   cancel=true;assert.deepEqual(native(await call('pick')),{ok:true,value:null});
-  cancel=false;navigate=true;assert.deepEqual(native(await call('pick')),{ok:false,code:'world-sync-unsafe'});
-  const other=contents();assert.deepEqual(native(await env.handlers.get('world-sync:read')({sender:other,senderFrame:other.mainFrame},grant)),{ok:false,code:'world-sync-unsafe'});
+  cancel=false;navigate=true;assert.deepEqual(native(await call('pick')),{ok:false,code:prefix+'-unsafe'});
+  const other=contents();assert.deepEqual(native(await env.handlers.get(prefix+':read')({sender:other,senderFrame:other.mainFrame},grant)),{ok:false,code:prefix+'-unsafe'});
   assert.deepEqual(operations,[['pick',selected],['write',grant,'reviewed',document,'op1'],['restore',grant,'written','op2'],['read',grant]]);
 });
+}
 
 await test('trusted main-frame folder workflows and bounded link downloads keep their existing behavior', async () => {
   const env = mainEnvironment(), window = env.windows[0], web = window.webContents;

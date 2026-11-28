@@ -1,15 +1,22 @@
 /* Import configured folders into the local library without changing source files. */
 (function (root) {
   'use strict';
-  const sourceKey = (path) => String(path || '').replace(/\\/g, '/').toLowerCase();
+  const sourceKey = (path) => String(path || '').replace(/\\/g, '/');
   const plainObject = (value) => value && typeof value === 'object' && !Array.isArray(value);
   const decode = (bytes) => JSON.parse(new TextDecoder().decode(bytes).replace(/^\uFEFF/, ''));
   const cardFields = ['name', 'description', 'personality', 'scenario', 'first_mes', 'mes_example', 'creator_notes', 'system_prompt', 'post_history_instructions', 'alternate_greetings', 'tags', 'creator', 'character_version', 'talkativeness'];
+  const attribution = work => root.TAResourceSource?.clean(work.source) || null;
   function signature(card) {
-    return JSON.stringify(stable({ ...Object.fromEntries(cardFields.map((key) => [key, card[key] ?? (['tags', 'alternate_greetings'].includes(key) ? [] : key === 'talkativeness' ? .5 : '')])), ...root.TAFormats.signatureMetadata(card), embeddedBookId:card.embeddedBookId || card.source?.embeddedBookId || null }));
+    const source=attribution(card);
+    return JSON.stringify(stable({ ...Object.fromEntries(cardFields.map((key) => [key, card[key] ?? (['tags', 'alternate_greetings'].includes(key) ? [] : key === 'talkativeness' ? .5 : '')])), ...root.TAFormats.signatureMetadata(card), ...(source ? {source} : {}), embeddedBookId:card.embeddedBookId ?? card.source?.embeddedBookId ?? null }));
   }
   const stable = (value) => Array.isArray(value) ? value.map(stable) : plainObject(value) ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, stable(value[key])])) : value;
-  const bookSignature = (book) => JSON.stringify(stable([book.name,book.description || '',book.stBookFields || {},book.stBookExtensions || {},(book.entries || []).map(({id,stUid,...entry})=>entry)]));
+  function nativeIds(book) {
+    return JSON.stringify((book.entries || []).map(entry=>entry.stUid ?? null));
+  }
+  function bookSignature(book) {
+    return JSON.stringify(stable([attribution(book),!!book.stOriginalData,book.name,book.description || '',book.stBookFields || {},book.stBookExtensions || {},(book.entries || []).map(({id,stUid,...entry})=>entry)]));
+  }
   function parseCard(file, bytes) {
     const png = /\.png$/i.test(file.name);
     const text = png ? root.TAPng.readChara(bytes) : null;
@@ -24,9 +31,9 @@
     card.name = String(card.name || file.name.replace(/\.(png|json)$/i, '')).trim();
     return { card, png };
   }
-  function makeBook(spec, fallback) {
+  function makeBook(spec, fallback, fromCharacterBook=false) {
     if (!spec || typeof spec !== 'object') throw new Error('这个文件没有世界书条目。');
-    const imported = root.TAFormats.worldInfoToBook(spec, fallback);
+    const imported = root.TAFormats.worldInfoToBook(spec, fallback, fromCharacterBook);
     return {
       ...imported, id: root.TAStore.uid('book'),
       entries: imported.entries.map((entry) => Object.assign({ secondaryKeys: [], constant: false, selective: true, order: 100, position: 'before_char', enabled: true, depth: 4, outletName: '' }, entry, { id: root.TAStore.uid('lore') })),
@@ -40,7 +47,7 @@
       const parsed = parseCard(file,bytes);
       card = {...parsed.card,id:root.TAStore.uid('ch'),createdAt:stamp,updatedAt:stamp,avatarAssetId:null,expressionAssetIds:[]};
       if (card.book) {
-        book = makeBook(card.book,card.name+' · '+ui.t('世界书'));
+        book = makeBook(card.book,card.name+' · '+ui.t('世界书'),true);
         card.embeddedBookId = book.id;
       }
       delete card.book;
@@ -86,6 +93,21 @@
     for (const {raw} of chunks) { image.set(raw, offset); offset += raw.length; }
     return digest(image);
   }
+  // Keep this encoding compatible with existing unmarked folder-scan JPEGs.
+  async function makeAvatar(bytes) {
+    const bitmap=await createImageBitmap(new Blob([bytes],{type:'image/png'}));
+    try {
+      const ratio=Math.min(1,192/bitmap.width,256/bitmap.height);
+      const canvas=document.createElement('canvas');
+      canvas.width=Math.max(1,Math.round(bitmap.width*ratio));
+      canvas.height=Math.max(1,Math.round(bitmap.height*ratio));
+      const context=canvas.getContext('2d');
+      context.fillStyle='#212420';context.fillRect(0,0,canvas.width,canvas.height);
+      context.drawImage(bitmap,0,0,canvas.width,canvas.height);
+      const dataUrl=canvas.toDataURL('image/jpeg',.8);
+      return {dataUrl,mime:'image/jpeg',bytes:Math.ceil(dataUrl.length*.75)};
+    } finally {bitmap.close();}
+  }
   function pngAvatar(bytes) {
     let binary = '';
     for (let offset = 0; offset < bytes.length; offset += 32768) binary += String.fromCharCode(...bytes.subarray(offset, offset + 32768));
@@ -113,12 +135,12 @@
       if (card.folderTextHash) rememberOrigin(card, card.folderTextHash);
     }
 
-    return async function scan(file, bytes, key, hash) {
-      const previous = sources[key], priorCard = byId.get(previous?.id), png = /\.png$/i.test(file.name);
+    return async function scan(file, bytes, hash, previous) {
+      const priorCard = byId.get(previous?.id), png = /\.png$/i.test(file.name);
       const sameFile = priorCard && previous.hash === hash;
       if (sameFile && (!png || (previous.portraitHash && previous.portraitHash === priorCard.folderPortraitHash && !priorCard.folderAvatarPending))) {
         report.unchanged++;
-        return;
+        return previous;
       }
       const portraitHash = png ? await portraitDigest(bytes) : null;
       let thumbnail;
@@ -145,7 +167,8 @@
           bytes.length <= Math.min(260000, remaining) ? pngAvatar(bytes) : null;
         if (!avatar) { card.folderAvatarPending = true; report.avatarsOmitted++; return; }
         const id = root.TAStore.uid('asset');
-        const asset = {...avatar, id, name:card.name + ' · 头像', kind:'avatar', createdAt:new Date().toISOString()};
+        const asset = {...avatar, id, name:card.name + ' · 头像', kind:'avatar', createdAt:new Date().toISOString(),
+          ...(avatar===small ? {folderPortraitPreview:true} : {})};
         assets.set(id, asset);
         library.assets.push(asset);
         card.avatarAssetId = id;
@@ -161,17 +184,19 @@
           else await attachPortrait(priorCard);
         }
         report.unchanged++;
-        return;
+        return previous;
       }
 
       const {card:partial} = parseCard(file, bytes);
       if (partial.book != null) {
-        try { partial.embeddedBookId = adoptBook(makeBook(partial.book, partial.name + ' · 角色书')).id; }
+        try { partial.embeddedBookId = adoptBook(makeBook(partial.book, partial.name + ' · 角色书',true)).id; }
         catch (error) { report.failed.push({name:file.name + ' · 内嵌世界书', reason:error.message || String(error)}); }
       }
       delete partial.book;
       const textKey = signature(partial), textHash = await digest(new TextEncoder().encode(textKey));
-      const candidates = [...new Set([...(variants.get(textKey) || []), ...(origins.get(textHash) || [])])];
+      const sourceIdentity=JSON.stringify(attribution(partial));
+      const candidates = [...new Set([...(variants.get(textKey) || []), ...(origins.get(textHash) || [])])]
+        .filter(candidate=>JSON.stringify(attribution(candidate))===sourceIdentity);
       let card;
       if (priorCard && previous.textHash === textHash && (!png || previous.portraitHash === portraitHash)) {
         card = priorCard;
@@ -195,7 +220,7 @@
       } else jsonCards.add(card.id);
       rememberOrigin(card, textHash);
       if (priorCard && priorCard.id !== card.id) report.updatedCardId ||= card.id;
-      sources[key] = {hash, textHash, id:card.id, kind:'cards', ...(png ? {portraitHash} : {})};
+      return {hash, textHash, id:card.id, kind:'cards', ...(png ? {portraitHash} : {})};
     };
   }
   async function importAll(library, paths, adapter, options = {}) {
@@ -203,47 +228,92 @@
     next.chats ||= []; next.settings ||= {}; next.assets ||= []; next.characters ||= []; next.worldBooks ||= [];
     const sources = next.settings.folderImports ||= {};
     const report = { cards: 0, books: 0, chats: 0, unchanged: 0, failed: [], firstCardId: '', firstBookId: '', avatarsOmitted: 0 };
-    const seenBooks = new Map(next.worldBooks.map((book) => [bookSignature(book), book]));
-    const adoptBook = (book) => {
-      const key = bookSignature(book), existing = seenBooks.get(key);
+    const seenBooks=new Map();
+    function indexBook(book,key) {
+      const editions=seenBooks.get(key) || {byUid:new Map()};
+      editions.embedded=book;
+      editions.byUid.set(nativeIds(book),book);
+      seenBooks.set(key,editions);
+    }
+    for(const book of next.worldBooks)indexBook(book,bookSignature(book));
+    const adoptBook = (book,standalone=false) => {
+      const key=bookSignature(book),editions=seenBooks.get(key);
+      const existing=standalone ? editions?.byUid.get(nativeIds(book)) : editions?.embedded;
       if (existing) return existing;
-      next.worldBooks.push(book); seenBooks.set(key, book); report.books++; report.firstBookId ||= book.id;
+      next.worldBooks.push(book); indexBook(book,key); report.books++; report.firstBookId ||= book.id;
       return book;
     };
     const scanCard = cardScanner(next, sources, options, report, adoptBook);
     const seenChats = new Map(next.chats.filter(chat=>chat.stFileHash).map(chat=>[chat.stFileHash,chat]));
+    // Previous versions folded case and could join different editions under one ID.
+    // Keep local edits on unambiguous receipts, re-identify shared legacy sources.
+    const legacy=new Map(), legacyHashes=new Map(), caseVariants=new Map();
+    for(const [key,source] of Object.entries(sources)) if(source){
+      const folded=key.toLowerCase();
+      caseVariants.set(folded,caseVariants.has(folded) ? null : key);
+      if(source.identityVersion===2)continue;
+      legacy.set(key,source);
+      const keyId=JSON.stringify([source.kind,source.id]);
+      if(!legacyHashes.has(keyId))legacyHashes.set(keyId,new Set());
+      legacyHashes.get(keyId).add(source.hash);
+    }
     for (const kind of ['cards', 'worlds', 'chats']) {
       if (!paths[kind] || (kind !== 'cards' && options.cardsOnly)) continue;
       let files;
       try { files = await adapter.list(paths[kind]); }
       catch (error) { report.failed.push({ name: paths[kind], reason: error.message || String(error) }); continue; }
-      for (const file of files.filter((file) => kind === 'cards' ? /\.(png|json)$/i.test(file.name) : kind === 'chats' ? /\.jsonl$/i.test(file.name) : /\.json$/i.test(file.name))) {
+      const selected=files.filter(file=>kind==='cards' ? /\.(png|json)$/i.test(file.name) : kind==='chats' ? /\.jsonl$/i.test(file.name) : /\.json$/i.test(file.name));
+      const counts=new Map();
+      for(const file of selected){const folded=sourceKey(file.full).toLowerCase();counts.set(folded,(counts.get(folded)||0)+1);}
+      for (const file of selected) {
         try {
           const raw = await adapter.read(file.full);
           const bytes = raw instanceof Uint8Array ? raw : new Uint8Array(raw);
-          const hash = await digest(bytes), key = sourceKey(file.full), previous = sources[key];
-          const collection = kind === 'chats' ? next.chats : next.worldBooks;
-          if (kind !== 'cards' && previous?.hash === hash && collection.some((item) => item.id === previous.id)) { report.unchanged++; continue; }
+          const hash = await digest(bytes), key = sourceKey(file.full), folded=key.toLowerCase();
+          const old=legacy.get(folded), collision=counts.get(folded)>1;
+          const formerPath=!collision && caseVariants.get(folded);
+          const former=formerPath && sources[formerPath];
+          let previous=sources[key] || old || (former?.hash===hash && former.kind===kind ? former : undefined);
+          const collection = kind==='cards' ? next.characters : kind==='chats' ? next.chats : next.worldBooks;
+          let prior=previous?.hash===hash && collection.find(item=>item.id===previous.id);
+          let book;
+          const readBook=()=>book ||= makeBook(decode(bytes),file.name.replace(/\.json$/i, ''));
+          if(prior && previous.identityVersion!==2 && (collision || legacyHashes.get(JSON.stringify([kind,prior.id]))?.size>1)){
+            const candidate=kind==='worlds' ? readBook() : kind==='cards' ? parseCard(file,bytes).card : null;
+            const identity=work=>kind==='worlds' ? [attribution(work),!!work.stOriginalData,nativeIds(work)] : attribution(work);
+            const differentOwner=kind==='chats' && (prior.stOwner || '')!==(file.owner || '');
+            if(differentOwner || candidate && (JSON.stringify(stable(identity(candidate)))!==JSON.stringify(stable(identity(prior))) || collision && candidate.name!==prior.name)){
+              previous=null;prior=null;
+            }
+          }
+          let receipt;
           if (kind === 'cards') {
-            await scanCard(file, bytes, key, hash);
+            receipt=await scanCard(file,bytes,hash,previous);
+          } else if(prior) {
+            receipt=previous;report.unchanged++;
           } else if (kind === 'chats') {
             const chatKey = JSON.stringify([file.owner || '',hash]);
-            const existing = seenChats.get(chatKey);
-            if (existing) { sources[key] = {hash,id:existing.id,kind}; report.unchanged++; continue; }
-            const parsed = root.TAFormats.chatFromText(new TextDecoder().decode(bytes),file.name);
-            const chat = {...parsed,id:root.TAStore.uid('chat'),stFileHash:chatKey,stOwner:file.owner || ''};
-            next.chats.push(chat); seenChats.set(chatKey,chat); sources[key] = {hash,id:chat.id,kind}; report.chats++;
+            let chat=seenChats.get(chatKey);
+            if(chat) report.unchanged++;
+            else {
+              const parsed=root.TAFormats.chatFromText(new TextDecoder().decode(bytes),file.name);
+              chat={...parsed,id:root.TAStore.uid('chat'),stFileHash:chatKey,stOwner:file.owner || ''};
+              next.chats.push(chat);seenChats.set(chatKey,chat);report.chats++;
+            }
+            receipt={hash,id:chat.id,kind};
           } else {
-            const spec = decode(bytes), book = makeBook(spec, file.name.replace(/\.json$/i, ''));
-            const added = adoptBook(book);
-            sources[key] = { hash, id: added.id, kind };
+            const added = adoptBook(readBook(),true);
+            receipt={hash,id:added.id,kind};
             if (added !== book) report.unchanged++;
           }
+          sources[key]={...receipt,identityVersion:2};
+          if(old && key!==folded && !collision && sources[folded]?.identityVersion!==2)delete sources[folded];
+          else if(formerPath && formerPath!==key && previous===former)delete sources[formerPath];
         } catch (error) { report.failed.push({ name: file.owner ? file.owner + '/' + file.name : file.name, reason: error.message || String(error) }); }
         options.onProgress?.(report);
       }
     }
     return { library: next, report };
   }
-  root.TAFolderImport = { importAll, importDocument, parseCard, makeBook, profileFiles };
+  root.TAFolderImport = { importAll, importDocument, parseCard, makeBook, makeAvatar, profileFiles };
 })(globalThis);

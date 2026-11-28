@@ -174,7 +174,7 @@
   // Discrete work edits and their snapshots share the same library transaction.
   // Legacy storage still supports manual writes. AI adoption and rollback keep
   // their existing requirement for durable version history.
-  function commitWorks(next, targets, {reason, historyRequired=false, recordChanges=false, fileChanges=[], draft=null, ...options} = {}) {
+  function commitWorks(next, targets, {reason, historyRequired=false, recordChanges=false, fileChanges=[], fileChangesWork, draft=null, ...options} = {}) {
     const history = reason && targets.length && (historyRequired ? database() : root.TALibraryDB?.database());
     const rows=[], seen=new Set();
     for (const [kind,expected] of targets) {
@@ -186,7 +186,8 @@
         const snapshot=version(kind,live,reason);
         if(recordChanges){
           const after=next[kind].find(work=>work.id===live.id);
-          if(after)snapshot.operationChanges=diff(live,after).map(change=>({...change,path:String(change.path)})).concat(fileChanges);
+          const includeFile=!fileChangesWork || fileChangesWork[0]===kind && fileChangesWork[1]===live.id;
+          if(after)snapshot.operationChanges=diff(live,after).map(change=>({...change,path:String(change.path)})).concat(includeFile?fileChanges:[]);
         }
         rows.push(snapshot);seen.add(key);
       }
