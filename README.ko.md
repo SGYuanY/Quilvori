@@ -10,11 +10,27 @@ Quilvori는 SillyTavern용 자료를 만드는 도구입니다. 캐릭터 카드
 
 ## 화면 미리보기
 
-가상의 예시 작품으로 컬렉션, 캐릭터 편집기와 월드북 발동 미리보기를 보여 줍니다.
+가상의 인물 Iris Vale과 Alderwick Coast 자료실로 촬영한 화면입니다.
 
 <a href="docs/screenshots/collection.png"><img src="docs/screenshots/collection.png" alt="캐릭터 카드와 월드북 표지가 있는 컬렉션"></a>
 
 <table>
+  <tr>
+    <td width="50%"><a href="docs/screenshots/character-work-page.png"><img src="docs/screenshots/character-work-page.png" alt="Iris Vale에 연결된 월드북, 표정 팩, 빠른 답장과 초안"></a></td>
+    <td width="50%"><a href="docs/screenshots/shared-world-book.png"><img src="docs/screenshots/shared-world-book.png" alt="Alderwick Coast 월드북을 사용하는 캐릭터 세 명"></a></td>
+  </tr>
+  <tr>
+    <td align="center">캐릭터 작품 페이지</td>
+    <td align="center">공유 월드북</td>
+  </tr>
+  <tr>
+    <td width="50%"><a href="docs/screenshots/snapshot-comparison.png"><img src="docs/screenshots/snapshot-comparison.png" alt="버전 기록에서 비교한 이전 캐릭터 설명과 현재 초안"></a></td>
+    <td width="50%"><a href="docs/screenshots/review-unsaved-edits.png"><img src="docs/screenshots/review-unsaved-edits.png" alt="저장된 캐릭터 설명과 현재 탭에서 편집한 설명을 비교하는 화면"></a></td>
+  </tr>
+  <tr>
+    <td align="center">스냅샷 비교</td>
+    <td align="center">두 탭의 수정 내용 검토</td>
+  </tr>
   <tr>
     <td width="50%"><a href="docs/screenshots/character-editor.png"><img src="docs/screenshots/character-editor.png" alt="캐릭터 편집기와 실시간 미리보기"></a></td>
     <td width="50%"><a href="docs/screenshots/world-book-trigger.png"><img src="docs/screenshots/world-book-trigger.png" alt="예시 대화에 반응한 월드북 항목"></a></td>

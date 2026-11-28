@@ -10,11 +10,27 @@ Quilvori は SillyTavern 用の素材を作るためのアプリです。キャ�
 
 ## 画面紹介
 
-架空のサンプル作品で、コレクション、キャラクター編集、ワールドブックの発動プレビューを表示しています。
+架空のキャラクター Iris Vale と Alderwick Coast のライブラリを使った画面です。
 
 <a href="docs/screenshots/collection.png"><img src="docs/screenshots/collection.png" alt="コレクションに並んだカードとワールドブックの表紙"></a>
 
 <table>
+  <tr>
+    <td width="50%"><a href="docs/screenshots/character-work-page.png"><img src="docs/screenshots/character-work-page.png" alt="Iris Vale に紐づくワールドブック、表情パック、クイック返信、下書き"></a></td>
+    <td width="50%"><a href="docs/screenshots/shared-world-book.png"><img src="docs/screenshots/shared-world-book.png" alt="Alderwick Coast を使用する3人のキャラクター"></a></td>
+  </tr>
+  <tr>
+    <td align="center">キャラクターの作品ページ</td>
+    <td align="center">共有ワールドブック</td>
+  </tr>
+  <tr>
+    <td width="50%"><a href="docs/screenshots/snapshot-comparison.png"><img src="docs/screenshots/snapshot-comparison.png" alt="履歴に残したキャラクター説明と現在の原稿"></a></td>
+    <td width="50%"><a href="docs/screenshots/review-unsaved-edits.png"><img src="docs/screenshots/review-unsaved-edits.png" alt="保存済みの説明とこのタブの説明を比較する画面"></a></td>
+  </tr>
+  <tr>
+    <td align="center">スナップショットの比較</td>
+    <td align="center">2つのタブの変更を確認</td>
+  </tr>
   <tr>
     <td width="50%"><a href="docs/screenshots/character-editor.png"><img src="docs/screenshots/character-editor.png" alt="キャラクター編集とプレビュー"></a></td>
     <td width="50%"><a href="docs/screenshots/world-book-trigger.png"><img src="docs/screenshots/world-book-trigger.png" alt="会話に一致したワールドブックの項目"></a></td>

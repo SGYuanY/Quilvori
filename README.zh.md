@@ -10,11 +10,27 @@ Quilvori 是为 SillyTavern 素材准备的本地写作工作台。你可以编�
 
 ## 界面实拍
 
-下图使用专为演示制作的虚构作品，展示收藏室、角色卡编辑器和世界书触发测试。
+以下截图使用虚构角色 Iris Vale 和她的 Alderwick Coast 资料库。
 
 <a href="docs/screenshots/collection.png"><img src="docs/screenshots/collection.png" alt="收藏室中的角色卡和世界书封面"></a>
 
 <table>
+  <tr>
+    <td width="50%"><a href="docs/screenshots/character-work-page.png"><img src="docs/screenshots/character-work-page.png" alt="Iris Vale 关联的世界书、表情包、快捷回复和草稿"></a></td>
+    <td width="50%"><a href="docs/screenshots/shared-world-book.png"><img src="docs/screenshots/shared-world-book.png" alt="Alderwick Coast 世界书及使用它的三张角色卡"></a></td>
+  </tr>
+  <tr>
+    <td align="center">角色作品页</td>
+    <td align="center">共享世界书</td>
+  </tr>
+  <tr>
+    <td width="50%"><a href="docs/screenshots/snapshot-comparison.png"><img src="docs/screenshots/snapshot-comparison.png" alt="版本历史中的旧角色描述与当前稿"></a></td>
+    <td width="50%"><a href="docs/screenshots/review-unsaved-edits.png"><img src="docs/screenshots/review-unsaved-edits.png" alt="同一角色描述的已保存版本与本窗口待保存版本"></a></td>
+  </tr>
+  <tr>
+    <td align="center">快照对比</td>
+    <td align="center">核对两个标签页的改动</td>
+  </tr>
   <tr>
     <td width="50%"><a href="docs/screenshots/character-editor.png"><img src="docs/screenshots/character-editor.png" alt="角色卡编辑器与实时预览"></a></td>
     <td width="50%"><a href="docs/screenshots/world-book-trigger.png"><img src="docs/screenshots/world-book-trigger.png" alt="世界书触发测试列出的条目和上下文开销"></a></td>

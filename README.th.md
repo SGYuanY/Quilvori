@@ -10,11 +10,27 @@ Quilvori ช่วยเตรียมเนื้อหาสำหรับ S
 
 ## ภาพหน้าจอ
 
-ภาพเหล่านี้ใช้ผลงานสมมติเพื่อแสดงคลังผลงาน ตัวแก้ไขตัวละคร และการทดสอบการทำงานของหนังสือโลก
+ภาพหน้าจอใช้ตัวละครสมมติ Iris Vale และคลังผลงาน Alderwick Coast
 
 <a href="docs/screenshots/collection.png"><img src="docs/screenshots/collection.png" alt="คลังผลงานที่มีการ์ดตัวละครและปกหนังสือโลก"></a>
 
 <table>
+  <tr>
+    <td width="50%"><a href="docs/screenshots/character-work-page.png"><img src="docs/screenshots/character-work-page.png" alt="หนังสือโลก ชุดสีหน้า ข้อความตอบกลับด่วน และฉบับร่างที่เชื่อมกับ Iris Vale"></a></td>
+    <td width="50%"><a href="docs/screenshots/shared-world-book.png"><img src="docs/screenshots/shared-world-book.png" alt="ตัวละครสามตัวที่ใช้หนังสือโลก Alderwick Coast"></a></td>
+  </tr>
+  <tr>
+    <td align="center">หน้าผลงานของตัวละคร</td>
+    <td align="center">หนังสือโลกที่ใช้ร่วมกัน</td>
+  </tr>
+  <tr>
+    <td width="50%"><a href="docs/screenshots/snapshot-comparison.png"><img src="docs/screenshots/snapshot-comparison.png" alt="คำบรรยายตัวละครฉบับก่อนและร่างปัจจุบันในประวัติเวอร์ชัน"></a></td>
+    <td width="50%"><a href="docs/screenshots/review-unsaved-edits.png"><img src="docs/screenshots/review-unsaved-edits.png" alt="เปรียบเทียบคำบรรยายฉบับที่บันทึกแล้วกับฉบับที่แก้ในแท็บนี้"></a></td>
+  </tr>
+  <tr>
+    <td align="center">เปรียบเทียบกับสแนปช็อต</td>
+    <td align="center">ตรวจการแก้ไขจากสองแท็บ</td>
+  </tr>
   <tr>
     <td width="50%"><a href="docs/screenshots/character-editor.png"><img src="docs/screenshots/character-editor.png" alt="ตัวแก้ไขตัวละครพร้อมภาพตัวอย่างการ์ด"></a></td>
     <td width="50%"><a href="docs/screenshots/world-book-trigger.png"><img src="docs/screenshots/world-book-trigger.png" alt="รายการในหนังสือโลกที่ทำงานจากบทสนทนาตัวอย่าง"></a></td>

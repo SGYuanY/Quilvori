@@ -10,11 +10,27 @@ Quilvori prepares material for SillyTavern. Edit character cards and world books
 
 ## See the workbench
 
-The collection, character editor and world-book trigger preview below use a fictional sample library.
+These screenshots show Iris Vale and the fictional Alderwick Coast library.
 
 <a href="docs/screenshots/collection.png"><img src="docs/screenshots/collection.png" alt="Collection with character portraits and a world-book cover"></a>
 
 <table>
+  <tr>
+    <td width="50%"><a href="docs/screenshots/character-work-page.png"><img src="docs/screenshots/character-work-page.png" alt="Iris Vale with her embedded world book, expression pack, Quick Replies and related draft"></a></td>
+    <td width="50%"><a href="docs/screenshots/shared-world-book.png"><img src="docs/screenshots/shared-world-book.png" alt="Alderwick Coast with the three characters that use it"></a></td>
+  </tr>
+  <tr>
+    <td align="center">Character work page</td>
+    <td align="center">Shared world book</td>
+  </tr>
+  <tr>
+    <td width="50%"><a href="docs/screenshots/snapshot-comparison.png"><img src="docs/screenshots/snapshot-comparison.png" alt="The snapshot and current descriptions of Iris Vale in version history"></a></td>
+    <td width="50%"><a href="docs/screenshots/review-unsaved-edits.png"><img src="docs/screenshots/review-unsaved-edits.png" alt="Saved and unsaved descriptions of Iris Vale in the field comparison dialog"></a></td>
+  </tr>
+  <tr>
+    <td align="center">Snapshot comparison</td>
+    <td align="center">Reviewing edits from two tabs</td>
+  </tr>
   <tr>
     <td width="50%"><a href="docs/screenshots/character-editor.png"><img src="docs/screenshots/character-editor.png" alt="Character editor showing Iris Vale and her live card preview"></a></td>
     <td width="50%"><a href="docs/screenshots/world-book-trigger.png"><img src="docs/screenshots/world-book-trigger.png" alt="World-book trigger test showing the entries matched by a sample conversation"></a></td>

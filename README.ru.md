@@ -10,11 +10,27 @@ Quilvori помогает готовить материалы для SillyTavern
 
 ## Снимки экрана
 
-Коллекция, редактор персонажей и проверка активации книги мира показаны на примере вымышленной библиотеки.
+На скриншотах показаны вымышленная героиня Iris Vale и библиотека Alderwick Coast.
 
 <a href="docs/screenshots/collection.png"><img src="docs/screenshots/collection.png" alt="Коллекция с портретами персонажей и обложкой книги мира"></a>
 
 <table>
+  <tr>
+    <td width="50%"><a href="docs/screenshots/character-work-page.png"><img src="docs/screenshots/character-work-page.png" alt="Книга мира, набор эмоций, быстрые ответы и черновик Iris Vale"></a></td>
+    <td width="50%"><a href="docs/screenshots/shared-world-book.png"><img src="docs/screenshots/shared-world-book.png" alt="Три персонажа, использующих книгу мира Alderwick Coast"></a></td>
+  </tr>
+  <tr>
+    <td align="center">Страница персонажа</td>
+    <td align="center">Общая книга мира</td>
+  </tr>
+  <tr>
+    <td width="50%"><a href="docs/screenshots/snapshot-comparison.png"><img src="docs/screenshots/snapshot-comparison.png" alt="Ранняя и текущая версии описания персонажа в истории изменений"></a></td>
+    <td width="50%"><a href="docs/screenshots/review-unsaved-edits.png"><img src="docs/screenshots/review-unsaved-edits.png" alt="Сохранённое описание Iris Vale и правки из текущей вкладки"></a></td>
+  </tr>
+  <tr>
+    <td align="center">Сравнение со снимком</td>
+    <td align="center">Сравнение правок из двух вкладок</td>
+  </tr>
   <tr>
     <td width="50%"><a href="docs/screenshots/character-editor.png"><img src="docs/screenshots/character-editor.png" alt="Редактор персонажа с предварительным просмотром карточки"></a></td>
     <td width="50%"><a href="docs/screenshots/world-book-trigger.png"><img src="docs/screenshots/world-book-trigger.png" alt="Записи книги мира, сработавшие на пример диалога"></a></td>
