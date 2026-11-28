@@ -1186,7 +1186,7 @@
           transfer=root.TAWorkBackup.transfer(baseline,state,answer);
         }
         const keepFocus=document.activeElement===stage.querySelector('#load-backup');
-        await UI.commitLibrary(candidate,[],false,null,{transfer});
+        await UI.commitLibrary(candidate,[],false,null,{transfer,worldSync:answer==='replace'?{reset:true}:undefined});
         if(answer==='replace')root.TAIntegrityPanel.resetUndo();
         UI.state.loreUndo?.clear();
         UI.applyTheme();

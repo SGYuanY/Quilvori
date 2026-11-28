@@ -96,6 +96,7 @@
     const editor = stage.querySelector('#lore-editor');
     const toolbar = stage.querySelector('.toolbar');
     toolbar.classList.add('qc-book-toolbar'); root.TACollectionControls.mountMore(toolbar);
+    root.TAWorldSyncPanel.mount(toolbar,book);
     stage.querySelector('#lore-group-by').onchange = (event) => { UI.state.loreGroupBy = event.target.value; UI.renderStage(); };
     stage.querySelector('#book-select').onchange = (event) => root.TASearch.open({kind:'book',id:event.target.value,field:'name',selectOnly:true});
     stage.querySelector('#new-book').onclick = () => addBook();

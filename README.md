@@ -267,6 +267,12 @@ Use **Open original post** to read the author's instructions and obtain the curr
 
 An “unknown” usage status is not permission to redistribute. Public visibility does not place a work under this repository's GPLv3 license. Follow the original creator's terms and support them in the original post's comments if you enjoy their work; Quilvori does not post messages or comments on your behalf.
 
+## Sync a standalone SillyTavern world book
+
+In the world-book editor, choose **Compare a SillyTavern file** and select its World Info JSON. Check the names on first link. Later comparisons use the last common version and the native entry UID, including UID 0. Expand a field to read the common, local and file values. Resolve conflicting changes, then confirm.
+
+The desktop edition backs up the original file on this device, checks it again before replacement, and reads back the saved result. Refresh the SillyTavern page and open the book to load the new file. **Restore previous file** restores its original bytes. The browser edition downloads a merged JSON when needed. Import it into SillyTavern and select the installed file again to verify it. Device file links stay outside library backups. **Version history → Changes in this operation** shows the fields changed by a recorded AI edit or sync.
+
 ## Storage, backups, and updates
 
 Your library and revision history use IndexedDB in the current browser or desktop profile. On upgrade, Quilvori migrates the previous localStorage library and archives the original bytes in the same transaction. **Full-library backup → Download pre-migration library** retrieves that copy. Browser profiles, addresses and ports can have separate libraries. Use the same entry point each time and move your current library with backup export and restore.

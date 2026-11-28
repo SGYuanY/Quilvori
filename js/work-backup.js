@@ -17,7 +17,7 @@
   // A backup may contain two deliberately identical snapshots. Match their counts,
   // ignoring the database sequence and entity index that belong to this device.
   function missingVersions(existing,incoming) {
-    const key=row=>signature([row.kind,row.id,row.time,row.reason,row.label??'',row.value]);
+    const key=row=>signature([row.kind,row.id,row.time,row.reason,row.label??'',row.value,row.operationChanges??null]);
     const counts=new Map();
     for(const row of existing){
       const id=key(row);counts.set(id,(counts.get(id)||0)+1);
@@ -71,7 +71,16 @@
   function snapshot(row) {
     if(!object(row)||!kinds.has(row.kind)||!id(row.id)||row.value?.id!==row.id||!Number.isFinite(row.time)||
       !text(row.reason)||!text(row.label??''))fail('versions');
-    return {kind:row.kind,id:row.id,time:row.time,reason:row.reason,label:row.label??'',value:item(row.kind,row.value,'snapshot.value')};
+    const result={kind:row.kind,id:row.id,time:row.time,reason:row.reason,label:row.label??'',value:item(row.kind,row.value,'snapshot.value')};
+    if(own(row,'operationChanges')){
+      if(!Array.isArray(row.operationChanges))fail('versions.operationChanges');
+      result.operationChanges=row.operationChanges.map(change=>{
+        if(!object(change)||!text(change.path)||(own(change,'side')&&change.side!=='file')||
+          (!own(change,'before')&&!own(change,'after')))fail('versions.operationChanges');
+        return only(change,['path','side','before','after']);
+      });
+    }
+    return result;
   }
   function limit(row) {
     if(!object(row)||!kinds.has(row.kind)||!id(row.id)||!Number.isSafeInteger(row.keep)||row.keep<1)fail('limits');

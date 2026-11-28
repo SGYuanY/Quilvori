@@ -49,6 +49,7 @@ Use a separate browser profile or port for manual tests with sample data. Each b
 | `js/character-editor.js`, `js/world-editor.js`, `js/work-editor-tools.js` | Character and world-book pages, including their shared JSON, media and AI controls. |
 | `src/formats/card-world.ts`, `src/formats/workshop.js` | Typed card and world-book conversion, and the remaining workshop format implementations. |
 | `src/restore/work-restore.ts`, `src/creation/work-outcomes.ts` | Planning a single-work restore and locating the works from a generation in the current draft shelf or library. |
+| `src/sync/`, `electron/world-sync.js` | Comparing standalone World Info by entry UID, reviewing field choices, and verifying desktop file writes. |
 | `js/store.js`, `js/history.js`, `js/png.js` | Library storage, work edits and revision history, and card PNG data. |
 | `js/model.js`, `js/ai-tasks.js`, `js/studio.js`, `js/creation.js` | Model transport, typed tasks, editing proposals, and creation sessions. |
 | `js/organize*.js`, `js/review.js` | Lossless organization and readable review reports. |
@@ -81,7 +82,7 @@ npm test
 
 Edit card and world-book conversions in `src/formats/card-world.ts`. Incoming files enter as `unknown`. Library records and native exports have separate types, including fields for third-party metadata. Prompt preset conversion uses checked JSDoc in `js/prompt-presets.js`.
 
-Run `npm run build:formats` after editing sources under `src/`. Commit the affected generated scripts alongside the sources. The web and desktop editions load `js/formats.js`, `js/work-restore.js`, and `js/work-outcomes.js` directly. Both packaging commands regenerate them. Validation checks their contents and strict TypeScript diagnostics.
+Run `npm run build:formats` after editing sources under `src/`. Commit the affected generated scripts alongside the sources. The web and desktop editions load `js/formats.js`, `js/work-restore.js`, `js/work-outcomes.js` and `js/world-sync.js` directly. The sync bundle includes its review UI and translations. Both packaging commands regenerate these files. Validation checks their contents and strict TypeScript diagnostics.
 
 Use `TAHistory.commitWorks` for a discrete replacement of an existing card or book. Pass the expected work and snapshot reason so the edit and its prior version are saved in one transaction. Ordinary field typing uses the existing debounced, per-work save.
 
@@ -106,6 +107,8 @@ The Windows portable executable or macOS disk image and its SHA-256 checksum app
 For the browser edition, run `npm run build:web` and `npm run test:web-download` with Chrome installed. Set `CHROME_BIN` if Chrome is outside its standard location. The test serves the finished ZIP on loopback in an isolated browser profile.
 
 The Desktop packages workflow builds and tests the browser ZIP, Windows x64, Apple silicon and Intel Mac downloads for `release/**` branches, version tags and manual runs. Each edition has its own downloadable Actions artifact. Package publication is a separate release step.
+
+To test a package against SillyTavern, run `npm run test:desktop -- --st-source <checkout>` or `npm run test:web-download -- --st-source <checkout>`. This optional test uses an installed SillyTavern checkout, Chrome, `git` and `tar`. It exports the committed server into a temporary directory, copies dependencies, and starts a loopback server with fresh settings and a test user. It opens the merged book in the real World Info editor and verifies the restored original bytes on desktop. The editor checks have been exercised with SillyTavern 1.18.0.
 
 ## Preserve authored data and compatibility
 

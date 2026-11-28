@@ -13,6 +13,7 @@
     "js/prompt-presets.js",
     "src/formats/card-world.ts",
     "src/restore/work-restore.ts",
-    "src/creation/work-outcomes.ts"
+    "src/creation/work-outcomes.ts",
+    "src/sync/world-sync.ts"
   ]
 }

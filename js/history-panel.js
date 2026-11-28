@@ -110,26 +110,39 @@
     const panel=host.lastElementChild, at=selector=>panel.querySelector(selector);
     const live=()=>ui().state.lib[kind].find(row=>row.id===item.id);
     const status=text=>{at('[role=status]').textContent=text;};
-    let applyManagement, revision=0, selected=0, chosen,compared;
+    let applyManagement, revision=0, selected=0, chosen,compared,shownOperation;
+    function appendDifferences(target,changes,labels) {
+      const format=v=>v===undefined ? '—' : typeof v==='string' ? v : JSON.stringify(v,null,2);
+      for (const change of changes) {
+        const section=document.createElement('details'),name=document.createElement('summary');
+        name.dataset.noTranslate='';
+        name.textContent=(change.side==='file'?tr('sync.file')+' · ':'')+String(change.path);
+        section.append(name);
+        for (const [index,value] of [change.before,change.after].entries()) {
+          const caption=document.createElement('small'),text=document.createElement('pre');
+          caption.textContent=tr(labels[index]);text.dataset.noTranslate='';text.textContent=format(value);
+          section.append(caption,text);
+        }
+        target.append(section);
+      }
+    }
     function compare() {
       const target=at('[data-diff]'),restore=at('[data-restore]');
+      if(shownOperation!==chosen){
+        const operation=at('[data-operation]'),details=operation.lastElementChild;
+        shownOperation=chosen;operation.open=false;operation.hidden=!chosen?.operationChanges?.length;
+        details.replaceChildren();
+        operation.ontoggle=()=>{
+          if(operation.open && chosen && !details.childElementCount)appendDifferences(details,chosen.operationChanges || [],['修改前','修改后']);
+        };
+      }
       target.replaceChildren();restore.disabled=true;
       if (!chosen || !live()) return;
       compared=structuredClone(live());
       const differences=history.diff(chosen.value,compared);
       restore.disabled=!differences.length;
       if (!differences.length) {target.textContent=tr('与当前稿相同');return;}
-      const format=v=>v===undefined ? '—' : typeof v==='string' ? v : JSON.stringify(v,null,2);
-      for (const change of differences) {
-        const section=document.createElement('details'),name=document.createElement('summary');
-        name.dataset.noTranslate='';name.textContent=tr(change.path);section.append(name);
-        for (const [label,value] of [['快照内容',change.before],['当前稿',change.after]]) {
-          const caption=document.createElement('small'),text=document.createElement('pre');
-          caption.textContent=tr(label);text.dataset.noTranslate='';text.textContent=format(value);
-          section.append(caption,text);
-        }
-        target.append(section);
-      }
+      appendDifferences(target,differences,['快照内容','当前稿']);
     }
     async function select(seq) {
       const which=++selected;
@@ -161,6 +174,7 @@
         panel.innerHTML='<label class="field"><span>'+txt('快照备注')+'</span><input data-label maxlength="120"></label>'+
           '<div class="row"><button type="button" class="btn" data-snapshot>'+txt('保存快照')+'</button></div>'+
           '<label class="field"><span>'+txt('选择版本')+'</span><select data-versions data-no-translate></select></label>'+
+          '<details data-operation hidden><summary>'+txt('这次操作的改动')+'</summary><div class="revision-diff"></div></details>'+
           '<div data-diff class="revision-diff"></div><button type="button" class="btn" data-restore disabled>'+txt('恢复此版本')+'</button>'+
           '<details><summary>'+txt('管理此作品的快照')+'</summary><div class="stack" data-manage></div></details><p role="status"></p>';
         applyManagement=mountRetention(at('[data-manage]'),status,refresh);

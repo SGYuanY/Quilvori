@@ -140,6 +140,36 @@
     const table=db.transaction('library').objectStore('library');
     return request(onlyKey ? table.getKey(key) : table.get(key));
   };
+  // File authorizations and common versions belong to this device, outside library exports.
+  function worldBinding(id) {
+    return activeDatabase ? readControl(activeDatabase,['worldSync',id]).then(value=>value ?? null) : Promise.resolve(null);
+  }
+  function updateBindings(control,batch,options,abort) {
+    const change=options.worldSync;
+    const range=()=>IDBKeyRange.bound(['worldSync'],['worldSync',[]]);
+    if(options.clear || options.transfer?.mode==='replace' || change?.reset) {
+      control.delete(range());
+      return;
+    }
+    if(batch.full){
+      const layout=batch.rows.find(row=>row.key===layoutKey).value;
+      const ids=new Set(layout.find(([field])=>field==='worldBooks')?.[1]);
+      const cursor=control.openKeyCursor(range());
+      cursor.onsuccess=()=>{
+        const row=cursor.result;
+        if(!row)return;
+        if(!ids.has(row.key[1]))control.delete(row.key);
+        row.continue();
+      };
+    }
+    if(!change)return;
+    const key=['worldSync',change.id], prior=control.get(key);
+    prior.onsuccess=()=>{
+      if((prior.result?.stamp ?? null)!==change.expected){abort(conflict());return;}
+      if(change.next)control.put(change.next,key);
+      else control.delete(key);
+    };
+  }
   function touchWork(tx) {
     tx.objectStore('library').put(root.TAStore.uid('state'),'workRevision');
   }
@@ -216,6 +246,7 @@
             } else if (previous) control.put(previous,undoKey);
             if (batch.full) parts.clear();
             for (const row of batch.rows) parts.put(row);
+            updateBindings(control,batch,options,abort);
             control.put({seq:expected+1,format},headKey);
             if (archive) control.put(archive,archiveKey);
             if (draft) root.TAStudioDrafts.writeTo(tx.objectStore('drafts'),draft,abort);
@@ -342,7 +373,7 @@
       }
     };
     store.backend='indexedDB';
-    store.save=(library,guard,snapshots,draft,scopes,restore,transfer,importSnapshots)=>{
+    store.save=(library,guard,snapshots,draft,scopes,restore,transfer,importSnapshots,worldSync)=>{
       if (locked) throw new Error('请先恢复资料库。');
       let batch;
       if (scopes?.length && scopes.every(([field,,mode])=>!payloadFields.has(field) || mode==='metadata')) batch=changes(library,scopes);
@@ -352,7 +383,7 @@
         batch=pack(data);
       }
       return enqueue(async()=>{
-        await persist(batch,{guard,undo:'keep',snapshots,draft,restore,transfer,importSnapshots});
+        await persist(batch,{guard,undo:'keep',snapshots,draft,restore,transfer,importSnapshots,worldSync});
         if(transfer)clearEpoch=transfer.epoch;
       });
     };
@@ -371,7 +402,7 @@
       if (!locked || raw!==damaged.raw) throw conflict();
       const batch=pack(store.verify(structuredClone(library)));
       const guard=legacyDamage ? ()=>localStorage.getItem(store.KEY)===legacyDamage.raw : undefined;
-      await enqueue(()=>persist(batch,{undo:damaged.previous?'preserve':'discard',fallback:damaged.previous,archive:legacyDamage,guard,transfer}));
+      await enqueue(()=>persist(batch,{undo:damaged.previous?'preserve':'discard',fallback:damaged.previous,archive:legacyDamage,guard,transfer,worldSync:{reset:true}}));
       if(transfer)clearEpoch=transfer.epoch;
       locked=false;
     };
@@ -399,5 +430,5 @@
     } catch(error) {loaded={unavailable:true,message:error.message};}
     root.TAUI.mount(views,loaded);
   }
-  root.TALibraryDB={start,workingState,replacementGuard,touchWork,database:()=>activeDatabase,revision:()=>currentRevision,clearEpoch:()=>clearEpoch};
+  root.TALibraryDB={start,workingState,replacementGuard,touchWork,worldBinding,database:()=>activeDatabase,revision:()=>currentRevision,clearEpoch:()=>clearEpoch};
 })(globalThis);

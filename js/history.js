@@ -19,7 +19,7 @@
   const conflict = () => new Error('资料库已变化，请重新打开。');
   function summary(row,seq) {
     return {seq,entity:row.entity,kind:row.kind,id:row.id,name:row.value?.name || '',time:row.time,label:row.label,reason:row.reason,
-      bytes:new TextEncoder().encode(JSON.stringify(row.value)).byteLength};
+      bytes:new TextEncoder().encode(JSON.stringify(row.value)+(row.operationChanges?JSON.stringify(row.operationChanges):'')).byteLength};
   }
   function remove(tx,keys) {
     for (const seq of keys) {
@@ -174,7 +174,7 @@
   // Discrete work edits and their snapshots share the same library transaction.
   // Legacy storage still supports manual writes. AI adoption and rollback keep
   // their existing requirement for durable version history.
-  function commitWorks(next, targets, {reason, historyRequired=false, draft=null, ...options} = {}) {
+  function commitWorks(next, targets, {reason, historyRequired=false, recordChanges=false, fileChanges=[], draft=null, ...options} = {}) {
     const history = reason && targets.length && (historyRequired ? database() : root.TALibraryDB?.database());
     const rows=[], seen=new Set();
     for (const [kind,expected] of targets) {
@@ -182,7 +182,14 @@
       const live=root.TAStore.byId(root.TAUI.state.lib[kind],expected.id);
       if (!live || live.id !== expected.id || (live !== expected && !same(live,expected))) throw conflict();
       const key=idFor(kind,live.id);
-      if (history && !seen.has(key)) { rows.push(version(kind,live,reason)); seen.add(key); }
+      if (history && !seen.has(key)) {
+        const snapshot=version(kind,live,reason);
+        if(recordChanges){
+          const after=next[kind].find(work=>work.id===live.id);
+          if(after)snapshot.operationChanges=diff(live,after).map(change=>({...change,path:String(change.path)})).concat(fileChanges);
+        }
+        rows.push(snapshot);seen.add(key);
+      }
     }
     return root.TAUI.commitLibrary(next,rows,false,draft,options);
   }
@@ -206,7 +213,7 @@
     }
     const copy=structuredClone(plan),receipt=ai.commit(next,copy,keys);
     const draft=root.TAStudioDrafts?.onAdopt(plan,receipt);
-    await commitWorks(next,works,{reason,historyRequired:true,draft,
+    await commitWorks(next,works,{reason,historyRequired:true,recordChanges:true,draft,
       scopes:scoped ? works.map(([kind,item])=>[kind,item.id]) : undefined});
     if(draft){delete plan.draftRevision;delete plan.draftSaveError;}
     for (const op of receipt.operations) plan.operations.find(row=>row.key===op.key).applied = true;

@@ -13,6 +13,8 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { unzipSync } from 'fflate';
 import { generateAndRestore, verifyWorkDestinations } from './smoke-work-recovery.mjs';
+import { worldSyncFixture } from './smoke-world-sync.mjs';
+import { startTestTavern, verifyTavernEditor } from './smoke-test-tavern.mjs';
 
 const run = promisify(execFile);
 const project = fileURLToPath(new URL('../', import.meta.url));
@@ -34,7 +36,7 @@ const chrome = process.env.CHROME_BIN || (process.platform==='win32'
   : mac ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' : 'google-chrome');
 const appExe = web ? chrome : mac ? path.join(application,'Contents','MacOS','Quilvori') : artifact;
 const nativeMacKeychain = mac && !web && process.env.GITHUB_ACTIONS === 'true' && process.env.QUILVORI_HOSTED_RUNNER === 'github-hosted';
-let webServer, webUrl;
+let webServer, webUrl, syncFixture, testTavern;
 const fixtures = {
   card:'Dawn Courier', text:'Takes a ferry to the old beacon at dawn.',
   book:'Glass Harbor', entry:'The shore lights mark the eastern channel.',
@@ -174,6 +176,7 @@ async function exercise(mode) {
       },fixtures.book);
       assert.equal(await read(()=>TAUI.flush()),true);
       await generateAndRestore({read,click,edit,waitFor,until});
+      await syncFixture.exercise({read,click,waitFor,until});
     } else {
       const restored=await read(({card,book})=>({
         description:TAUI.state.lib.characters.find(item=>item.name===card)?.description,
@@ -185,6 +188,7 @@ async function exercise(mode) {
         return [first.querySelector('h3').textContent,first.querySelector('[data-collection-pin]').getAttribute('aria-pressed')];
       }),[fixtures.book,'true']);
       await verifyWorkDestinations({read,click,waitFor,until});
+      await syncFixture.reopen({read,click,waitFor,until});
       const damaged='{"profiles":';
       await read(async raw=>{
         localStorage.setItem('nijan-model',raw);
@@ -273,11 +277,23 @@ try {
     await security('list-keychains','-d','user','-s',qaKeychain);
     await security('default-keychain','-d','user','-s',qaKeychain);
   }
+  const stOption=process.argv.indexOf('--st-source');
+  if(stOption>=0){
+    if(!process.argv[stOption+1])throw Error('Provide a SillyTavern checkout with installed dependencies after --st-source.');
+    testTavern=await startTestTavern(process.argv[stOption+1],scratch);
+  }
+  syncFixture=await worldSyncFixture({scratch,profile,web,tavern:testTavern});
   await exercise('edit');
+  const browserTools={chrome,scratch,debugPort,client,until};
+  if(testTavern)await verifyTavernEditor(testTavern,syncFixture.combined,browserTools);
   await exercise('reopen');
+  if(testTavern && !web)await verifyTavernEditor(testTavern,syncFixture.other,browserTools);
+  console.log('Verified world-book sync, independent field changes, unknown metadata and restart'+(web?' with browser reimport.':' with byte-for-byte file restoration.'));
+  if(testTavern)console.log('Verified against the isolated SillyTavern World Info edit and get endpoints.');
   console.log('Passed '+(web?'web ZIP':'desktop package')+' startup, editing, protected model settings, single-work restore, partial generation, and opening the correct saved work after restart on '+process.platform+'/'+process.arch+'.');
   if(nativeMacKeychain)console.log('Used a dedicated, unlocked system Keychain on the hosted macOS runner.');
 } finally {
+  if(testTavern)await testTavern.close();
   if(webServer?.listening){webServer.closeAllConnections();await new Promise(resolve=>webServer.close(resolve));}
   if(oldKeychains){
     try {

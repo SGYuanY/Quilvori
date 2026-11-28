@@ -271,6 +271,7 @@
       input.accept = accept || '';
       input.multiple = !!multiple;
       input.onchange = () => resolve(multiple ? [...(input.files || [])] : (input.files && input.files[0]) || null);
+      input.oncancel = () => resolve(multiple ? [] : null);
       input.click();
     });
   }
@@ -352,6 +353,7 @@
     editVersion++;
     state.save = 'dirty';
     paintSave();
+    if(field==='worldBooks')root.dispatchEvent(new CustomEvent('quilvori-world-edited',{detail:id}));
     clearTimeout(state.timer);
     state.timer = setTimeout(flush, 320);
   }
@@ -391,12 +393,12 @@
       const scopes=options.scopes && !dirtyWholeLibrary && (prior==='saved' || dirtyScopes.size) ?
         [...dirtyScopes.values(),...options.scopes] : undefined;
       const transfer=options.transfer;
-      if((transfer || options.importSnapshots?.length) && !root.TALibraryDB?.database())throw new Error('完整工作状态需要 IndexedDB');
+      if((transfer || options.importSnapshots?.length || options.worldSync?.id!=null) && !root.TALibraryDB?.database())throw new Error('完整工作状态需要 IndexedDB');
       if(transfer && (root.NIJANStudio?.running() || root.TATaskActivity?.pending() || root.NIJANOrganizePanel?.running())) {
         throw new Error('请先结束正在运行的任务，再恢复工作状态。');
       }
       const imports=options.importSnapshots?.length ? root.TAHistory.importedRows(candidate,options.importSnapshots) : undefined;
-      const warning = clearVersions ? await TAStore.erase(candidate,guard) : await TAStore.save(candidate,guard,snapshots,draft,scopes,options.restore,transfer,imports);
+      const warning = clearVersions ? await TAStore.erase(candidate,guard) : await TAStore.save(candidate,guard,snapshots,draft,scopes,options.restore,transfer,imports,options.worldSync);
       if (version !== editVersion) throw new Error('资料库已变化，请重新打开。');
       state.lib = candidate; state.save = 'saved';
       resetDirty();

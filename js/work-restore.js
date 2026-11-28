@@ -253,6 +253,7 @@
             candidate[plan.kind].push(work);
         const importSnapshots = plan.versions.flatMap((v, i) => choices.snapshots.has(i) ? [{
                 entity: JSON.stringify([plan.kind, id]), kind: plan.kind, id, time: v.time, reason: v.reason, label: v.label,
+                ...(v.operationChanges ? { operationChanges: copy(v.operationChanges) } : {}),
                 value: workRow(v.value, plan.kind, id, identity),
             }] : []);
         return { candidate, work, importSnapshots, previous: replacing ? current : null, changed: !replacing || !equal(current, work) };

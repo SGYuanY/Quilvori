@@ -62,3 +62,32 @@
 .work-restore-choices img { width: 2.25rem; height: 2.25rem; object-fit: cover; border-radius: .3rem; }
 .work-restore-result { padding: .6rem .8rem; border-inline-start: 3px solid var(--accent); margin-block: .5rem; }
 .work-restore [hidden] { display: none; }
+
+.world-sync-toolbar {
+  grid-column: 1 / -1;
+  display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap;
+  gap: .5rem 1rem; min-width: 0; padding: .65rem .85rem;
+  border-inline-start: 3px solid var(--brass);
+  border-radius: 6px; background: var(--paper-2); color: var(--ink);
+}
+.world-sync-toolbar > div { min-width: 0; }
+.world-sync-toolbar p { margin: .15rem 0 0; color: var(--muted); font-size: .84em; overflow-wrap: anywhere; }
+.world-sync-toolbar .row { flex-wrap: wrap; }
+.world-sync-toolbar button { white-space: normal; }
+.world-sync-review { display: grid; gap: .7rem; }
+.world-sync-review > p { margin: 0; }
+.world-sync-pair { font-weight: 600; overflow-wrap: anywhere; }
+.world-sync-rows { display: grid; gap: .5rem; min-width: 0; }
+.world-sync-row { display: grid; grid-template-columns: minmax(0,1fr) minmax(7rem,12rem); align-items: start; gap: .65rem;
+  padding: .65rem .8rem; border: 1px solid var(--line); background: var(--paper-2); border-radius: 8px; }
+.world-sync-row:has(details[open]) { grid-template-columns: minmax(0,1fr); }
+.world-sync-row[data-sync-kind="conflict"] { border-inline-start: 3px solid var(--warning,var(--brass)); }
+.world-sync-kind { color: var(--muted); }
+.world-sync-row summary { cursor: pointer; overflow-wrap: anywhere; }
+.world-sync-versions { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: .6rem; padding-block-start: .65rem; }
+.world-sync-versions strong { font-size: .8em; color: var(--ink-soft); }
+.world-sync-versions pre { margin: .25rem 0; font: inherit; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 24vh; overflow: auto; }
+@media (max-width: 650px) {
+  .world-sync-row,.world-sync-versions { grid-template-columns: minmax(0,1fr); }
+  .world-sync-toolbar { align-items: start; }
+}

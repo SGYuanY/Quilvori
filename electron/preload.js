@@ -1,5 +1,13 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
+async function worldRequest(channel,...args) {
+  const result=await ipcRenderer.invoke('world-sync:'+channel,...args);
+  if (result.ok) return result.value;
+  // contextBridge copies only the standard fields of Error. A plain rejection
+  // carries the stable code and message across both isolation boundaries.
+  throw {name:'WorldSyncError',code:result.code,message:result.code};
+}
+
 contextBridge.exposeInMainWorld('nijanDesktop', {
   sealModelKey: (id,key) => ipcRenderer.invoke('model-key:seal',id,key),
   openModelKey: (id,blob) => ipcRenderer.invoke('model-key:open',id,blob),
@@ -11,6 +19,10 @@ contextBridge.exposeInMainWorld('nijanDesktop', {
   cancelLink: (id) => ipcRenderer.invoke('links:cancel', id),
   writeExpressions: (payload) => ipcRenderer.invoke('folders:writeExpressions', payload),
   installBundle: (files) => ipcRenderer.invoke('bundles:install', files),
+  worldSyncPick: () => worldRequest('pick'),
+  worldSyncRead: target => worldRequest('read',target),
+  worldSyncWrite: (target,hash,document,operationId) => worldRequest('write',target,hash,document,operationId),
+  worldSyncRestore: (target,hash,operationId) => worldRequest('restore',target,hash,operationId),
   themePick: () => ipcRenderer.invoke('themes:pick'),
   themeInspect: target => ipcRenderer.invoke('themes:inspect',target),
   themeRead: (target,name) => ipcRenderer.invoke('themes:read',target,name),

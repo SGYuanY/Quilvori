@@ -125,7 +125,11 @@ function mainEnvironment(options = {}) {
     },
     ipcMain: { handle: (channel, handler) => handlers.set(channel, handler) },
     dialog: {
-      showOpenDialog: async () => { calls.push('pick'); return { canceled: false, filePaths: [configured.cards] }; },
+      showOpenDialog: async (owner,picker) => {
+        calls.push('pick');
+        if (options.worldPick) return options.worldPick(owner,picker);
+        return {canceled:false,filePaths:[configured.cards]};
+      },
       showMessageBox: async (win,prompt) => {
         assert.equal(win,windows[0]);assert.equal(prompt.defaultId,0);assert.equal(prompt.cancelId,0);
         assert.ok(prompt.detail.includes('happy.png'));calls.push('confirm-overwrite');
@@ -141,6 +145,10 @@ function mainEnvironment(options = {}) {
     if (name === './profile') return { preserveLegacyProfile: app => mainRequire(name).preserveLegacyProfile(app, fakeFs) };
     if (name === './remote-import') return { downloadRemote: async () => { calls.push('download'); return { bytes: new Uint8Array([1]), url: 'https://example.com/file.json' }; } };
     if (name === './navigation') return policy;
+    if (name === './world-sync' && options.worldService) return {
+      createWorldSync:()=>options.worldService,
+      publicError:mainRequire(name).publicError,
+    };
     if (name === './expression-export') return {
       overwriteOptions: mainRequire(name).overwriteOptions,
       exportExpressions: async (payload,_io,{confirm,allowed})=>{
@@ -167,6 +175,7 @@ await test('every registered privileged IPC rejects remote and subframe callers 
     'model-key:seal','model-key:open',
     'folders:get','folders:pick','folders:list','folders:read','folders:writeExpressions','bundles:install',
     'links:download','links:cancel','themes:pick','themes:inspect','themes:read','themes:activate','themes:install','themes:sample',
+    'world-sync:pick','world-sync:read','world-sync:write','world-sync:restore',
   ].sort());
   for (const kind of ['remote', 'iframe', 'unknown-local']) {
     const web = contents(kind === 'remote' ? 'https://example.com' : kind === 'unknown-local' ? local('unknown.html') : local('index.html'));
@@ -178,6 +187,33 @@ await test('every registered privileged IPC rejects remote and subframe callers 
       assert.equal(env.calls.length, before, channel);
     }
   }
+});
+
+await test('world sync binds only the native picker selection and exposes stable errors without file paths',async()=>{
+  const selected=path.join(appRoot,'test-worlds','Chosen.json'),grant='confirmed-file';
+  let cancel=false,navigate=false;
+  const operations=[];
+  const env=mainEnvironment({worldPick:async(owner,picker)=>{
+    assert.equal(owner,env.windows[0]);assert.deepEqual(native(picker.properties),['openFile']);
+    assert.deepEqual(native(picker.filters[0].extensions),['json']);assert.equal(picker.defaultPath,env.configured.worlds);
+    if(navigate)owner.webContents.mainFrame.url='https://example.com';
+    return {canceled:cancel,filePaths:cancel?[]:[selected]};
+  },worldService:{
+    bind:async file=>{operations.push(['pick',file]);return {target:grant};},
+    read:async target=>{operations.push(['read',target]);throw Object.assign(new Error(selected),{code:'ENOENT'});},
+    write:async(...args)=>{operations.push(['write',...args]);return {target:grant};},
+    restore:async(...args)=>{operations.push(['restore',...args]);return {target:grant};},
+  }});
+  const sender=env.windows[0].webContents,event={sender,senderFrame:sender.mainFrame};
+  const call=(channel,...args)=>env.handlers.get('world-sync:'+channel)(event,...args);
+  assert.deepEqual(native(await call('pick','unselected.json')),{ok:true,value:{target:grant}});
+  const document={entries:{}};
+  await call('write',grant,'reviewed',document,'op1');await call('restore',grant,'written','op2');
+  assert.deepEqual(native(await call('read',grant)),{ok:false,code:'world-sync-io'});
+  cancel=true;assert.deepEqual(native(await call('pick')),{ok:true,value:null});
+  cancel=false;navigate=true;assert.deepEqual(native(await call('pick')),{ok:false,code:'world-sync-unsafe'});
+  const other=contents();assert.deepEqual(native(await env.handlers.get('world-sync:read')({sender:other,senderFrame:other.mainFrame},grant)),{ok:false,code:'world-sync-unsafe'});
+  assert.deepEqual(operations,[['pick',selected],['write',grant,'reviewed',document,'op1'],['restore',grant,'written','op2'],['read',grant]]);
 });
 
 await test('trusted main-frame folder workflows and bounded link downloads keep their existing behavior', async () => {
