@@ -162,7 +162,7 @@
         }else if(visible())await refresh();
       }catch(error){
         if(visible()){await refresh();if(visible())status.textContent=describeError(error);}
-        ui().toast(describeError(error),{kind:'error'});
+        if(!visible() || !adapter.recover?.(error))ui().toast(describeError(error),{kind:'error'});
       }finally{busy=false;if(visible())controls();}
     }
     check.onclick=()=>act(async()=>{

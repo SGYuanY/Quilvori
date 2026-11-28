@@ -141,7 +141,7 @@ async function exercise(mode) {
       return items.find(item=>item.type==='page' && (web ? item.url===webUrl : /^file:/.test(item.url) && /[/\\]app\.asar[/\\]index\.html$/.test(decodeURI(item.url))));
     },'the shipped main entry point',75000);
     page=await client(target.webSocketDebuggerUrl);
-    if(web)await page.send('Browser.setDownloadBehavior',{behavior:'allow',downloadPath:downloads});
+    await page.send('Browser.setDownloadBehavior',{behavior:'allow',downloadPath:downloads});
     const read=page.evaluate;
     await until(()=>read(()=>!!window.TAUI?.state.lib && !!document.querySelector('.collection-home')),'the collection');
     assert.equal(await read(()=>TAStore.backend),'indexedDB');
@@ -258,8 +258,8 @@ function keychainPaths(text) {
   return text.trim().split(/\r?\n/).filter(Boolean).map(line=>JSON.parse(line.trim()));
 }
 try {
+  await mkdir(downloads);
   if(web) {
-    await mkdir(downloads);
     // Serve only the exact files from the finished ZIP, so missing dependencies fail this test.
     const contents=unzipSync(new Uint8Array(await readFile(artifact)));
     const types={'.html':'text/html','.js':'text/javascript','.css':'text/css','.svg':'image/svg+xml','.png':'image/png','.webp':'image/webp','.woff2':'font/woff2'};

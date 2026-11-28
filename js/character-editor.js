@@ -29,15 +29,6 @@
     } catch (error) { UI.toast(UI.t(error.message),{kind:'error'}); }
   }
 
-  function loadImage(src) {
-    return new Promise((resolve, reject) => {
-      const image = new Image();
-      image.onload = () => resolve(image);
-      image.onerror = () => reject(new Error('头像画不出来'));
-      image.src = src;
-    });
-  }
-
   function drawSeal(ctx, name) {
     ctx.fillStyle = '#1a120c';
     ctx.fillRect(0, 0, 512, 512);
@@ -56,32 +47,87 @@
   }
 
   async function makeCardPng(character, book) {
+    const text = JSON.stringify(F.characterToCard(character,book));
+    if (character.avatarAssetId != null && character.avatarAssetId !== '') {
+      const avatar = UI.assetById(character.avatarAssetId);
+      const {png} = await root.TAPortraitImage.read(avatar?.dataUrl || '');
+      return root.TAPng.embedChara(png,text);
+    }
     const canvas = document.createElement('canvas');
     canvas.width = 512;
     canvas.height = 512;
     const ctx = canvas.getContext('2d');
     drawSeal(ctx, character.name);
-    const avatar = UI.assetById(character.avatarAssetId);
-    if (avatar?.dataUrl?.startsWith('data:image/png;base64,')) {
-      const bytes = Uint8Array.from(atob(avatar.dataUrl.slice(22)),ch=>ch.charCodeAt(0));
-      return root.TAPng.embedChara(bytes,JSON.stringify(F.characterToCard(character,book)));
-    }
-    if (avatar) {
-      try {
-        const image = await loadImage(avatar.dataUrl);
-        const scale = Math.min(1, 2048 / Math.max(image.width,image.height));
-        canvas.width = Math.max(1,Math.round(image.width*scale)); canvas.height = Math.max(1,Math.round(image.height*scale));
-        ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
-      } catch (error) { /* 印章已经画好 */ }
-    }
     const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
     if (!blob) throw new Error('浏览器没有给出 PNG');
-    const png = root.TAPng.embedChara(new Uint8Array(await blob.arrayBuffer()), JSON.stringify(F.characterToCard(character, book)));
-    return png;
+    return root.TAPng.embedChara(new Uint8Array(await blob.arrayBuffer()),text);
   }
 
   async function exportCharacterPng(character, book) {
     UI.downloadBlob(`${UI.safeName(character.name)}.png`, new Blob([await makeCardPng(character,book)], { type: 'image/png' }));
+  }
+
+  async function exportCharacterJson(character,book,includeExpressions) {
+    const filename = UI.safeName(character.name)+'.json';
+    const pack = (UI.state.lib.stickerPacks || []).find(item => item.id === character.stickerPackId);
+    try {
+      const card = F.characterToCard(character,book);
+      if (pack?.stickers?.length) card.data.extensions.expression_folder = character.name+'/expressions';
+      UI.downloadJson(filename,card);
+    } catch (error) {
+      UI.toast(UI.t('export.cardFailed',{reason:UI.t(error.message)}),{kind:'error'});
+      return;
+    }
+    const requested = UI.t('export.cardRequested',{format:'JSON'}), message = requested+' '+UI.t(cardImportTip);
+    UI.toast(requested,{kind:'info'}); UI.showExport(filename,message);
+    if (pack && includeExpressions) await exportStickerFiles(pack,character.name,{filename,message});
+  }
+
+  function portraitRecovery(toolbar,character,bookOf) {
+    const exportButton = toolbar.querySelector('[data-act=png]');
+    const active = () => toolbar.isConnected && !exportButton.disabled && UI.state.sel.character === character.id;
+    let panel;
+    return error => {
+      if (error?.code !== 'card.localPortrait' || !active()) return false;
+      if (!panel?.isConnected) {
+        panel = document.createElement('section');
+        panel.className = 'card-portrait-recovery'; panel.tabIndex = -1;
+        panel.innerHTML = '<p role="alert">'+UI.esc(UI.t('card.localPortrait'))+'</p><div class="row">'+
+          '<button type="button" class="btn" data-portrait-replace>'+UI.esc(UI.t('card.reselectPortrait'))+'</button>'+
+          '<button type="button" class="btn" data-portrait-json>'+UI.esc(UI.t('card.saveText'))+'</button></div>';
+        toolbar.querySelector('.work-export-guide').before(panel);
+        panel.querySelector('[data-portrait-json]').onclick = () => {
+          const live = Store.byId(UI.state.lib.characters,character.id);
+          if (live && active()) return exportCharacterJson(live,bookOf(),false);
+        };
+        const replace = panel.querySelector('[data-portrait-replace]');
+        replace.onclick = async () => {
+          const previousId = character.avatarAssetId, oldImage = UI.assetById(previousId)?.dataUrl;
+          replace.disabled = true;
+          try {
+            const file = await UI.pickFile('image/*');
+            if (!file || !active()) return;
+            const {png} = await root.TAPortraitImage.read(file);
+            const asset = await root.TACardPortraits.makeAsset(Store.uid('asset'),file.name,png);
+            if (!active()) return;
+            const lib = UI.state.lib;
+            if (Store.byId(lib.characters,character.id) !== character || character.avatarAssetId !== previousId ||
+                UI.assetById(previousId)?.dataUrl !== oldImage) throw new Error('sync.staleWork');
+            const updated = {...character,avatarAssetId:asset.id,updatedAt:stamp()};
+            delete updated.folderAvatarPending;
+            await root.TAHistory.commitWorks({...lib,assets:[...lib.assets,asset],
+              characters:lib.characters.map(card => card === character ? updated : card)},[['characters',character]],
+              {reason:'更换头像前',recordChanges:true});
+            if (active()) UI.renderStage();
+            UI.toast(UI.t('card.portraitReplaced'),{kind:'success'});
+          } catch (err) {
+            if (active()) UI.toast(UI.t(err.code || err.message),{kind:'error'});
+          } finally {replace.disabled=false;}
+        };
+      }
+      panel.focus({preventScroll:true}); panel.scrollIntoView({block:'nearest'});
+      return true;
+    };
   }
 
   function characters(stage) {
@@ -165,35 +211,24 @@
     }
     stage.querySelector('[data-act="dup"]').onclick = () => duplicateCharacter(character);
     stage.querySelector('[data-act="del"]').onclick = () => root.TAIntegrityPanel.remove('characters',character,'这张卡会从本机库里拿走。已经导出的文件还在。');
-    root.TAHistoryPanel.mount(stage.querySelector('.toolbar'), 'characters', character);
-    if(!galleryOn)root.TACardSyncPanel.mount(stage.querySelector('.toolbar'),character);
-    const bookOf = () => Store.byId(lib.worldBooks,stage.querySelector('#attach-book').value);
-    root.TAStBundle.mount(stage, character, bookOf, makeCardPng);
+    const toolbar = stage.querySelector('.toolbar');
+    const bookOf = () => Store.byId(UI.state.lib.worldBooks,stage.querySelector('#attach-book').value);
+    const recoverPortrait = portraitRecovery(toolbar,character,bookOf);
+    root.TAHistoryPanel.mount(toolbar,'characters',character);
+    if(!galleryOn)root.TACardSyncPanel.mount(toolbar,character,recoverPortrait);
+    root.TAStBundle.mount(stage,character,bookOf,makeCardPng,recoverPortrait);
     const attached = character.embeddedBookId ?? character.source?.embeddedBookId;
     if (books.some(book=>book.id === attached)) stage.querySelector('#attach-book').value = attached;
     stage.querySelector('#attach-book').addEventListener('change', () => { character.embeddedBookId = bookOf()?.id ?? ''; UI.markDirty('characters',character.id); });
-    stage.querySelector('[data-act="json"]').onclick = async () => {
-      const filename = `${UI.safeName(character.name)}.json`;
-      const pack = (lib.stickerPacks || []).find((item) => item.id === character.stickerPackId);
-      try {
-        const card = F.characterToCard(character, bookOf());
-        if (pack?.stickers?.length) card.data.extensions.expression_folder = `${character.name}/expressions`;
-        UI.downloadJson(filename, card);
-      } catch (error) {
-        UI.toast(UI.t('export.cardFailed', {reason: UI.t(error.message)}), {kind:'error'});
-        return;
-      }
-      const requested = UI.t('export.cardRequested', {format:'JSON'});
-      const message = requested+' '+UI.t(cardImportTip);
-      UI.toast(requested, {kind:'info'});
-      UI.showExport(filename, message);
-      if (pack) await exportStickerFiles(pack, character.name, {filename, message});
-    };
+    stage.querySelector('[data-act="json"]').onclick = () => exportCharacterJson(character,bookOf(),true);
     stage.querySelector('[data-act="png"]').onclick = () => exportCharacterPng(character, bookOf()).then(() => {
       const message = UI.t('export.cardRequested', {format:'PNG'});
       UI.toast(message, {kind:'info'});
+      if(toolbar.isConnected) toolbar.querySelector('.card-portrait-recovery')?.remove();
       UI.showExport(`${UI.safeName(character.name)}.png`, message+' '+UI.t(cardImportTip));
-    }).catch(error => UI.toast(UI.t('export.cardFailed', {reason:UI.t(error.message)}), {kind:'error'}));
+    }).catch(error => {
+      if(!recoverPortrait(error)) UI.toast(UI.t('export.cardFailed',{reason:UI.t(error.message)}),{kind:'error'});
+    });
     if (galleryOn) {
       const prefs = UI.state.characterGallery ||= {query:'',page:0};
       const assetsById = new Map((lib.assets || []).map(asset=>[asset.id,asset]));
@@ -209,6 +244,7 @@
         const visible=items.some(item=>item.id===character.id);
         for(const control of targetControls)control.disabled=!visible;
         for(const panel of targetPanels)panel.hidden=!visible;
+        if(!visible)toolbar.querySelector('.card-portrait-recovery')?.remove();
         currentLabel.textContent=visible ? UI.t('当前角色')+' · '+root.TAIntegrityPanel.displayName(character) : UI.t('请在画廊中选择角色卡。');
         grid.innerHTML = items.map(item => {
           const avatar = assetsById.get(item.avatarAssetId), name = UI.esc(root.TAIntegrityPanel.displayName(item));
@@ -306,7 +342,10 @@
     if (!UI.state.openFold.char) UI.state.openFold.char = 'description';
     UI.mountFolds(body.querySelector('#char-form'), 'char');
     UI.bindFields(body, character, (key) => {
-      if (key === 'avatarAssetId') character.avatarAssetId = UI.assetById(character.avatarAssetId)?.id ?? null;
+      if (key === 'avatarAssetId') {
+        character.avatarAssetId = UI.assetById(character.avatarAssetId)?.id ?? null;
+        toolbar.querySelector('.card-portrait-recovery')?.remove();
+      }
       character.updatedAt = stamp();
       paintPreview();
       if (switcher && (key==='name' || key==='avatarAssetId')) root.TACollectionControls.currentCard(switcher,character);

@@ -40,9 +40,12 @@
     return new TextDecoder().decode(bytes);
   }
 
+  function hasSignature(bytes) {
+    return bytes.length >= SIG.length && SIG.every((byte,i) => bytes[i] === byte);
+  }
+
   function parseChunks(bytes) {
-    if (bytes.length < 8) throw new Error('不是 PNG');
-    for (let i = 0; i < 8; i += 1) if (bytes[i] !== SIG[i]) throw new Error('不是 PNG');
+    if (!hasSignature(bytes)) throw new Error('不是 PNG');
     const chunks = [];
     let offset = 8;
     while (offset + 12 <= bytes.length) {
@@ -270,6 +273,6 @@
     const bom = bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf ? '\uFEFF' : '';
     return new TextEncoder().encode(bom + leading + json + trailing);
   }
-  root.TAPng = {crc32,parseChunks,readChara,embedChara,utf8ToB64,b64ToUtf8,
+  root.TAPng = {crc32,hasSignature,parseChunks,readChara,embedChara,utf8ToB64,b64ToUtf8,
     cardVariants,writeCardVariants,portraitBytes,portraitFingerprint,readJsonBytes,writeJsonBytes};
 })(typeof globalThis !== 'undefined' ? globalThis : window);

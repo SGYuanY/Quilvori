@@ -324,6 +324,8 @@ Restart the desktop app or refresh the web page. Web-only users do not need `npm
 
 **A PNG will not import.** A normal image is not a card. It must contain valid character data; alternatively, use character JSON exported by SillyTavern.
 
+**The selected portrait cannot be read.** Choose **Choose another portrait** to replace the image on this card, or **Save card text as JSON** to keep the manuscript and embedded world book. PNG exports and bundles retain native PNG image data and convert readable JPEG and WebP portraits at their original dimensions, including transparency when present.
+
 **Connection or generation fails.** Check the base URL, key, model, and protocol. Choose Chat Completions for services that require it. Browser cross-origin access depends on the provider. If output is truncated or context is too large, reduce the selected scope and work in batches.
 
 **Settings reports damaged model connections.** In Settings, choose **Rebuild model connections** and confirm. Quilvori keeps the original settings on this device and opens a fresh connection for a new endpoint and API key. If the key store is locked, unlock it and choose **Retry** to use the existing connections.

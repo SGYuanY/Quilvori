@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {mkdir,readFile,writeFile} from 'node:fs/promises';
 import path from 'node:path';
 import {deflateSync} from 'node:zlib';
+import {unzipSync} from 'fflate';
 import nativeFiles from '../electron/card-sync.js';
 import '../js/png.js';
 
@@ -78,13 +79,84 @@ export async function cardSyncFixture({scratch,profile,web,tavern}) {
       for(const [i,chat] of chats.entries())assert.deepEqual(await tavern.readChat(filename,chat),transcripts[i]);
     }
   }
-  async function compare({read,click,waitFor},bytes) {
+  async function compare({read,click,waitFor,until},bytes,name=filename) {
+    await until(()=>read(()=>document.querySelector('[data-card-sync] [data-sync-open]')?.disabled===false),'character sync controls');
     if(web)await read((data,name)=>{
       const old=TAUI.pickFile;TAUI.pickFile=async()=>{
         TAUI.pickFile=old;return new File([Uint8Array.from(atob(data),c=>c.charCodeAt(0))],name,{type:'image/png'});
       };
-    },bytes.toString('base64'),filename);
+    },bytes.toString('base64'),name);
     await click('[data-card-sync] [data-sync-open]');await waitFor('[data-sync-review]');
+  }
+
+  async function verifyPortraitExports(ctx) {
+    const {read,click,download,until}=ctx;
+    const title='Quilvori portrait export';
+    const exportId=await read(async(id,title)=>{
+      const lib=TAUI.state.lib, template=TAStore.byId(lib.characters,id);
+      const canvas=document.createElement('canvas');canvas.width=2061;canvas.height=17;
+      const ctx=canvas.getContext('2d');ctx.fillStyle='#3266b7';ctx.fillRect(500,0,1561,17);
+      const webp=canvas.toDataURL('image/webp');
+      if(!webp.startsWith('data:image/webp;'))throw Error('WebP fixture encoder unavailable');
+      const avatar={id:TAStore.uid('asset'),kind:'avatar',name:'Synthetic portrait',mime:'image/png',
+        dataUrl:webp.replace('image/webp','image/png')};
+      const card={...template,id:TAStore.uid('ch'),name:title,avatarAssetId:avatar.id,system_prompt:'Play the guide.',
+        post_history_instructions:'Keep the scene quiet.',source:{author:{name:'Fixture artist'},postUrl:'https://example.org/original',license:{status:'personal'}}};
+      await TAUI.commitLibrary({...lib,characters:[card,...lib.characters],assets:[avatar,...lib.assets]});
+      TAUI.state.sel.character=card.id;TAUI.state.cardView='edit';TAUI.go('characters');
+      document.querySelector('#st-bundle').open=true;
+      return card.id;
+    },localId,title);
+    await click('[data-act=png]');
+    const ordinary=await download(title+'.png');
+    await click('#st-bundle [data-zip]');
+    const archive=unzipSync(await download(title+'.zip')),bundled=archive['characters/'+title+'.png'];
+    assert.ok(bundled);assert.deepEqual(TAPng.portraitBytes(ordinary),TAPng.portraitBytes(bundled));
+    for(const [edition,image] of [['single',ordinary],['bundle',bundled]]){
+      const header=Buffer.from(TAPng.parseChunks(image)[0].data);
+      assert.deepEqual([header.readUInt32BE(0),header.readUInt32BE(4)],[2061,17]);
+      let card=readCard(image);
+      if(tavern){
+        const installed=title+' '+edition+'.png';
+        await writeFile(path.join(tavern.cards,installed),image);
+        card=await tavern.readCard(installed);
+      }
+      assert.equal(card.data.name,title);assert.equal(card.data.creator,base.data.creator);
+      assert.equal(card.data.system_prompt,'Play the guide.');
+      assert.equal(card.data.post_history_instructions,'Keep the scene quiet.');
+      assert.equal(card.data.character_book.entries[0].content,base.data.character_book.entries[0].content);
+      assert.equal(card.data.extensions.quilvori_source.author.name,'Fixture artist');
+      assert.equal(card.data.extensions.quilvori_source.postUrl,'https://example.org/original');
+    }
+    const slot='Quilvori portrait selection.png',target=path.join(cards,slot);
+    const before=png(readCard(ordinary),originalCover);
+    await writeFile(target,before);
+    if(!web){
+      const picked=await nativeFiles.createCardSync(profile).bind(target);
+      await read((id,name,target)=>TAUI.commitLibrary(TAUI.state.lib,[],false,null,{scopes:[['meta']],fileBinding:{
+        kind:'characters',id,expected:null,next:{stamp:'picked',target,name},
+      }}),exportId,picked.name,picked.target);
+    }
+    await compare(ctx,before,slot);await click('[data-act=no]');
+    assert.deepEqual(await readFile(target),before);
+    await compare(ctx,before,slot);await click('[data-sync-all=local]');await click('[data-act=sync-apply]');
+    await until(()=>read(async id=>{const rec=await TALibraryDB.workBinding('characters',id);
+      return !!rec && !rec.pending && !!(rec.needsVerify || rec.lastWrite);},exportId),'confirmed portrait selection');
+    if(web)await writeFile(target,await download(slot));
+    assert.deepEqual(TAPng.portraitBytes(await readFile(target)),TAPng.portraitBytes(ordinary));
+    if(tavern)assert.equal((await tavern.readCard(slot)).data.post_history_instructions,'Keep the scene quiet.');
+    if(web){
+      await compare(ctx,await readFile(target),slot);await click('[data-act=sync-apply]');
+      await until(()=>read(async id=>(await TALibraryDB.workBinding('characters',id))?.needsVerify===false,exportId),'installed portrait verified');
+    }else{
+      await until(()=>read(()=>document.querySelector('[data-card-sync] [data-sync-undo]')?.hidden===false),'portrait restore available');
+      await click('[data-sync-undo]');await click('[data-act=undo-file]');
+      await until(()=>read(async id=>{const rec=await TALibraryDB.workBinding('characters',id);return rec && !rec.pending && !rec.lastWrite;},exportId),'portrait restored');
+      assert.deepEqual(await readFile(target),before);
+    }
+    await read(id=>{TAUI.state.sel.character=id;TAUI.go('characters');},localId);
+    console.log('Verified full-size PNG, ZIP and confirmed sync from a WebP portrait labelled PNG'+
+      (tavern?', including both instructions, embedded lore and author credit in SillyTavern.':'.'));
   }
   async function exercise(ctx) {
     const {read,click,edit,until}=ctx;
@@ -99,6 +171,7 @@ export async function cardSyncFixture({scratch,profile,web,tavern}) {
       TAUI.state.sel.character=card.id;TAUI.state.cardView='edit';TAUI.go('characters');
       return card.id;
     },original.toString('base64'),filename,grant && {target:grant.target,name:grant.name});
+    await verifyPortraitExports(ctx);
     await compare(ctx,original);await click('[data-act=sync-apply]');
     await until(()=>read(async id=>!!(await TALibraryDB.workBinding('characters',id))?.base,localId),'initial common character revision');
     await edit('[data-field="description"]',combined.data.description);

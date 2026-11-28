@@ -222,7 +222,7 @@
     'write-failed':'写入失败，请检查磁盘空间和权限', 'unsupported-filesystem':'该磁盘不支持安全安装，请下载 ZIP',
     'cleanup-failed':'清理未完成，请检查列出的路径',
   };
-  function mount(stage, character, bookOf, makeCardPng) {
+  function mount(stage, character, bookOf, makeCardPng, recoverPortrait) {
     const ui = root.TAUI, lib = ui.state.lib, t = ui.t, esc = ui.esc;
     const details = document.createElement('details');
     details.className = 'ws-assist-details'; details.id = 'st-bundle';
@@ -290,7 +290,7 @@
           ui.downloadBlob(filename,zip(files));
           status.textContent = t('已导出')+' '+filename;
         }
-      } catch (err) { status.textContent = message(err); }
+      } catch (err) { status.textContent = message(err); recoverPortrait?.(err); }
       finally {
         busy = false;
         for (const node of inputs) node.disabled = false;

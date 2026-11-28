@@ -640,6 +640,11 @@
   if(!root.TAI18n)return;
   const langs=['zh','en','ja','ru','ko','th'];
   const rows={
+    'card.localPortrait':['无法读取这张角色卡当前选用的头像。可以重选图片，或先保存卡文和内嵌世界书。','The selected portrait for this character cannot be read. Choose another image or save the card text and embedded book.','このキャラクターの画像を読み込めません。画像を選び直すか、カード本文と内蔵ブックを保存してください。','Не удалось прочитать портрет персонажа. Выберите другое изображение или сохраните текст карточки и встроенную книгу.','이 캐릭터의 초상화를 읽을 수 없습니다. 다른 이미지를 선택하거나 카드 본문과 내장된 책을 저장하세요.','อ่านภาพตัวละครที่เลือกไม่ได้ เลือกภาพใหม่หรือบันทึกข้อความในการ์ดพร้อมหนังสือที่ฝังไว้'],
+    'card.reselectPortrait':['重选头像','Choose another portrait','画像を選び直す','Выбрать другой портрет','초상화 다시 선택','เลือกภาพตัวละครใหม่'],
+    'card.saveText':['先导出卡文 JSON','Save card text as JSON','カード本文を JSON で保存','Сохранить текст в JSON','카드 본문을 JSON으로 저장','บันทึกข้อความการ์ดเป็น JSON'],
+    'card.portraitReplaced':['头像已更新，可以重新导出或核对角色卡。','Portrait updated. You can export or compare this card again.','画像を更新しました。カードを再度書き出すか、比較できます。','Портрет обновлён. Теперь можно снова экспортировать или сравнить карточку.','초상화를 갱신했습니다. 카드를 다시 내보내거나 비교할 수 있습니다.','เปลี่ยนภาพแล้ว คุณสามารถส่งออกหรือเปรียบเทียบการ์ดอีกครั้ง'],
+    '更换头像前':['更换头像前','Before replacing the portrait','画像の変更前','До замены портрета','초상화 교체 전','ก่อนเปลี่ยนภาพตัวละคร'],
     'card.syncTitle':['角色卡同步','Character card sync','キャラクターカード同期','Синхронизация карточки','캐릭터 카드 동기화','ซิงก์การ์ดตัวละคร'],
     'card.chooseFile':['选择已有 PNG 或 JSON','Choose an existing PNG or JSON','既存の PNG / JSON を選択','Выбрать существующий PNG или JSON','기존 PNG 또는 JSON 선택','เลือก PNG หรือ JSON ที่มีอยู่'],
     'card.firstHelp':['请核对角色名和文件名，再逐项选择要保留的版本。','Check the character name and filename. Choose a version for each difference.','キャラクター名とファイル名を確認し、差分ごとに残す版を選んでください。','Проверьте имя персонажа и файла. Выберите версию для каждого различия.','캐릭터 이름과 파일 이름을 확인하고 차이마다 보존할 버전을 고르세요.','ตรวจชื่อตัวละครและชื่อไฟล์ แล้วเลือกฉบับที่ต้องการเก็บในแต่ละรายการ'],
@@ -673,31 +678,8 @@
   const invalid=()=>Object.assign(new Error('card.image'),{code:'card.image'});
   const portraitKey='@portrait';
 
-  function assetBlob(asset) {
-    const match=/^data:(image\/[a-z0-9.+-]+);base64,([a-z0-9+/=\s]*)$/i.exec(asset?.dataUrl || '');
-    if(!match)throw invalid();
-    let bytes;
-    try {
-      if(typeof Uint8Array.fromBase64==='function')bytes=Uint8Array.fromBase64(match[2]);
-      else {
-        const raw=atob(match[2]);bytes=new Uint8Array(raw.length);
-        for(let i=0;i<raw.length;i++)bytes[i]=raw.charCodeAt(i);
-      }
-    }catch {throw invalid();}
-    return new Blob([bytes],{type:match[1].toLowerCase()});
-  }
   async function bitmap(blob) {
     try {return await createImageBitmap(blob);} catch {throw invalid();}
-  }
-  async function asPng(image) {
-    const canvas=document.createElement('canvas');
-    canvas.width=image.width;canvas.height=image.height;
-    const context=canvas.getContext('2d');
-    if(!context)throw invalid();
-    context.drawImage(image,0,0);
-    const png=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));
-    if(!png)throw invalid();
-    return new Uint8Array(await png.arrayBuffer());
   }
   function makeRow(kind,base,local,disk,allowedSides) {
     return {key:portraitKey,field:'portrait',kind,uid:null,label:'',
@@ -708,33 +690,29 @@
     const disk=await core().portraitFingerprint(decoded.bytes), asset=snapshot.asset;
     const result={disk,diskBlob:new Blob([core().portraitBytes(decoded.bytes)],{type:'image/png'}),
       local:null,localBlob:null,localBytes:null,preferDisk:false,row:null};
-    if(!asset?.dataUrl){
+    (await bitmap(result.diskBlob)).close();
+    if(snapshot.card.avatarAssetId==null || snapshot.card.avatarAssetId===''){
       result.preferDisk=true;
       result.row=makeRow('disk',baseArt,null,disk,['disk']);
       return result;
     }
-    const blob=assetBlob(asset);
-    result.localBlob=blob;
+    const local=await root.TAPortraitImage.read(asset?.dataUrl || '');
+    result.localBlob=new Blob([local.png],{type:'image/png'});
     let preview=asset.folderPortraitPreview===true;
-    const oldScan=record?.localArtId==null && snapshot.card.folderPortraitHash && blob.type==='image/jpeg';
-    if(!preview && blob.type!=='image/png') {
-      const image=await bitmap(blob);
-      try {
-        if(oldScan && image.width<=192 && image.height<=256){
-          if(snapshot.card.folderPortraitHash===disk){
-            const generated=await root.TAFolderImport.makeAvatar(decoded.bytes);
-            const payload=url=>url.slice(url.indexOf(',')+1).replace(/\s/g,'');
-            preview=payload(generated.dataUrl)===payload(asset.dataUrl);
-          }else result.unverifiedThumbnail=true;
-        }
-        if(!preview)result.localBytes=await asPng(image);
-      } finally {image.close();}
-    }else if(!preview)result.localBytes=core().portraitBytes(new Uint8Array(await blob.arrayBuffer()));
+    const oldScan=record?.localArtId==null && snapshot.card.folderPortraitHash && local.mime==='image/jpeg';
+    if(!preview && oldScan && local.width<=192 && local.height<=256){
+      if(snapshot.card.folderPortraitHash===disk){
+        const generated=await root.TAFolderImport.makeAvatar(decoded.bytes);
+        const payload=url=>url.slice(url.indexOf(',')+1).replace(/\s/g,'');
+        preview=payload(generated.dataUrl)===payload(asset.dataUrl);
+      }else result.unverifiedThumbnail=true;
+    }
     if(preview){
       result.preferDisk=true;result.thumbnail=true;
       result.row=makeRow('disk',baseArt,null,disk,['disk']);
       return result;
     }
+    result.localBytes=local.png;
     result.local=await core().portraitFingerprint(result.localBytes);
     if(result.unverifiedThumbnail){
       result.row=makeRow('conflict',baseArt,result.local,disk,['local','disk']);
@@ -1076,9 +1054,9 @@
     }
     return grid;
   }
-  root.TACardSyncPanel={mount(toolbar,card){
+  root.TACardSyncPanel={mount(toolbar,card,recoverPortrait){
     root.TAFileSyncPanel.mount(toolbar,card,{host:'data-card-sync',collection:'characters',selection:'character',
-      session:root.TACardSyncSession,title:'card.syncTitle',choose:'card.chooseFile',reader:'cardSyncRead',
+      session:root.TACardSyncSession,title:'card.syncTitle',choose:'card.chooseFile',reader:'cardSyncRead',recover:recoverPortrait,
       dirty:root.TACardSyncSession.dirty,prepare,rowTitle:title,rowView:portrait,webHelp:'card.webHelp',desktopHelp:'card.desktopHelp',
       unlinkHelp:'card.unlinkHelp',exported:'card.exported',cleanup:view=>view.imageUrls?.forEach(url=>URL.revokeObjectURL(url)),
       introduction(host,view){

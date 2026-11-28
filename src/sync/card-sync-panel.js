@@ -67,9 +67,9 @@
     }
     return grid;
   }
-  root.TACardSyncPanel={mount(toolbar,card){
+  root.TACardSyncPanel={mount(toolbar,card,recoverPortrait){
     root.TAFileSyncPanel.mount(toolbar,card,{host:'data-card-sync',collection:'characters',selection:'character',
-      session:root.TACardSyncSession,title:'card.syncTitle',choose:'card.chooseFile',reader:'cardSyncRead',
+      session:root.TACardSyncSession,title:'card.syncTitle',choose:'card.chooseFile',reader:'cardSyncRead',recover:recoverPortrait,
       dirty:root.TACardSyncSession.dirty,prepare,rowTitle:title,rowView:portrait,webHelp:'card.webHelp',desktopHelp:'card.desktopHelp',
       unlinkHelp:'card.unlinkHelp',exported:'card.exported',cleanup:view=>view.imageUrls?.forEach(url=>URL.revokeObjectURL(url)),
       introduction(host,view){

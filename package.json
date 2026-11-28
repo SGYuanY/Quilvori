@@ -1,7 +1,7 @@
 {
   "name": "quilvori",
   "private": true,
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Quilvori, a local character-card and world-book workshop for SillyTavern.",
   "main": "electron/main.js",
   "scripts": {

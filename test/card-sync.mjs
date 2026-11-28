@@ -274,7 +274,11 @@ test('only explicit portrait replacement swaps full-resolution image chunks, ret
 
 test('confirming a portrait replacement retains safe vendor chunks and does not offer the same change on recheck',async () => {
   const context = vm.createContext({structuredClone,Uint8Array,ArrayBuffer,TextEncoder,TextDecoder,crypto:globalThis.crypto,
-    atob,btoa,URL,Blob});
+    atob,btoa,URL,Blob,createImageBitmap:async blob=>{
+      const bytes=Buffer.from(await blob.arrayBuffer());
+      assert.ok(png.hasSignature(bytes));
+      return {width:bytes.readUInt32BE(16),height:bytes.readUInt32BE(20),close(){}};
+    }});
   for (const script of ['resource-source','store','png','formats','world-sync','card-sync'])
     vm.runInContext(readFileSync(new URL('../js/'+script+'.js',import.meta.url),'utf8'),context);
   const raw = v2(), extra = chunk('vpAg',Buffer.from('archive provenance'));
