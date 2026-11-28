@@ -20,7 +20,7 @@ suite('window-edits',async({win,run,open,wait})=>{
   const navigate=id=>TAUI.openAddress('characters.html#'+id);
   const type=async value=>{
     const el=document.querySelector('#char-form [data-field=description]');el.focus();el.value=value;
-    el.setSelectionRange(2,4);
+    el.setSelectionRange(2,4,'backward');
     el.dispatchEvent(new Event('input',{bubbles:true}));return await TAUI.flush();
   };
   const summaries=()=>TAUI.state.lib.characters.map(c=>c.description);
@@ -47,9 +47,20 @@ suite('window-edits',async({win,run,open,wait})=>{
     await other.loadFile(path.join(__dirname,'..','index.html'));await ready();
     await run(navigate,'a');await b(navigate,0);
     assert.equal(await run(type,'First tab on A'),true);
+    // Chromium can clear focus while a slow IndexedDB transaction holds the editor inert.
+    await b(()=>{
+      const write=TALibraryDB.applyReviewedEdits;
+      TALibraryDB.applyReviewedEdits=(...args)=>{
+        TALibraryDB.applyReviewedEdits=write;
+        if(!document.getElementById('app').inert)throw Error('Expected a locked editor while replaying');
+        document.activeElement?.blur();
+        return write(...args);
+      };
+    });
     assert.equal(await b(type,'Second tab on B'),true);
     assert.deepEqual(await b(summaries),['First tab on A','Second tab on B']);
-    assert.deepEqual(await b(()=>[document.activeElement.dataset.field,document.activeElement.selectionStart,document.activeElement.selectionEnd]),['description',2,4]);
+    assert.deepEqual(await b(()=>{const el=document.activeElement;return [el.dataset.field,el.selectionStart,el.selectionEnd,el.selectionDirection];}),
+      ['description',2,4,'backward']);
     await reloadA();assert.deepEqual(await run(summaries),['First tab on A','Second tab on B']);
     await run(navigate,0);await b(navigate,0);
     assert.equal(await run(type,'A changed B'),true);

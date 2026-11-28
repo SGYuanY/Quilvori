@@ -412,23 +412,28 @@
 
   // A replacement can invalidate every mounted record. Keep the active text
   // field and caret when the same editor is still visible after refreshing.
-  function refreshBoundStage() {
+  function stagePosition() {
     const stage=document.getElementById('stage'), field=document.activeElement;
     const scroll=stage.scrollTop;
-    let selector='', start=null, end=null;
+    let selector='', start=null, end=null, direction=null;
     if(stage.contains(field) && field.matches('input,textarea')){
       const attr=['data-field','data-book-field','data-k'].find(name=>field.hasAttribute(name));
       const parent=field.parentElement?.closest('[data-id],[id]');
       const anchor=parent?.id ? '#'+CSS.escape(parent.id) :
         parent?.hasAttribute('data-id') ? '[data-id="'+CSS.escape(parent.dataset.id)+'"]' : '';
       selector=field.id ? '#'+CSS.escape(field.id) : attr ? (anchor?anchor+' ':'')+'['+attr+'="'+CSS.escape(field.getAttribute(attr))+'"]' : '';
-      start=field.selectionStart;end=field.selectionEnd;
+      start=field.selectionStart;end=field.selectionEnd;direction=field.selectionDirection;
     }
+    return {view:boundWork,selector,start,end,direction,scroll};
+  }
+  function refreshBoundStage(position) {
+    const stage=document.getElementById('stage');
+    const {selector,start,end,direction,scroll}=position && position.view===boundWork ? position : stagePosition();
     renderStage();
     const fields=selector?stage.querySelectorAll(selector):[];
     if(fields.length===1){
       fields[0].focus({preventScroll:true});
-      if(start!=null && fields[0].selectionStart!=null)fields[0].setSelectionRange(start,end);
+      if(start!=null && fields[0].selectionStart!=null)fields[0].setSelectionRange(start,end,direction);
     }
     stage.scrollTop=scroll;
   }
@@ -454,6 +459,8 @@
       }
       if(version!==editVersion || replacing)throw new Error('资料库已变化，请重新打开。');
       const app=document.getElementById('app'), wasInert=app.inert;
+      // Chromium may blur the text field as soon as the busy editor becomes inert.
+      const position=stagePosition();
       replacing=true;app.inert=true;
       try {
         state.lib=await db.applyReviewedEdits(review,selected,()=>version===editVersion,state.replyReference);
@@ -465,7 +472,7 @@
           clearTimeout(state.timer);state.timer=setTimeout(flush,0);
         }
       }
-      refreshBoundStage();
+      refreshBoundStage(position);
       return true;
     }catch(error){
       if(interactive)toast(root.TAI18n.t(error.message),{kind:'error'});

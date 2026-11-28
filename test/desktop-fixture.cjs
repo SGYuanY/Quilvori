@@ -19,16 +19,27 @@ module.exports = function suite(name, exercise) {
       session:isolated, contextIsolation:true, nodeIntegration:false, backgroundThrottling:false,
     }});
     const run = (fn, ...args) => win.webContents.executeJavaScript('(' + fn.toString() + ')(...' + JSON.stringify(args) + ')', true);
-    async function wait(fn, description, ...args) {
-      for (let i = 0; i < 150; i++) {
-        if (await run(fn, ...args)) return;
+    async function poll(check, description, attempts=150) {
+      for (let i = 0; i < attempts; i++) {
+        if (await check()) return;
         await delay(35);
       }
       throw Error('Timed out waiting for ' + description);
     }
+    const wait = (fn,description,...args) => poll(() => run(fn,...args),description);
     async function open(page) {
       await win.loadFile(path.join(__dirname, '..', page + '.html'));
-      await wait(() => !!window.TAUI?.state.lib && !!document.querySelector('#stage > *'), 'page ' + page);
+      // The first IndexedDB open on a hosted desktop can outlast a normal UI interaction.
+      // A recovery screen is a startup failure here. Surface its reason immediately.
+      await poll(async () => {
+        const state=await run(() => ({
+          ready:!!window.TAUI?.state.lib && !!document.querySelector('#stage > *'),
+          recovery:document.querySelector('#app > .recovery h1')?.textContent,
+          reason:document.querySelector('#app > .recovery [role="alert"]')?.textContent,
+        }));
+        if (state.recovery) throw Error('Opening '+page+' entered recovery: '+[state.recovery,state.reason].filter(Boolean).join(' — '));
+        return state.ready;
+      }, 'page ' + page, 800);
     }
     const click = selector => run(s => {
       const el = document.querySelector(s);
